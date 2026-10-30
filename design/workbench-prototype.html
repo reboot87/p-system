@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>AireRecord 工作台 · 原型图 v1</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background:#E8ECF1; font-family:"Segoe UI","Microsoft YaHei",sans-serif;
+    display:flex; flex-direction:column; align-items:center; padding:36px 20px 60px;
+    color:#1F2329;
+  }
+  .page-title { font-size:20px; font-weight:600; margin-bottom:6px; }
+  .page-sub { font-size:13px; color:#646A73; margin-bottom:24px; }
+
+  /* ========== 应用窗口外框 1280 x 820 ========== */
+  .window {
+    width:1280px; height:820px; background:#F5F6F8;
+    border-radius:10px; overflow:hidden;
+    box-shadow:0 24px 60px rgba(15,23,42,.25), 0 2px 8px rgba(15,23,42,.12);
+    display:flex; flex-direction:column;
+    border:1px solid #D8DCE3;
+  }
+
+  /* ---- 标题栏 44px ---- */
+  .titlebar {
+    height:44px; background:#FFFFFF; border-bottom:1px solid #E5E8ED;
+    display:flex; align-items:center; padding:0 4px 0 14px; flex:none;
+  }
+  .brand { display:flex; align-items:center; gap:9px; }
+  .brand .logo {
+    width:26px; height:26px; border-radius:7px;
+    background:linear-gradient(135deg,#1677FF,#4096FF);
+    display:flex; align-items:center; justify-content:center;
+    color:#fff; font-size:14px; font-weight:700;
+  }
+  .brand .name { font-size:13.5px; font-weight:600; letter-spacing:.2px; }
+  .brand .divider { width:1px; height:16px; background:#E5E8ED; margin:0 4px; }
+  .brand .mode { font-size:12px; color:#8F959E; }
+  .titlebar .space { flex:1; }
+  .svc-pill {
+    display:flex; align-items:center; gap:6px; font-size:12px; color:#389E0D;
+    background:#F6FFED; border:1px solid #B7EB8F; border-radius:99px;
+    padding:3px 10px; margin-right:12px;
+  }
+  .svc-pill .dot { width:7px; height:7px; border-radius:50%; background:#52C41A; }
+  .capbtns { display:flex; height:100%; }
+  .capbtn {
+    width:44px; display:flex; align-items:center; justify-content:center;
+    color:#4E5969; font-size:11px;
+  }
+  .capbtn.close:hover { background:#E81123; color:#fff; }
+  .capbtn:hover { background:#F2F3F5; }
+
+  /* ---- 主体三栏 ---- */
+  .body { flex:1; display:flex; min-height:0; }
+
+  /* 左侧导航 208px */
+  .sidebar {
+    width:208px; flex:none; background:#FBFCFD; border-right:1px solid #E9ECF1;
+    display:flex; flex-direction:column; padding:14px 10px 10px;
+  }
+  .side-label { font-size:11px; color:#8F959E; font-weight:600; letter-spacing:.6px; padding:4px 10px 8px; }
+  .nav-item {
+    display:flex; align-items:center; gap:10px; padding:8px 10px;
+    border-radius:8px; font-size:13.5px; color:#33383F; margin-bottom:2px;
+    cursor:default; position:relative;
+  }
+  .nav-item .ic { width:20px; text-align:center; font-size:14px; color:#5A6270; }
+  .nav-item .cnt {
+    margin-left:auto; font-size:11px; color:#8F959E;
+    background:#EFF1F4; border-radius:99px; padding:1px 8px;
+  }
+  .nav-item.active { background:#E8F1FF; color:#1668DC; font-weight:600; }
+  .nav-item.active .ic { color:#1677FF; }
+  .nav-item.active .cnt { background:#D6E6FF; color:#1668DC; }
+  .nav-item:not(.active):hover { background:#F2F4F7; }
+
+  .side-foot { margin-top:auto; }
+  .stat-card {
+    background:#FFFFFF; border:1px solid #E9ECF1; border-radius:10px;
+    padding:12px; font-size:12px; color:#646A73;
+  }
+  .stat-card .row { display:flex; justify-content:space-between; padding:3px 0; }
+  .stat-card .row b { color:#1F2329; font-weight:600; }
+  .stat-card .cap { font-size:11px; color:#8F959E; margin-bottom:6px; font-weight:600; }
+  .bar { height:5px; border-radius:99px; background:#EFF1F4; margin-top:8px; overflow:hidden; }
+  .bar i { display:block; height:100%; width:12%; background:linear-gradient(90deg,#1677FF,#69B1FF); border-radius:99px; }
+  .ver { text-align:center; font-size:11px; color:#A9AEB8; margin-top:10px; }
+
+  /* 中间列表列 */
+  .main { flex:1; min-width:0; display:flex; flex-direction:column; padding:14px 14px 10px; }
+
+  .toolbar { display:flex; align-items:center; gap:10px; margin-bottom:12px; flex:none; }
+  .search {
+    flex:1; max-width:420px; height:36px; background:#FFFFFF; border:1px solid #E0E4EA;
+    border-radius:8px; display:flex; align-items:center; gap:8px; padding:0 12px;
+    color:#A9AEB8; font-size:13px;
+  }
+  .search .kbd {
+    margin-left:auto; font-size:11px; color:#8F959E; background:#F2F3F5;
+    border:1px solid #E5E8ED; border-radius:5px; padding:1px 6px;
+  }
+  .chips { display:flex; gap:6px; }
+  .chip {
+    height:28px; padding:0 12px; border-radius:99px; font-size:12.5px;
+    display:flex; align-items:center; color:#4E5969;
+    background:#FFFFFF; border:1px solid #E0E4EA;
+  }
+  .chip.on { background:#1677FF; border-color:#1677FF; color:#fff; font-weight:600; }
+  .btn-primary {
+    margin-left:auto; height:34px; padding:0 14px; border-radius:8px;
+    background:#1677FF; color:#fff; font-size:13px; font-weight:600;
+    display:flex; align-items:center; gap:6px;
+    box-shadow:0 2px 6px rgba(22,119,255,.3);
+  }
+
+  /* 时间分组 */
+  .group-head {
+    font-size:12px; color:#8F959E; font-weight:600; padding:8px 4px 6px; flex:none;
+    display:flex; align-items:center; gap:8px;
+  }
+  .group-head::after { content:""; flex:1; height:1px; background:#E9ECF1; }
+
+  .entry-list { flex:1; overflow:hidden; }
+  .card {
+    background:#FFFFFF; border:1px solid #E9ECF1; border-radius:10px;
+    padding:11px 14px; margin-bottom:8px; display:flex; gap:12px; align-items:flex-start;
+    position:relative;
+  }
+  .card.sel { border-color:#1677FF; box-shadow:0 0 0 2px rgba(22,119,255,.12); }
+  .card:hover { border-color:#C6D4EC; box-shadow:0 2px 8px rgba(15,23,42,.06); }
+  .type-ic {
+    width:34px; height:34px; border-radius:8px; flex:none;
+    display:flex; align-items:center; justify-content:center; font-size:15px;
+  }
+  .t-text { background:#E8F1FF; color:#1677FF; }
+  .t-link { background:#FFF3E0; color:#E8890C; }
+  .t-file { background:#E6F4F1; color:#0FA37F; }
+  .t-manual { background:#F3EEFF; color:#7B61FF; }
+  .card .mid { flex:1; min-width:0; }
+  .card .line1 { font-size:13.5px; color:#1F2329; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .card .line1 .tag {
+    display:inline-block; font-size:11px; color:#D48806; background:#FFFBE6;
+    border:1px solid #FFE58F; border-radius:4px; padding:0 6px; margin-left:8px;
+    vertical-align:1px;
+  }
+  .card .line2 { display:flex; align-items:center; gap:10px; margin-top:6px; font-size:12px; color:#8F959E; }
+  .card .line2 .src { display:flex; align-items:center; gap:4px; }
+  .card .line2 .dot2 { width:3px; height:3px; border-radius:50%; background:#C9CDD4; }
+  .card .ops {
+    display:flex; gap:4px; opacity:0; transition:opacity .12s;
+  }
+  .card:hover .ops { opacity:1; }
+  .op {
+    width:28px; height:28px; border-radius:6px; display:flex; align-items:center;
+    justify-content:center; color:#5A6270; font-size:13px; background:#F2F3F5;
+  }
+  .op:hover { background:#E8F1FF; color:#1677FF; }
+  .op.danger:hover { background:#FFF1F0; color:#E5484D; }
+
+  /* 右侧详情面板 300px */
+  .detail {
+    width:300px; flex:none; background:#FFFFFF; border-left:1px solid #E9ECF1;
+    padding:16px 16px 12px; display:flex; flex-direction:column;
+  }
+  .detail .d-cap { font-size:12px; color:#8F959E; font-weight:600; letter-spacing:.4px; margin-bottom:12px; }
+  .detail .d-type {
+    display:inline-flex; align-items:center; gap:6px; font-size:12px; color:#1677FF;
+    background:#E8F1FF; border-radius:6px; padding:3px 9px; margin-bottom:12px; width:fit-content;
+  }
+  .detail .d-content {
+    background:#F7F8FA; border:1px solid #E9ECF1; border-radius:10px;
+    padding:12px; font-size:12.5px; line-height:1.7; color:#33383F;
+    max-height:170px; overflow:hidden;
+  }
+  .d-sec { font-size:12px; color:#8F959E; margin:14px 0 6px; font-weight:600; }
+  .d-meta { font-size:12px; color:#4E5969; display:grid; grid-template-columns:64px 1fr; row-gap:8px; }
+  .d-meta .k { color:#8F959E; }
+  .d-note {
+    border:1px dashed #D4D9E1; border-radius:8px; padding:10px; font-size:12.5px;
+    color:#646A73; line-height:1.6; background:#FFFEF5;
+  }
+  .d-actions { margin-top:auto; display:flex; gap:8px; padding-top:14px; }
+  .d-btn {
+    flex:1; height:32px; border-radius:7px; font-size:12.5px; font-weight:600;
+    display:flex; align-items:center; justify-content:center; gap:5px;
+  }
+  .d-btn.main { background:#1677FF; color:#fff; }
+  .d-btn.ghost { border:1px solid #E0E4EA; color:#4E5969; background:#fff; }
+  .d-btn.ghost.danger { color:#E5484D; border-color:#F5C2C4; }
+
+  /* 状态栏 */
+  .statusbar {
+    height:28px; flex:none; background:#FFFFFF; border-top:1px solid #E9ECF1;
+    display:flex; align-items:center; padding:0 14px; font-size:11.5px; color:#8F959E; gap:16px;
+  }
+  .statusbar .kbd2 { background:#F2F3F5; border:1px solid #E5E8ED; border-radius:4px; padding:0 5px; color:#5A6270; }
+
+  .nav-item.disabled { opacity:.45; }
+  .nav-item .soon {
+    margin-left:auto; font-size:10px; color:#8F959E;
+    background:#EFF1F4; border-radius:99px; padding:1px 7px;
+  }
+  .nav-item.active .soon { background:#D6E6FF; color:#1668DC; }
+
+  /* 模块卡片（总览页） */
+  .mod-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-bottom:16px; }
+  .mod-card {
+    background:#FFFFFF; border:1px solid #E9ECF1; border-radius:12px;
+    padding:16px; position:relative;
+  }
+  .mod-card.off { opacity:.62; }
+  .mod-card .m-ic {
+    width:40px; height:40px; border-radius:10px; display:flex; align-items:center;
+    justify-content:center; font-size:18px; margin-bottom:12px;
+  }
+  .mod-card .m-name { font-size:14.5px; font-weight:600; color:#1F2329; }
+  .mod-card .m-desc { font-size:12px; color:#8F959E; margin-top:3px; line-height:1.5; }
+  .mod-card .m-stat { margin-top:12px; display:flex; align-items:baseline; gap:6px; }
+  .mod-card .m-num { font-size:24px; font-weight:700; color:#1F2329; }
+  .mod-card .m-unit { font-size:12px; color:#8F959E; }
+  .mod-card .m-trend { margin-left:auto; font-size:11.5px; color:#389E0D; }
+  .mod-card .m-badge {
+    position:absolute; top:14px; right:14px; font-size:11px; padding:2px 9px; border-radius:99px;
+  }
+  .mod-card .m-link { margin-top:12px; font-size:12.5px; color:#1668DC; font-weight:600; }
+
+  .act-row {
+    display:flex; align-items:center; gap:10px; padding:9px 4px;
+    border-bottom:1px dashed #F0F2F5; font-size:12.5px;
+  }
+  .act-row:last-child { border-bottom:none; }
+  .act-row .a-ic {
+    width:26px; height:26px; border-radius:6px; background:#F2F3F5;
+    display:flex; align-items:center; justify-content:center; font-size:12px; flex:none;
+  }
+  .act-row .a-txt { flex:1; color:#33383F; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .act-row .a-mod {
+    font-size:11px; padding:1px 8px; border-radius:99px; flex:none;
+  }
+  .am-clip { color:#1668DC; background:#E8F1FF; }
+  .am-file { color:#0FA37F; background:#E6F4F1; }
+  .am-print{ color:#7B61FF; background:#F3EEFF; }
+  .act-row .a-time { color:#A9AEB8; font-size:11.5px; flex:none; }
+
+  /* ========== 机器配置页 ========== */
+  .cfg-wrap { padding:6px 2px; }
+  .cfg-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .cfg-card {
+    background:#FFFFFF; border:1px solid #E9ECF1; border-radius:10px; padding:14px 16px;
+  }
+  .cfg-card .c-head { display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+  .cfg-card .c-ic {
+    width:28px; height:28px; border-radius:7px; background:#E8F1FF; color:#1677FF;
+    display:flex; align-items:center; justify-content:center; font-size:13px;
+  }
+  .cfg-card .c-title { font-size:13.5px; font-weight:600; color:#1F2329; }
+  .cfg-card .c-badge {
+    margin-left:auto; font-size:11px; padding:1px 8px; border-radius:99px;
+  }
+  .b-ok   { color:#389E0D; background:#F6FFED; border:1px solid #B7EB8F; }
+  .b-info { color:#1668DC; background:#E8F1FF; border:1px solid #D6E6FF; }
+  .cfg-row { display:flex; font-size:12.5px; padding:5px 0; border-bottom:1px dashed #F0F2F5; }
+  .cfg-row:last-child { border-bottom:none; }
+  .cfg-row .k { width:92px; flex:none; color:#8F959E; }
+  .cfg-row .v { flex:1; color:#33383F; word-break:break-all; }
+  .cfg-row .v code {
+    font-family:Consolas,monospace; font-size:11.5px; background:#F2F3F5;
+    border-radius:4px; padding:1px 5px;
+  }
+  .cfg-bar { flex:1; max-width:150px; align-self:center; }
+  .cfg-bar .bar { margin:0; }
+  .cfg-bar-wrap { display:flex; align-items:center; gap:8px; }
+  .cfg-bar-wrap .pct { font-size:11.5px; color:#8F959E; flex:none; min-width:34px; }
+  .cfg-full { grid-column:1 / -1; }
+  .cfg-actions { display:flex; gap:8px; margin-top:14px; }
+  .cfg-btn {
+    height:32px; padding:0 14px; border-radius:7px; font-size:12.5px; font-weight:600;
+    display:flex; align-items:center; gap:6px;
+  }
+  .cfg-btn.pri { background:#1677FF; color:#fff; }
+  .cfg-btn.gho { background:#fff; border:1px solid #E0E4EA; color:#4E5969; }
+  .cfg-btn.warn { background:#fff; border:1px solid #F5C2C4; color:#E5484D; }
+
+  /* ========== 设计说明 ========== */
+  .notes { width:1280px; margin-top:34px; display:flex; gap:14px; }
+  .note-card {
+    flex:1; background:#fff; border:1px solid #E2E6EC; border-radius:12px; padding:18px 20px;
+  }
+  .note-card h3 { font-size:14px; margin-bottom:10px; color:#1F2329; }
+  .note-card li { font-size:12.5px; color:#5A6270; line-height:2; list-style:none; padding-left:16px; position:relative; }
+  .note-card li::before { content:"·"; position:absolute; left:4px; color:#1677FF; font-weight:700; }
+</style>
+</head>
+<body>
+
+<div class="page-title">AireRecord · 工作台（原型 v3 · 模块化平台）</div>
+<div class="page-sub">剪贴板 / 文件监控 / 打印监控 = 可插拔功能模块 · 1280 × 820 · 主色 #1677FF · 向下滚动共 3 屏</div>
+
+<div class="page-sub" style="margin-top:40px; font-size:14px;">第 1 屏 · 工作台总览（打开软件的默认页：一屏看清所有模块与服务状态）</div>
+
+<div class="window" style="height:640px;">
+  <div class="titlebar">
+    <div class="brand">
+      <div class="logo">R</div>
+      <div class="name">AireRecord</div>
+      <div class="divider"></div>
+      <div class="mode">工作台总览</div>
+    </div>
+    <div class="space"></div>
+    <div class="svc-pill"><span class="dot"></span>服务运行中 · 已记录 86 条</div>
+    <div class="capbtns"><div class="capbtn">—</div><div class="capbtn">□</div><div class="capbtn close">✕</div></div>
+  </div>
+
+  <div class="body">
+    <!-- 侧栏：总览高亮 -->
+    <div class="sidebar">
+      <div class="side-label">功能模块</div>
+      <div class="nav-item active"><span class="ic">🏠</span>工作台总览</div>
+      <div class="nav-item"><span class="ic">📋</span>剪贴板<span class="cnt">86</span></div>
+      <div class="nav-item disabled"><span class="ic">📁</span>文件监控<span class="soon">规划中</span></div>
+      <div class="nav-item disabled"><span class="ic">🖨</span>打印监控<span class="soon">规划中</span></div>
+      <div class="side-label" style="margin-top:14px;">系统</div>
+      <div class="nav-item"><span class="ic">⚙</span>机器配置</div>
+      <div class="nav-item"><span class="ic">🔄</span>服务管理<span class="cnt">运行中</span></div>
+      <div class="side-foot">
+        <div class="stat-card">
+          <div class="cap">本机信息</div>
+          <div class="row"><span>运行模式</span><b>服务 + 代理</b></div>
+          <div class="row"><span>服务自启</span><b style="color:#389E0D;">已启用</b></div>
+          <div class="row"><span>启用模块</span><b>1 / 3</b></div>
+          <div class="bar"><i></i></div>
+        </div>
+        <div class="ver">AireRecord v1.2</div>
+      </div>
+    </div>
+
+    <!-- 总览内容 -->
+    <div class="main" style="background:#F5F6F8;">
+      <div class="mod-grid">
+        <div class="mod-card">
+          <span class="m-badge b-ok">运行中</span>
+          <div class="m-ic" style="background:#E8F1FF;color:#1677FF;">📋</div>
+          <div class="m-name">剪贴板监控</div>
+          <div class="m-desc">自动记录剪贴板内容，支持搜索与备注</div>
+          <div class="m-stat"><span class="m-num">86</span><span class="m-unit">条记录 · 今日 +23</span></div>
+          <div class="m-link">进入模块 →</div>
+        </div>
+        <div class="mod-card off">
+          <span class="m-badge b-info">规划中</span>
+          <div class="m-ic" style="background:#E6F4F1;color:#0FA37F;">📁</div>
+          <div class="m-name">文件监控</div>
+          <div class="m-desc">监控指定目录的新增 / 修改 / 删除操作</div>
+          <div class="m-stat"><span class="m-num">—</span><span class="m-unit">未启用</span></div>
+          <div class="m-link" style="color:#A9AEB8;">敬请期待</div>
+        </div>
+        <div class="mod-card off">
+          <span class="m-badge b-info">规划中</span>
+          <div class="m-ic" style="background:#F3EEFF;color:#7B61FF;">🖨</div>
+          <div class="m-name">打印监控</div>
+          <div class="m-desc">记录本机打印任务与文档信息</div>
+          <div class="m-stat"><span class="m-num">—</span><span class="m-unit">未启用</span></div>
+          <div class="m-link" style="color:#A9AEB8;">敬请期待</div>
+        </div>
+      </div>
+
+      <div class="group-head" style="margin-top:2px;">最近动态 · 全部模块</div>
+      <div class="cfg-card">
+        <div class="act-row"><div class="a-ic">🔗</div><span class="a-txt">复制了链接 RegisterHotKey 官方文档</span><span class="a-mod am-clip">剪贴板</span><span class="a-time">14:02</span></div>
+        <div class="act-row"><div class="a-ic">📄</div><span class="a-txt">复制了文本内容（156 字符）</span><span class="a-mod am-clip">剪贴板</span><span class="a-time">11:47</span></div>
+        <div class="act-row"><div class="a-ic">✎</div><span class="a-txt">手动录入了「周五例会纪要」并添加备注</span><span class="a-mod am-clip">剪贴板</span><span class="a-time">10:15</span></div>
+        <div class="act-row"><div class="a-ic">🔄</div><span class="a-txt">服务自启动检查通过（SCM Automatic）</span><span class="a-mod am-print" style="color:#8F959E;background:#F2F3F5;">系统</span><span class="a-time">09:00</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="statusbar">
+    <span>● 服务运行中（airecordd.exe）</span>
+    <span>启用模块 1 / 3</span>
+    <span style="margin-left:auto;"><span class="kbd2">Ctrl+Shift+V</span> 呼出 / 隐藏</span>
+  </div>
+</div>
+
+<div class="page-sub" style="margin-top:40px; font-size:14px;">第 2 屏 · 剪贴板模块（现有核心功能，作为「模块之一」呈现）</div>
+
+<div class="window">
+
+  <!-- 标题栏 -->
+  <div class="titlebar">
+    <div class="brand">
+      <div class="logo">R</div>
+      <div class="name">AireRecord</div>
+      <div class="divider"></div>
+      <div class="mode">剪贴板模块</div>
+    </div>
+    <div class="space"></div>
+    <div class="svc-pill"><span class="dot"></span>服务运行中 · 已记录 86 条</div>
+    <div class="capbtns">
+      <div class="capbtn">—</div>
+      <div class="capbtn">□</div>
+      <div class="capbtn close">✕</div>
+    </div>
+  </div>
+
+  <div class="body">
+
+    <!-- 左侧导航：一级 = 功能模块（平台化），后续新模块直接挂进来 -->
+    <div class="sidebar">
+      <div class="side-label">功能模块</div>
+      <div class="nav-item"><span class="ic">🏠</span>工作台总览</div>
+      <div class="nav-item active"><span class="ic">📋</span>剪贴板<span class="cnt">86</span></div>
+      <div class="nav-item disabled"><span class="ic">📁</span>文件监控<span class="soon">规划中</span></div>
+      <div class="nav-item disabled"><span class="ic">🖨</span>打印监控<span class="soon">规划中</span></div>
+
+      <div class="side-label" style="margin-top:14px;">快捷操作</div>
+      <div class="nav-item"><span class="ic">✎</span>手动录入<span class="cnt">F4</span></div>
+      <div class="nav-item"><span class="ic">⌫</span>清空剪贴板记录</div>
+
+      <div class="side-label" style="margin-top:14px;">系统</div>
+      <div class="nav-item"><span class="ic">⚙</span>机器配置</div>
+      <div class="nav-item"><span class="ic">🔄</span>服务管理<span class="cnt">运行中</span></div>
+      <div class="nav-item"><span class="ic">ℹ</span>关于</div>
+
+      <div class="side-foot">
+        <div class="stat-card">
+          <div class="cap">本机信息</div>
+          <div class="row"><span>运行模式</span><b>服务 + 代理</b></div>
+          <div class="row"><span>服务自启</span><b style="color:#389E0D;">已启用</b></div>
+          <div class="row"><span>启用模块</span><b>1 / 3</b></div>
+          <div class="row"><span>占用空间</span><b>2.1 MB</b></div>
+          <div class="bar"><i></i></div>
+        </div>
+        <div class="ver">AireRecord v1.2 · 服务已连接</div>
+      </div>
+    </div>
+
+    <!-- 中间列表 -->
+    <div class="main">
+      <div class="toolbar">
+        <div class="search">
+          <span>🔍</span> 搜索内容或备注…
+          <span class="kbd">Ctrl+Shift+V</span>
+        </div>
+        <div class="chips">
+          <div class="chip on">全部</div>
+          <div class="chip">文本</div>
+          <div class="chip">链接</div>
+          <div class="chip">手动</div>
+        </div>
+        <div class="btn-primary">＋ 手动录入</div>
+      </div>
+
+      <div class="group-head">今天 · 10 月 30 日</div>
+      <div class="entry-list">
+        <div class="card sel">
+          <div class="type-ic t-link">🔗</div>
+          <div class="mid">
+            <div class="line1">https://docs.microsoft.com/zh-cn/windows/win32/api/winuser/nf-winuser-registerhotkey<span class="tag">备注: RegisterHotKey 官方文档</span></div>
+            <div class="line2">
+              <span class="src">🌐 Microsoft Edge</span><span class="dot2"></span><span>14:02</span><span class="dot2"></span><span>82 字符</span>
+            </div>
+          </div>
+          <div class="ops">
+            <div class="op">⧉</div><div class="op">✎</div><div class="op danger">🗑</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="type-ic t-text">📄</div>
+          <div class="mid">
+            <div class="line1">服务守护线程每 4 秒巡检一次代理进程，崩溃后自动按用户令牌重新拉起，agent_stopped 标记用于区分…</div>
+            <div class="line2">
+              <span class="src">📝 Notepad</span><span class="dot2"></span><span>11:47</span><span class="dot2"></span><span>156 字符</span>
+            </div>
+          </div>
+          <div class="ops">
+            <div class="op">⧉</div><div class="op">✎</div><div class="op danger">🗑</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="type-ic t-manual">✎</div>
+          <div class="mid">
+            <div class="line1">周五例会纪要：剪贴板工作台改版 —— 增加左侧分类导航与右侧详情面板，详情面板支持直接编辑备注<span class="tag">备注: 会议纪要</span></div>
+            <div class="line2">
+              <span class="src">✍ 手动录入</span><span class="dot2"></span><span>10:15</span><span class="dot2"></span><span>64 字符</span>
+            </div>
+          </div>
+          <div class="ops">
+            <div class="op">⧉</div><div class="op">✎</div><div class="op danger">🗑</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="type-ic t-file">📁</div>
+          <div class="mid">
+            <div class="line1">D:\github\airecord\build\airecordd.exe（共 1 个文件，486 KB）</div>
+            <div class="line2">
+              <span class="src">📂 资源管理器</span><span class="dot2"></span><span>09:30</span><span class="dot2"></span><span>文件路径</span>
+            </div>
+          </div>
+          <div class="ops">
+            <div class="op">⧉</div><div class="op">✎</div><div class="op danger">🗑</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="group-head">昨天 · 10 月 29 日</div>
+      <div class="entry-list" style="flex:none;">
+        <div class="card" style="opacity:.82;">
+          <div class="type-ic t-text">📄</div>
+          <div class="mid">
+            <div class="line1">SELECT id, content, source, note, created_at FROM entries WHERE note != '' ORDER BY created_at DESC;</div>
+            <div class="line2">
+              <span class="src">🛠 SQLiteStudio</span><span class="dot2"></span><span>昨天 18:22</span>
+            </div>
+          </div>
+          <div class="ops">
+            <div class="op">⧉</div><div class="op">✎</div><div class="op danger">🗑</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 右侧详情 -->
+    <div class="detail">
+      <div class="d-cap">详情</div>
+      <div class="d-type">🔗 链接 · 来自剪贴板</div>
+      <div class="d-content">https://docs.microsoft.com/zh-cn/windows/win32/api/winuser/nf-winuser-registerhotkey</div>
+
+      <div class="d-sec">属性</div>
+      <div class="d-meta">
+        <span class="k">来源应用</span><span>Microsoft Edge</span>
+        <span class="k">记录时间</span><span>今天 14:02:33</span>
+        <span class="k">内容类型</span><span>URL 链接</span>
+        <span class="k">字符数</span><span>82</span>
+        <span class="k">复制次数</span><span>3 次</span>
+      </div>
+
+      <div class="d-sec">备注（点击编辑）</div>
+      <div class="d-note">🏷 RegisterHotKey 官方文档 —— 注意 WM_HOTKEY 的 wParam 是热键 id</div>
+
+      <div class="d-actions">
+        <div class="d-btn main">⧉ 复制内容</div>
+        <div class="d-btn ghost">✎ 备注</div>
+        <div class="d-btn ghost danger">🗑</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 状态栏 -->
+  <div class="statusbar">
+    <span>● 服务运行中（airecordd.exe）</span>
+    <span>自启动：已启用</span>
+    <span style="margin-left:auto;">
+      <span class="kbd2">Ctrl+Shift+V</span> 呼出 / 隐藏
+      &nbsp;&nbsp;<span class="kbd2">F3</span> 搜索
+      &nbsp;&nbsp;<span class="kbd2">F4</span> 手动录入
+      &nbsp;&nbsp;<span class="kbd2">Esc</span> 退出搜索
+    </span>
+  </div>
+</div>
+
+<div class="page-sub" style="margin-top:40px; font-size:14px;">第 3 屏 · 机器配置页（系统 + 硬件全量采集 · 左侧导航「系统 → 机器配置」）</div>
+
+<div class="window" style="height:1180px;">
+  <!-- 标题栏 -->
+  <div class="titlebar">
+    <div class="brand">
+      <div class="logo">R</div>
+      <div class="name">AireRecord</div>
+      <div class="divider"></div>
+      <div class="mode">机器配置</div>
+    </div>
+    <div class="space"></div>
+    <div class="svc-pill"><span class="dot"></span>服务运行中 · 已记录 86 条</div>
+    <div class="capbtns">
+      <div class="capbtn">—</div><div class="capbtn">□</div><div class="capbtn close">✕</div>
+    </div>
+  </div>
+
+  <div class="body">
+    <!-- 左侧导航（机器配置高亮） -->
+    <div class="sidebar">
+      <div class="side-label">功能模块</div>
+      <div class="nav-item"><span class="ic">🏠</span>工作台总览</div>
+      <div class="nav-item"><span class="ic">📋</span>剪贴板<span class="cnt">86</span></div>
+      <div class="nav-item disabled"><span class="ic">📁</span>文件监控<span class="soon">规划中</span></div>
+      <div class="nav-item disabled"><span class="ic">🖨</span>打印监控<span class="soon">规划中</span></div>
+      <div class="side-label" style="margin-top:14px;">系统</div>
+      <div class="nav-item active"><span class="ic">⚙</span>机器配置</div>
+      <div class="nav-item"><span class="ic">🔄</span>服务管理<span class="cnt">运行中</span></div>
+      <div class="nav-item"><span class="ic">ℹ</span>关于</div>
+      <div class="side-foot">
+        <div class="stat-card">
+          <div class="cap">本机信息</div>
+          <div class="row"><span>运行模式</span><b>服务 + 代理</b></div>
+          <div class="row"><span>服务自启</span><b style="color:#389E0D;">已启用</b></div>
+          <div class="row"><span>启用模块</span><b>1 / 3</b></div>
+          <div class="bar"><i></i></div>
+        </div>
+        <div class="ver">AireRecord v1.2 · 服务已连接</div>
+      </div>
+    </div>
+
+    <!-- 配置内容区 -->
+    <div class="main" style="background:#F5F6F8;">
+      <div class="cfg-wrap">
+        <div class="cfg-grid">
+
+          <div class="cfg-card">
+            <div class="c-head"><div class="c-ic">🖥</div><div class="c-title">服务与进程</div><span class="c-badge b-ok">全部正常</span></div>
+            <div class="cfg-row"><span class="k">运行模式</span><span class="v">SCM 系统服务 + 会话代理（混合模式）</span></div>
+            <div class="cfg-row"><span class="k">服务状态</span><span class="v" style="color:#389E0D;">● Running（AireRecordSvc）</span></div>
+            <div class="cfg-row"><span class="k">启动类型</span><span class="v">自动（随系统启动）</span></div>
+            <div class="cfg-row"><span class="k">代理进程</span><span class="v">会话 1 · PID 8264 · 运行中</span></div>
+            <div class="cfg-row"><span class="k">服务路径</span><span class="v"><code>D:\github\airecord\build\airecordd.exe</code></span></div>
+          </div>
+
+          <div class="cfg-card">
+            <div class="c-head"><div class="c-ic">🔌</div><div class="c-title">通信与数据</div><span class="c-badge b-ok">已连接</span></div>
+            <div class="cfg-row"><span class="k">IPC 管道</span><span class="v"><code>\\.\pipe\AireRecordIpc</code></span></div>
+            <div class="cfg-row"><span class="k">用户数据库</span><span class="v"><code>C:\Users\...\AppData\AireRecord\airecord.db</code></span></div>
+            <div class="cfg-row"><span class="k">机器配置</span><span class="v"><code>C:\ProgramData\AireRecord\service.ini</code></span></div>
+            <div class="cfg-row"><span class="k">数据库引擎</span><span class="v">SQLite 3 · 已加密：否</span></div>
+            <div class="cfg-row"><span class="k">占用空间</span><span class="v">2.1 MB（86 条记录 + 偏好设置）</span></div>
+          </div>
+
+          <div class="cfg-card">
+            <div class="c-head"><div class="c-ic">⌨</div><div class="c-title">快捷键</div><span class="c-badge b-info">3 个已启用</span></div>
+            <div class="cfg-row"><span class="k">呼出主窗口</span><span class="v"><code>Ctrl + Shift + V</code></span></div>
+            <div class="cfg-row"><span class="k">搜索</span><span class="v"><code>F3</code></span></div>
+            <div class="cfg-row"><span class="k">手动录入</span><span class="v"><code>F4</code></span></div>
+          </div>
+
+          <div class="cfg-card">
+            <div class="c-head"><div class="c-ic">🛡</div><div class="c-title">行为与隐私</div><span class="c-badge b-info">默认策略</span></div>
+            <div class="cfg-row"><span class="k">记录来源</span><span class="v">剪贴板监听（排除本应用内部复制）</span></div>
+            <div class="cfg-row"><span class="k">去重策略</span><span class="v">相同内容合并并置顶</span></div>
+            <div class="cfg-row"><span class="k">容量上限</span><span class="v">自动清理最旧记录（默认 5000 条）</span></div>
+            <div class="cfg-row"><span class="k">敏感过滤</span><span class="v">密码管理器内容跳过：关闭</span></div>
+          </div>
+
+          <div class="cfg-card cfg-full">
+            <div class="c-head"><div class="c-ic">🪟</div><div class="c-title">操作系统</div><span class="c-badge b-ok">已采集</span></div>
+            <div class="cfg-row"><span class="k">系统版本</span><span class="v">Windows 11 专业版 23H2（Build 22631.4317）</span></div>
+            <div class="cfg-row"><span class="k">系统架构</span><span class="v">x64 · 中文简体 · 时区 GMT+8</span></div>
+            <div class="cfg-row"><span class="k">计算机名</span><span class="v"><code>DEVELOPER-PC</code></span></div>
+            <div class="cfg-row"><span class="k">当前用户</span><span class="v">Administrator（管理员权限）</span></div>
+            <div class="cfg-row"><span class="k">开机时长</span><span class="v">3 天 4 小时 12 分</span></div>
+          </div>
+
+          <div class="cfg-card">
+            <div class="c-head"><div class="c-ic">🧠</div><div class="c-title">处理器与内存</div><span class="c-badge b-ok">已采集</span></div>
+            <div class="cfg-row"><span class="k">处理器</span><span class="v">Intel(R) Core(TM) i7-13700 @ 2.10GHz</span></div>
+            <div class="cfg-row"><span class="k">核心/线程</span><span class="v">16 核 24 线程 · 主频 2.10 GHz</span></div>
+            <div class="cfg-row"><span class="k">当前占用</span><span class="v"><span class="cfg-bar-wrap"><span class="cfg-bar"><span class="bar"><i style="width:23%;"></i></span></span><span class="pct">23%</span></span></span></div>
+            <div class="cfg-row"><span class="k">物理内存</span><span class="v">32.0 GB</span></div>
+            <div class="cfg-row"><span class="k">内存占用</span><span class="v"><span class="cfg-bar-wrap"><span class="cfg-bar"><span class="bar"><i style="width:58%; background:linear-gradient(90deg,#FAAD14,#FFD666);"></i></span></span><span class="pct">58% · 18.6 GB</span></span></span></div>
+          </div>
+
+          <div class="cfg-card">
+            <div class="c-head"><div class="c-ic">🖥</div><div class="c-title">显示与图形</div><span class="c-badge b-ok">已采集</span></div>
+            <div class="cfg-row"><span class="k">显卡</span><span class="v">NVIDIA GeForce RTX 4060 · Intel UHD 770</span></div>
+            <div class="cfg-row"><span class="k">主显示器</span><span class="v">2560 × 1440 @ 165Hz（100% DPI）</span></div>
+            <div class="cfg-row"><span class="k">显示器数</span><span class="v">2 台 · 副屏 1920 × 1080</span></div>
+            <div class="cfg-row"><span class="k">系统主题</span><span class="v">浅色 · DWM 已启用（Aero）</span></div>
+          </div>
+
+          <div class="cfg-card">
+            <div class="c-head"><div class="c-ic">💾</div><div class="c-title">磁盘</div><span class="c-badge b-ok">已采集</span></div>
+            <div class="cfg-row"><span class="k">C: 系统</span><span class="v"><span class="cfg-bar-wrap"><span class="cfg-bar"><span class="bar"><i style="width:71%; background:linear-gradient(90deg,#E5484D,#FF8A8E);"></i></span></span><span class="pct">剩余 128 GB / 476 GB</span></span></span></div>
+            <div class="cfg-row"><span class="k">D: 数据</span><span class="v"><span class="cfg-bar-wrap"><span class="cfg-bar"><span class="bar"><i style="width:34%;"></i></span></span><span class="pct">剩余 1.2 TB / 1.8 TB</span></span></span></div>
+            <div class="cfg-row"><span class="k">磁盘类型</span><span class="v">NVMe SSD × 2</span></div>
+            <div class="cfg-row"><span class="k">数据库所在盘</span><span class="v">C:（剩余空间充足）</span></div>
+          </div>
+
+          <div class="cfg-card">
+            <div class="c-head"><div class="c-ic">🌐</div><div class="c-title">网络</div><span class="c-badge b-ok">已连接</span></div>
+            <div class="cfg-row"><span class="k">主机名</span><span class="v"><code>DEVELOPER-PC</code> · 工作组 WORKGROUP</span></div>
+            <div class="cfg-row"><span class="k">IP 地址</span><span class="v"><code>192.168.1.105</code>（内网）</span></div>
+            <div class="cfg-row"><span class="k">网卡</span><span class="v">Intel Wi-Fi 6 AX201 · 已连接</span></div>
+            <div class="cfg-row"><span class="k">外网连通</span><span class="v" style="color:#389E0D;">● 正常（延迟 12 ms）</span></div>
+          </div>
+
+          <div class="cfg-card cfg-full">
+            <div class="c-head"><div class="c-ic">🧩</div><div class="c-title">功能模块（插件注册）</div><span class="c-badge b-info">1 / 3 已启用</span></div>
+            <div class="cfg-row"><span class="k">ClipboardPlugin</span><span class="v">剪贴板监控 · 运行中（剪贴板监听 + 搜索 + 备注）</span></div>
+            <div class="cfg-row"><span class="k">FileWatchPlugin</span><span class="v" style="color:#8F959E;">文件监控 · 规划中（ReadDirectoryChangesW）</span></div>
+            <div class="cfg-row"><span class="k">PrintWatchPlugin</span><span class="v" style="color:#8F959E;">打印监控 · 规划中（打印后台 API）</span></div>
+            <div class="cfg-row"><span class="k">扩展方式</span><span class="v" style="color:#8F959E;">新模块 = 一个 IFeaturePlugin 插件：自带数据表、导航入口、总览卡片，注册即上线</span></div>
+          </div>
+
+          <div class="cfg-actions cfg-full" style="grid-column:1/-1;">
+            <div class="cfg-btn pri">🔄 立即刷新配置</div>
+            <div class="cfg-btn gho">⚙ 打开配置目录</div>
+            <div class="cfg-btn gho">📦 导出诊断信息</div>
+            <div class="cfg-btn warn">🗑 清空全部记录</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="statusbar">
+    <span>● 服务运行中（airecordd.exe）</span>
+    <span>配置读取自 service.ini + 注册表</span>
+    <span style="margin-left:auto;"><span class="kbd2">Ctrl+Shift+V</span> 呼出 / 隐藏</span>
+  </div>
+</div>
+
+<!-- 设计说明 -->
+<div class="notes">
+  <div class="note-card">
+    <h3>① 平台化：模块化导航</h3>
+    <ul>
+      <li>侧栏一级 = 功能模块：总览 / 剪贴板 / 文件监控 / 打印监控</li>
+      <li>未上线模块灰显 +「规划中」角标，架构先占位</li>
+      <li>新模块 = 一个 IFeaturePlugin 插件，注册即出现在导航</li>
+    </ul>
+  </div>
+  <div class="note-card">
+    <h3>② 机器配置页（系统 + 硬件采集）</h3>
+    <ul>
+      <li>系统信息：Windows 版本 / 架构 / 主机名 / 用户 / 开机时长</li>
+      <li>硬件全量：CPU / 内存 / 磁盘 / 显卡 / 显示器 / 网络</li>
+      <li>纯 Win32 API 采集（GetSystemInfo 等），不依赖 WMI</li>
+    </ul>
+  </div>
+  <div class="note-card">
+    <h3>③ Win32 落地（无第三方库）</h3>
+    <ul>
+      <li>页面切换 = 导航状态机 + 面板显隐，与现有插件接口吻合</li>
+      <li>总览数据 = 各插件上报统计（IPC 新增 STATS 命令）</li>
+      <li>后续文件监控用 ReadDirectoryChangesW、打印监控用后台作业 API，均在服务端挂模块线程</li>
+    </ul>
+  </div>
+</div>
+
+</body>
+</html>

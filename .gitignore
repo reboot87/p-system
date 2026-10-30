@@ -1,0 +1,25 @@
+# 编译产物
+build/
+*.obj
+*.exe
+*.res
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.manifest.bak
+
+# 工具与编辑器
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# 智能体工作目录（含本机路径与本机调试记录，不入库）
+.workbuddy/
+
+# 系统
+Thumbs.db
+desktop.ini
+.DS_Store
