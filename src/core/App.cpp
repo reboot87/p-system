@@ -2527,6 +2527,25 @@ LRESULT App::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         break;
     case WM_LBUTTONDOWN: {
         POINT pt = { (short)LOWORD(lParam), (short)HIWORD(lParam) };
+        // 标题栏三键（最小化/最大化/关闭）最先处理：任何页面都必须响应。
+        // 注意：不能放到页面分支之后 —— 总览页分支末尾会无条件 return，
+        // 曾导致启动后（默认停在总览页）点三键毫无反应。
+        {
+            int capBtn = CaptionButtonAt(pt);
+            if (capBtn == 1) {
+                PostMessageW(hwnd, WM_SYSCOMMAND, SC_MINIMIZE, 0);
+                return 0;
+            }
+            if (capBtn == 2) {
+                PostMessageW(hwnd, WM_SYSCOMMAND,
+                             IsZoomed(hwnd) ? SC_RESTORE : SC_MAXIMIZE, 0);
+                return 0;
+            }
+            if (capBtn == 3) {
+                PostMessageW(hwnd, WM_SYSCOMMAND, SC_CLOSE, 0);
+                return 0;
+            }
+        }
         // 侧栏导航点击 → 页面切换 / 操作
         if (pt.x < kSideW && pt.y >= kTitleH) {
             OnNavClick(NavItemAt(pt));
@@ -2587,11 +2606,6 @@ LRESULT App::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 }
             }
         }
-        int btn = CaptionButtonAt(pt);
-        if (btn == 1) PostMessageW(hwnd, WM_SYSCOMMAND, SC_MINIMIZE, 0);
-        else if (btn == 2) PostMessageW(hwnd, WM_SYSCOMMAND,
-                            IsZoomed(hwnd) ? SC_RESTORE : SC_MAXIMIZE, 0);
-        else if (btn == 3) PostMessageW(hwnd, WM_SYSCOMMAND, SC_CLOSE, 0);
         return 0;
     }
 
