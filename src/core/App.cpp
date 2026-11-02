@@ -246,6 +246,18 @@ void App::CreateUI(HWND hwnd)
     m_fontBig     = CreateFontW(-22, 0, 0, 0, FW_SEMIBOLD, 0, 0, 0,
                                 DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0,
                                 L"Microsoft YaHei UI");
+    // 单行输入框内文字行高：Windows 单行 EDIT 永远把文字画在客户区顶部，
+    // 因此把 EDIT 客户区压到恰好一行文字高，再垂直居中放进自绘圆角框，
+    // 才能实现真正的上下居中（视觉样式/清单无法改变该行为）。
+    {
+        HDC dc = GetDC(hwnd);
+        HFONT old = (HFONT)SelectObject(dc, m_font);
+        TEXTMETRICW tm{};
+        GetTextMetricsW(dc, &tm);
+        SelectObject(dc, old);
+        ReleaseDC(hwnd, dc);
+        m_lineH = tm.tmHeight + tm.tmExternalLeading;
+    }
     UpdateFont(m_hSearch);
     UpdateFont(m_hList);
     UpdateFont(m_hManualEdit);
@@ -315,9 +327,19 @@ void App::Layout()
     if (searchW > content.right - content.left - 420)
         searchW = content.right - content.left - 420;
     if (searchW < 160) searchW = 160;
-    MoveWindow(m_hSearch, content.left, content.top, searchW, 36, TRUE);
 
-    // 搜索框右侧 Ctrl+Shift+V 快捷键提示：与搜索框同高、右对齐，留出 6px 边距
+    // 搜索框 = 父窗口绘制的圆角输入框（白底 + 边框），EDIT 只占其中一行文字高并垂直居中。
+    // Windows 单行 EDIT 永远把文字画在客户区顶部（视觉样式亦不改变），
+    // 压到恰好一行高后，文字才真正上下居中。
+    const int kSearchBoxH = 36;
+    m_rcSearchBox = { content.left, content.top,
+                      content.left + searchW, content.top + kSearchBoxH };
+    MoveWindow(m_hSearch,
+               m_rcSearchBox.left + 1,
+               m_rcSearchBox.top + (kSearchBoxH - m_lineH) / 2,
+               searchW - 2, m_lineH, TRUE);
+
+    // 搜索框右侧 Ctrl+Shift+V 快捷键提示：与输入框同高、右对齐，留出 6px 边距
     {
         HDC dc = GetDC(m_hwnd);
         HFONT old = (HFONT)SelectObject(dc, m_fontMeta);
@@ -328,8 +350,8 @@ void App::Layout()
         ReleaseDC(m_hwnd, dc);
         int chipW = sz.cx + 12;
         int chipH = 18;
-        int cx = content.left + searchW - chipW - 6;
-        int cy = content.top + (36 - chipH) / 2;
+        int cx = m_rcSearchBox.right - chipW - 6;
+        int cy = m_rcSearchBox.top + (kSearchBoxH - chipH) / 2;
         if (m_hSearchChip)
             MoveWindow(m_hSearchChip, cx, cy, chipW, chipH, TRUE);
         // 编辑框右内边距让出 chip 区域，避免输入文字/占位字压到标签下
@@ -385,7 +407,12 @@ void App::Layout()
         MoveWindow(m_hManualEdit, fx, contentY, fw, 88, TRUE);
         int rowY = contentY + 88 + 12;
         int btnW = 96;
-        MoveWindow(m_hNoteEdit, fx, rowY, fw - btnW - 12, 32, TRUE);
+        // 备注框：视觉框 32px 高，内部 EDIT 压到一行文字高并垂直居中（文字真正居中）
+        m_rcNoteBox = { fx, rowY, fx + fw - btnW - 12, rowY + 32 };
+        MoveWindow(m_hNoteEdit,
+                   m_rcNoteBox.left + 1,
+                   m_rcNoteBox.top + (32 - m_lineH) / 2,
+                   m_rcNoteBox.right - m_rcNoteBox.left - 2, m_lineH, TRUE);
         MoveWindow(m_hSaveBtn, fx + fw - btnW, rowY, btnW, 32, TRUE);
         m_rcFormClose = { m_rcFormCard.right - 62, m_rcFormCard.top + 14,
                           m_rcFormCard.right - 16, m_rcFormCard.top + 36 };
@@ -393,11 +420,17 @@ void App::Layout()
     // ---- 备注编辑态：备注框/按钮覆盖到详情面板"备注"区 ----
     else if (m_editingId && m_rcDetail.right > m_rcDetail.left) {
         RECT nb = DetailNoteBox(m_rcDetail);
-        MoveWindow(m_hNoteEdit, nb.left, nb.top,
-                   nb.right - nb.left, nb.bottom - nb.top, TRUE);
+        // 备注编辑态同样是单行 EDIT：客户区压到一行文字高并垂直居中，文字真正居中
+        MoveWindow(m_hNoteEdit,
+                   nb.left, nb.top + (nb.bottom - nb.top - m_lineH) / 2,
+                   nb.right - nb.left, m_lineH, TRUE);
         MoveWindow(m_hSaveBtn, m_rcDetail.left + 16,
                    nb.bottom + 10, 96, 30, TRUE);
         m_rcFormClose = {};
+    }
+    else {
+        // 无表单 / 无备注编辑态：备注框不可见，清空视觉框避免误命中
+        m_rcNoteBox = {};
     }
 }
 
@@ -1149,16 +1182,58 @@ void App::DrawConfigPage(HDC dc, const RECT& rcClient)
 // 剪贴板模块页：工具条 / 表单卡 / 详情面板（列表条目走 owner-draw）
 // ============================================================
 
+// 把主窗口坐标的点击转发给单行编辑框：聚焦 + 按 x 定位光标。
+// 输入框的可见外框比 EDIT 客户区高（EDIT 只占中间一行文字高），
+// 点击外框留白区也要能直接进入输入状态。
+static void ForwardClickToEdit(HWND edit, HFONT font, POINT pt)
+{
+    if (!edit || !IsWindowVisible(edit)) return;
+    RECT er;
+    GetWindowRect(edit, &er);
+    MapWindowPoints(nullptr, GetParent(edit), (LPPOINT)&er, 2);
+    int cx = pt.x - er.left;
+    int cy = pt.y - er.top;
+    int ew = er.right - er.left;
+    int eh = er.bottom - er.top;
+    if (cx < 0) cx = 0;
+    if (cx > ew) cx = ew;
+    if (cy < 0) cy = 0;
+    if (cy > eh) cy = eh;
+
+    // 按文本宽度换算命中的字符下标（不依赖 EM_CHARINDEXFROMPOS）
+    int len = GetWindowTextLengthW(edit);
+    UINT idx = (UINT)len;
+    if (len > 0 && font) {
+        std::wstring buf(len + 1, L'\0');
+        GetWindowTextW(edit, &buf[0], len + 1);
+        buf.resize(len);
+        HDC dc = GetDC(edit);
+        HFONT old = (HFONT)SelectObject(dc, font);
+        // 左内边距 8px（EM_SETMARGINS），文字起点即 client x=8
+        int target = cx - 8;
+        int acc = 0;
+        for (int i = 0; i < len; ++i) {
+            SIZE sz{};
+            GetTextExtentPoint32W(dc, buf.c_str() + i, 1, &sz);
+            if (target < acc + sz.cx / 2) { idx = (UINT)i; break; }
+            acc += sz.cx;
+        }
+        SelectObject(dc, old);
+        ReleaseDC(edit, dc);
+    }
+    SetFocus(edit);
+    SendMessageW(edit, EM_SETSEL, idx, idx);
+    SetCaretPos(cx, cy);
+}
+
 void App::DrawClipsPage(HDC dc, const RECT& rcClient)
 {
     SetBkMode(dc, TRANSPARENT);
 
     // ---- 工具条 ----
-    // 搜索框 1px 边框（白色控件本体由系统绘制）
-    RECT rcS;
-    GetWindowRect(m_hSearch, &rcS);
-    MapWindowPoints(nullptr, m_hwnd, (LPPOINT)&rcS, 2);
-    InflateRect(&rcS, 1, 1);
+    // 搜索框：白底圆角 + 1px 边框（父窗口绘制；EDIT 只占中间一行，故边框不能画在 EDIT 外框上）
+    RECT rcS = m_rcSearchBox;
+    FillRoundRect(dc, rcS, theme::Surface, 8);
     DrawRoundRectOutline(dc, rcS, theme::BorderIn, 8);
 
     // 类型筛选胶囊（全部 / 文本 / 链接 / 手动）
@@ -1215,7 +1290,12 @@ void App::DrawClipsPage(HDC dc, const RECT& rcClient)
             DrawRoundRectOutline(dc, rr, color, 4);
         };
         BorderOf(m_hManualEdit, theme::BorderIn);
-        BorderOf(m_hNoteEdit, theme::BorderIn);
+        // 备注框：边框画在自绘的视觉框上（EDIT 只占中间一行文字高）
+        if (m_rcNoteBox.right > m_rcNoteBox.left) {
+            RECT nr = m_rcNoteBox;
+            InflateRect(&nr, 1, 1);
+            DrawRoundRectOutline(dc, nr, theme::BorderIn, 4);
+        }
     }
 
     // ---- 详情面板 ----
@@ -2162,16 +2242,17 @@ LRESULT CALLBACK App::EditPlaceholderProc(HWND hwnd, UINT msg, WPARAM wParam,
                     (GetWindowLongW(hwnd, GWL_STYLE) & ES_MULTILINE) != 0;
                 rc.left += 9;
                 rc.right -= 9;
-                if (multiline) rc.top += 6;
                 SetBkMode(dc, TRANSPARENT);
                 SetTextColor(dc, theme::TextFaint);
                 SelectObject(dc, self->m_font);
-                UINT fmt = DT_LEFT | DT_NOPREFIX;
+                // 真实文字由系统绘制：单行 EDIT 恒定贴在客户区顶部（不是垂直居中），
+                // 多行 EDIT 首行同样在顶部。故占位字一律用 DT_TOP 顶对齐，
+                // 与真实文字落在完全相同的基线上，避免"空态居中 / 有字贴顶"的错位。
+                UINT fmt = DT_LEFT | DT_NOPREFIX | DT_TOP;
                 if (multiline)
-                    fmt |= DT_TOP | DT_WORDBREAK | DT_EDITCONTROL |
-                           DT_NOFULLWIDTHCHARBREAK;
+                    fmt |= DT_WORDBREAK | DT_EDITCONTROL | DT_NOFULLWIDTHCHARBREAK;
                 else
-                    fmt |= DT_SINGLELINE | DT_VCENTER;
+                    fmt |= DT_SINGLELINE;
                 DrawTextW(dc, ph, -1, &rc, fmt);
                 ReleaseDC(hwnd, dc);
             }
@@ -2365,6 +2446,18 @@ LRESULT App::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         }
         // 剪贴板页：类型胶囊 / ＋手动录入 / 表单收起 / 详情按钮
         if (m_page == PageClips) {
+            // 搜索框 / 备注框：可见外框高于 EDIT 客户区（EDIT 只占中间一行文字高），
+            // 留白区点击也要能进入输入状态 → 转发给编辑框
+            if (m_rcSearchBox.right > m_rcSearchBox.left &&
+                PtInRect(&m_rcSearchBox, pt)) {
+                ForwardClickToEdit(m_hSearch, m_font, pt);
+                return 0;
+            }
+            if (m_rcNoteBox.right > m_rcNoteBox.left &&
+                PtInRect(&m_rcNoteBox, pt)) {
+                ForwardClickToEdit(m_hNoteEdit, m_font, pt);
+                return 0;
+            }
             for (int i = 0; i < 4; ++i) {
                 if (PtInRect(&m_rcChips[i], pt)) {
                     m_typeFilter = i;

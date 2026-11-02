@@ -182,6 +182,9 @@ private:
     RECT           m_rcListCard = {};     // 记录列表卡片区域
     RECT           m_rcFormCard = {};     // 添加记录卡片区域
     RECT           m_rcSide      = {};    // 侧栏区域
+    RECT           m_rcSearchBox = {};    // 搜索框视觉外框（父窗口绘制圆角底与边框）
+    RECT           m_rcNoteBox   = {};    // 表单卡备注框视觉外框
+    int            m_lineH = 21;          // 单行输入框内部文字行高（EDIT 客户区高度）
     bool           m_btnHover = false;
     int            m_hoverItem = -1;      // 列表 hover 项
     int            m_capHover  = 0;       // 标题栏按钮 hover（1/2/3）
