@@ -7,6 +7,10 @@
 #pragma comment(lib, "iphlpapi.lib")
 #pragma comment(lib, "ws2_32.lib")
 
+#ifndef PROCESSOR_ARCHITECTURE_ARM64
+#define PROCESSOR_ARCHITECTURE_ARM64 12
+#endif
+
 namespace {
 
 std::wstring ReadRegString(HKEY root, const wchar_t* sub,
