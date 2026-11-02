@@ -185,6 +185,16 @@ void App::CreateUI(HWND hwnd)
         0, 0, 0, 0, hwnd, (HMENU)IDC_SEARCH_EDIT, nullptr, nullptr);
     SetWindowSubclass(m_hSearch, &App::EditPlaceholderProc, 3, (DWORD_PTR)this);
 
+    // 搜索框右侧 Ctrl+Shift+V 快捷键提示：做成独立置顶子窗口，
+    // 始终绘制在搜索框之上，彻底避免被编辑框 hover/焦点重绘覆盖。
+    m_hSearchChip = CreateWindowExW(0, L"STATIC", L"",
+        WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, hwnd,
+        (HMENU)IDC_SEARCH_CHIP, nullptr, nullptr);
+    SetWindowSubclass(m_hSearchChip, &App::SearchChipProc, 5, (DWORD_PTR)this);
+    // 置于搜索框之上（z-order），并使其对鼠标透明，点击/悬停穿透到编辑框
+    SetWindowPos(m_hSearchChip, m_hSearch, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE);
+
     // 记录列表（表格化：行高 54，hover/选中在 owner-draw 中绘制）
     m_hList = CreateWindowExW(0, L"LISTBOX", L"",
         WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_TABSTOP |
@@ -250,9 +260,6 @@ void App::CreateUI(HWND hwnd)
     SetMargins(m_hSearch);
     SetMargins(m_hNoteEdit);
     SetMargins(m_hManualEdit);
-    // 搜索框右侧留出快捷键 chip 的空间
-    SendMessageW(m_hSearch, EM_SETMARGINS, EC_RIGHTMARGIN,
-                 MAKELPARAM(0, 92));
 
     m_brBg    = CreateSolidBrush(theme::Bg);
     m_brInput = CreateSolidBrush(theme::Surface);
@@ -309,6 +316,26 @@ void App::Layout()
         searchW = content.right - content.left - 420;
     if (searchW < 160) searchW = 160;
     MoveWindow(m_hSearch, content.left, content.top, searchW, 36, TRUE);
+
+    // 搜索框右侧 Ctrl+Shift+V 快捷键提示：与搜索框同高、右对齐，留出 6px 边距
+    {
+        HDC dc = GetDC(m_hwnd);
+        HFONT old = (HFONT)SelectObject(dc, m_fontMeta);
+        const wchar_t* key = L"Ctrl+Shift+V";
+        SIZE sz;
+        GetTextExtentPoint32W(dc, key, 12, &sz);
+        SelectObject(dc, old);
+        ReleaseDC(m_hwnd, dc);
+        int chipW = sz.cx + 12;
+        int chipH = 18;
+        int cx = content.left + searchW - chipW - 6;
+        int cy = content.top + (36 - chipH) / 2;
+        if (m_hSearchChip)
+            MoveWindow(m_hSearchChip, cx, cy, chipW, chipH, TRUE);
+        // 编辑框右内边距让出 chip 区域，避免输入文字/占位字压到标签下
+        SendMessageW(m_hSearch, EM_SETMARGINS, EC_RIGHTMARGIN,
+                     MAKELPARAM(0, chipW + 10));
+    }
 
     m_rcAddBtn = { content.right - 112, content.top + 1,
                    content.right, content.top + 35 };
@@ -446,6 +473,7 @@ void App::SwitchPage(WorkPage page)
     SendMessageW(m_hwnd, WM_SETREDRAW, FALSE, 0);
     // 搜索框/列表：仅剪贴板页显示
     ShowWindow(m_hSearch, clips ? SW_SHOW : SW_HIDE);
+    ShowWindow(m_hSearchChip, clips ? SW_SHOW : SW_HIDE);
     ShowWindow(m_hList,  clips ? SW_SHOW : SW_HIDE);
     // 录入/备注/按钮：表单卡展开或备注编辑态时显示（位置由 Layout 决定）
     bool editCtrls = clips && (m_formOpen || m_editingId);
@@ -2112,29 +2140,11 @@ LRESULT CALLBACK App::EditPlaceholderProc(HWND hwnd, UINT msg, WPARAM wParam,
         // 这样占位字永远只会出现在“内容为空”的前提下，绝不与已输入文字重叠。
         LRESULT r = DefSubclassProc(hwnd, msg, wParam, lParam);
 
-        bool isSearch = (GetDlgCtrlID(hwnd) == IDC_SEARCH_EDIT);
-
-        // 预计算搜索框右侧快捷键 chip 的几何，供占位字右边界让位使用
-        const wchar_t* key = L"Ctrl+Shift+V";
-        int chipW = 0;
-        RECT rcChip = {0};
-        if (isSearch) {
-            HDC dcm = GetDC(hwnd);
-            SelectObject(dcm, self->m_fontMeta);
-            SIZE szc;
-            GetTextExtentPoint32W(dcm, key, 12, &szc);
-            ReleaseDC(hwnd, dcm);
-            chipW = szc.cx + 12;
-            RECT rc0;
-            GetClientRect(hwnd, &rc0);
-            rcChip = { rc0.right - chipW - 6, rc0.bottom / 2 - 9,
-                       rc0.right - 6, rc0.bottom / 2 + 9 };
-        }
-
         // 占位提示：仅当“未聚焦 + 内容为空 + 不在 IME 组词中”时绘制。
         // 聚焦（输入 / IME 组词必在聚焦态）时一律不画，从根本上杜绝“输入时仍透出
         // 占位字”以及多行框占位字压在拼音候选字上的问题；多行框用
         // DT_WORDBREAK|DT_EDITCONTROL 跟随编辑框换行并裁剪在框内，不溢出框外“下方”。
+        // 搜索框右侧的 Ctrl+Shift+V 标签已改为独立置顶子窗口，天然不会被本占位字覆盖。
         bool composing = GetPropW(hwnd, L"AireRecPhComp") != nullptr;
         if (!composing && GetWindowTextLengthW(hwnd) == 0 &&
             GetFocus() != hwnd) {
@@ -2152,8 +2162,6 @@ LRESULT CALLBACK App::EditPlaceholderProc(HWND hwnd, UINT msg, WPARAM wParam,
                     (GetWindowLongW(hwnd, GWL_STYLE) & ES_MULTILINE) != 0;
                 rc.left += 9;
                 rc.right -= 9;
-                // 搜索框：右边界让开快捷键 chip，避免占位字盖住它
-                if (isSearch && chipW > 0) rc.right -= (chipW + 8);
                 if (multiline) rc.top += 6;
                 SetBkMode(dc, TRANSPARENT);
                 SetTextColor(dc, theme::TextFaint);
@@ -2168,32 +2176,57 @@ LRESULT CALLBACK App::EditPlaceholderProc(HWND hwnd, UINT msg, WPARAM wParam,
                 ReleaseDC(hwnd, dc);
             }
         }
-
-        // 搜索框快捷键 chip：最后绘制，盖在占位字之上，确保两者绝不重叠
-        if (isSearch) {
-            HDC dc = GetDC(hwnd);
-            SetBkMode(dc, TRANSPARENT);
-            SelectObject(dc, self->m_fontMeta);
-            FillRoundRect(dc, rcChip, RGB(242, 243, 245), 4);
-            HPEN pen = CreatePen(PS_SOLID, 1, RGB(229, 232, 237));
-            HPEN oldPen = (HPEN)SelectObject(dc, pen);
-            HBRUSH oldBr = (HBRUSH)SelectObject(dc, GetStockObject(NULL_BRUSH));
-            RoundRect(dc, rcChip.left, rcChip.top,
-                      rcChip.right + 1, rcChip.bottom + 1, 4, 4);
-            SelectObject(dc, oldPen);
-            SelectObject(dc, oldBr);
-            DeleteObject(pen);
-            SetTextColor(dc, RGB(143, 149, 158));
-            SIZE sz;
-            GetTextExtentPoint32W(dc, key, 12, &sz);
-            TextOutW(dc, rcChip.left + 6,
-                     rcChip.top + (rcChip.bottom - rcChip.top) / 2 - sz.cy / 2,
-                     key, 12);
-            ReleaseDC(hwnd, dc);
-        }
         return r;
     }
 
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+// ---------- 搜索框右侧 Ctrl+Shift+V 快捷键提示（独立置顶子窗口） ----------
+// 作为独立窗口始终绘制在搜索框之上，彻底避免被编辑框 hover/焦点重绘覆盖；
+// 对鼠标透明（HTTRANSPARENT），点击/悬停穿透到下方编辑框。
+LRESULT CALLBACK App::SearchChipProc(HWND hwnd, UINT msg, WPARAM wParam,
+                                     LPARAM lParam, UINT_PTR idSub,
+                                     DWORD_PTR ref)
+{
+    if (msg == WM_NCHITTEST) {
+        // 命中测试透明：鼠标事件交给下方编辑框处理
+        LRESULT r = DefSubclassProc(hwnd, msg, wParam, lParam);
+        if (r == HTCLIENT) return HTTRANSPARENT;
+        return r;
+    }
+    if (msg == WM_ERASEBKGND) {
+        // 自绘覆盖整块区域，无需擦背景（避免闪烁）
+        return 1;
+    }
+    if (msg == WM_PAINT) {
+        PAINTSTRUCT ps;
+        HDC dc = BeginPaint(hwnd, &ps);
+        RECT rc;
+        GetClientRect(hwnd, &rc);
+        // 圆角底（与搜索框右侧留出 1px 间隙，避免贴边）
+        RECT r = { rc.left + 1, rc.top, rc.right - 1, rc.bottom };
+        FillRoundRect(dc, r, RGB(237, 239, 242), 4);
+        HPEN pen = CreatePen(PS_SOLID, 1, RGB(214, 218, 224));
+        HPEN oldPen = (HPEN)SelectObject(dc, pen);
+        HBRUSH oldBr = (HBRUSH)SelectObject(dc, GetStockObject(NULL_BRUSH));
+        RoundRect(dc, r.left, r.top, r.right + 1, r.bottom + 1, 4, 4);
+        SelectObject(dc, oldPen);
+        SelectObject(dc, oldBr);
+        DeleteObject(pen);
+        // 文字
+        auto* self = (App*)ref;
+        const wchar_t* key = L"Ctrl+Shift+V";
+        SelectObject(dc, self->m_fontMeta);
+        SetBkMode(dc, TRANSPARENT);
+        SetTextColor(dc, RGB(110, 116, 125));
+        SIZE sz;
+        GetTextExtentPoint32W(dc, key, 12, &sz);
+        TextOutW(dc, r.left + 6, r.top + (r.bottom - r.top) / 2 - sz.cy / 2,
+                 key, 12);
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
     return DefSubclassProc(hwnd, msg, wParam, lParam);
 }
 

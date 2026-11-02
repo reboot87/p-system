@@ -37,6 +37,7 @@ enum {
     IDC_MANUAL_EDIT = 1003,   // F4 内容录入框
     IDC_SAVE_BUTTON = 1004,   // F4 保存按钮（自绘强调色）
     IDC_NOTE_EDIT   = 1005,   // 备注输入框
+    IDC_SEARCH_CHIP = 1006,   // 搜索框右侧 Ctrl+Shift+V 快捷键提示（独立置顶子窗口）
 };
 
 // 定时器 ID
@@ -111,9 +112,12 @@ private:
                                      UINT_PTR, DWORD_PTR);
     static LRESULT CALLBACK SaveBtnProc(HWND, UINT, WPARAM, LPARAM,
                                         UINT_PTR, DWORD_PTR);
-    // 输入框子类化：Esc 收起表单 / 取消备注编辑；搜索框右侧快捷键 chip
+    // 输入框子类化：Esc 收起表单 / 取消备注编辑；搜索框占位提示
     static LRESULT CALLBACK EditPlaceholderProc(HWND, UINT, WPARAM, LPARAM,
                                                 UINT_PTR, DWORD_PTR);
+    // 搜索框右侧 Ctrl+Shift+V 快捷键提示：独立置顶子窗口，避免被编辑框 hover/焦点重绘覆盖
+    static LRESULT CALLBACK SearchChipProc(HWND, UINT, WPARAM, LPARAM,
+                                          UINT_PTR, DWORD_PTR);
 
     bool CreateMainWindow(HINSTANCE hInstance);
     void CreateUI(HWND hwnd);
@@ -163,6 +167,7 @@ private:
     HWND           m_hManualEdit = nullptr;
     HWND           m_hNoteEdit   = nullptr;
     HWND           m_hSaveBtn    = nullptr;
+    HWND           m_hSearchChip = nullptr;   // 搜索框右侧 Ctrl+Shift+V 快捷键提示（置顶子窗口）
     HFONT          m_font     = nullptr;  // 正文 14
     HFONT          m_fontMeta = nullptr;  // 元信息 12
     HFONT          m_fontTitle= nullptr;  // 应用名 13 semibold
