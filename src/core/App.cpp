@@ -150,11 +150,12 @@ HWND App::Hwnd()
     return m_shell.Hwnd();
 }
 
-HWND App::List()          { return m_clips ? m_clips->List() : nullptr; }
-HWND App::SearchEdit()    { return m_clips ? m_clips->SearchEdit() : nullptr; }
-HWND App::ManualEdit()    { return m_clips ? m_clips->ManualEdit() : nullptr; }
-HWND App::NoteEdit()      { return m_clips ? m_clips->NoteEdit() : nullptr; }
-HWND App::NoteEditMulti() { return m_clips ? m_clips->NoteEditMulti() : nullptr; }
+// 插件属集成层：仍以 HWND 交互（页面内部已完全 Widget 化）
+HWND App::List()          { return m_clips ? m_clips->List().Native() : nullptr; }
+HWND App::SearchEdit()    { return m_clips ? m_clips->SearchEdit().Native() : nullptr; }
+HWND App::ManualEdit()    { return m_clips ? m_clips->ManualEdit().Native() : nullptr; }
+HWND App::NoteEdit()      { return m_clips ? m_clips->NoteEdit().Native() : nullptr; }
+HWND App::NoteEditMulti() { return m_clips ? m_clips->NoteEditMulti().Native() : nullptr; }
 
 void App::RefreshList(const std::wstring& filter)
 {

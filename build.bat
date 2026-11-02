@@ -48,7 +48,9 @@ if errorlevel 1 (
 echo [2/5] Building UI library airui.lib ...
 cl %CFLAGS% /c /I src\airui\include ^
    src\airui\src\Theme.cpp src\airui\src\Gfx.cpp ^
-   src\airui\src\Fonts.cpp src\airui\src\Controls.cpp src\airui\src\Shell.cpp ^
+   src\airui\src\Fonts.cpp src\airui\src\Controls.cpp ^
+   src\airui\src\Canvas.cpp src\airui\src\Widgets.cpp ^
+   src\airui\src\Page.cpp src\airui\src\Shell.cpp ^
    /Fo:build\ui_\
 if errorlevel 1 (
   echo [ERROR] AirUI build failed

@@ -7,7 +7,7 @@
 
 class App;
 
-class OverviewPage : public air::ui::IPage
+class OverviewPage : public air::ui::Page
 {
 public:
     explicit OverviewPage(App& app) : m_app(app) {}
@@ -18,15 +18,13 @@ public:
 
     void OnShow(bool shown) override;
     void OnLayout(const RECT& content) override;
-    void OnPaint(HDC dc, const RECT& content) override;
+    void OnPaint(air::ui::Canvas& g, const RECT& content) override;
     bool OnMouseDown(POINT pt) override;
     bool OnMouseMove(POINT pt) override;
     bool OnMouseLeave() override;
 
 private:
-    const air::ui::Fonts& F() const { return m_shell->UiFonts(); }
-
-    void DrawModuleCard(HDC dc, RECT r, int idx,
+    void DrawModuleCard(air::ui::Canvas& g, RECT r, int idx,
                         const wchar_t* glyph,
                         COLORREF icBg, COLORREF icTx,
                         const wchar_t* name, const wchar_t* desc,

@@ -6,16 +6,32 @@
 //
 //   #include "airui/AirUi.h"
 //
+//   class HelloPage : public air::ui::Page {
+//       const wchar_t* Title() const override { return L"首页"; }
+//       void OnPaint(air::ui::Canvas& g, const RECT& rc) override {
+//           g.FillRound(rc, Pal().surface, Mx().radiusLg);
+//           g.TextRowCenter(rc, L"Hello AirUI", FontRole::Title, Pal().text);
+//       }
+//   };
+//
 //   air::ui::Shell shell;
 //   air::ui::ShellOptions opt;
 //   opt.appName = L"MyApp";
 //   shell.Create(hInstance, opt);
-//   shell.AddPage(1, std::make_unique<MyPage>());
+//   shell.AddPage(1, std::make_unique<HelloPage>());
 //   return shell.RunMessageLoop();
+//
+// 页面作者不需要接触 HDC / HFONT / HWND / DRAWITEMSTRUCT：
+//   · 绘制    → Canvas（语义化字体 + 调色板）
+//   · 控件    → CreateTextBox / CreateButton / CreateListBox / CreateCustom
+//   · 定时器  → StartTimer / KillTimer
+//   · 弹窗    → ShowMessageBox / ShowPopupMenu
 // ============================================================
 #include "Theme.h"
 #include "Gfx.h"
 #include "Fonts.h"
-#include "Page.h"
+#include "Canvas.h"
 #include "Controls.h"
+#include "Widgets.h"
+#include "Page.h"
 #include "Shell.h"

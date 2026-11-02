@@ -37,6 +37,7 @@ Shell::Shell() = default;
 
 Shell::~Shell()
 {
+    m_widgets.clear();
     for (auto& slot : m_pages)
         if (slot.page) slot.page->OnDetach();
     m_pages.clear();
@@ -326,6 +327,76 @@ void Shell::InvalidateTitle()
     GetClientRect(m_hwnd, &rc);
     rc.bottom = Mx().titleH;
     ::InvalidateRect(m_hwnd, &rc, FALSE);
+}
+
+void Shell::InvalidateRegion(const RECT& rcClient)
+{
+    if (m_hwnd) ::InvalidateRect(m_hwnd, &rcClient, FALSE);
+}
+
+void Shell::SetRedraw(bool on)
+{
+    if (m_hwnd) SendMessageW(m_hwnd, WM_SETREDRAW, on ? TRUE : FALSE, 0);
+}
+
+int Shell::ShowMessageBox(const std::wstring& text, const std::wstring& caption,
+                          UINT flags)
+{
+    return MessageBoxW(m_hwnd, text.c_str(), caption.c_str(), flags);
+}
+
+int Shell::ShowPopupMenu(POINT screenPt, const std::vector<MenuItem>& items)
+{
+    if (!m_hwnd || items.empty()) return 0;
+
+    HMENU menu = CreatePopupMenu();
+    for (const auto& it : items) {
+        if (it.separator) {
+            AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        } else {
+            UINT f = MF_STRING | (it.disabled ? MF_DISABLED : 0);
+            AppendMenuW(menu, f, it.id, it.label.c_str());
+        }
+    }
+
+    SetForegroundWindow(m_hwnd);
+    int cmd = TrackPopupMenu(menu,
+                             TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON,
+                             screenPt.x, screenPt.y, 0, m_hwnd, nullptr);
+    PostMessageW(m_hwnd, WM_NULL, 0, 0);
+    DestroyMenu(menu);
+    return cmd;
+}
+
+int Shell::MeasureTextWidth(const std::wstring& s, FontRole role)
+{
+    HDC dc = GetDC(nullptr);
+    int w = gfx::MeasureWidth(dc, m_fonts.Get(role), s);
+    ReleaseDC(nullptr, dc);
+    return w;
+}
+
+int Shell::TextLineHeight(FontRole role)
+{
+    HDC dc = GetDC(nullptr);
+    int h = gfx::LineHeight(dc, m_fonts.Get(role));
+    ReleaseDC(nullptr, dc);
+    return h;
+}
+
+// ============================================================
+// 控件注册表
+// ============================================================
+void Shell::RegisterWidget(Widget* w)
+{
+    if (w) m_widgets.push_back(w);
+}
+
+Widget* Shell::WidgetAt(int id)
+{
+    for (Widget* w : m_widgets)
+        if (w && w->Id() == id) return w;
+    return nullptr;
 }
 
 void Shell::SetMessageHook(
@@ -776,20 +847,30 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
     case WM_COMMAND: {
         int ctrlId = LOWORD(wParam), code = HIWORD(wParam);
+        // 1) 控件自身回调优先（Button::OnClick / ListBox::onSelectChanged…）
+        if (Widget* w = WidgetAt(ctrlId))
+            if (w->HandleCommand(code)) return 0;
+        // 2) 页面（含插件分发）
         if (IPage* p = CurrentPage())
             if (p->OnCommand(ctrlId, code)) return 0;
         break;
     }
 
     case WM_MEASUREITEM:
+        if (Widget* w = WidgetAt((int)((MEASUREITEMSTRUCT*)lParam)->CtlID))
+            if (w->HandleMeasureItem((MEASUREITEMSTRUCT*)lParam)) return TRUE;
         if (IPage* p = CurrentPage())
             if (p->OnMeasureItem((MEASUREITEMSTRUCT*)lParam)) return TRUE;
         break;
 
-    case WM_DRAWITEM:
+    case WM_DRAWITEM: {
+        auto* dis = (DRAWITEMSTRUCT*)lParam;
+        if (Widget* w = WidgetAt((int)dis->CtlID))
+            if (w->HandleDrawItem(dis)) return TRUE;
         if (IPage* p = CurrentPage())
-            if (p->OnDrawItem((DRAWITEMSTRUCT*)lParam)) return TRUE;
+            if (p->OnDrawItem(dis)) return TRUE;
         break;
+    }
 
     case WM_TIMER:
         if (IPage* p = CurrentPage())

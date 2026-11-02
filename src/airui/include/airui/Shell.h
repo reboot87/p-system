@@ -94,6 +94,20 @@ public:
     void Invalidate();          // 整窗
     void InvalidateContent();   // 仅内容区
     void InvalidateTitle();     // 仅标题栏
+    void InvalidateRegion(const RECT& rcClient);  // 客户区局部
+
+    // ---- 批量绘制（WM_SETREDRAW 封装） ----
+    void SetRedraw(bool on);
+
+    // ---- 对话框 / 菜单（父窗口由 Shell 承担） ----
+    int ShowMessageBox(const std::wstring& text, const std::wstring& caption,
+                       UINT flags = MB_OK);
+    // 返回被点击的命令 id；0 = 未选择
+    int ShowPopupMenu(POINT screenPt, const std::vector<MenuItem>& items);
+
+    // ---- 排版期度量（无 DC 环境，如布局回调里） ----
+    int MeasureTextWidth(const std::wstring& s, FontRole role);
+    int TextLineHeight(FontRole role);
 
     // 注意：成员函数不能叫 Fonts()，否则会遮蔽类型名 Fonts
     const ui::Fonts& UiFonts() const { return m_fonts; }
@@ -116,6 +130,11 @@ public:
 protected:
     // 供派生类画自定义标题栏元素（在标题右侧、状态胶囊左侧）
     virtual void OnPaintCaptionExtra(HDC dc, const RECT& bar) { (void)dc; (void)bar; }
+
+    // ---- 控件注册表（Page 创建控件时登记，消息由此路由） ----
+    friend class Page;
+    void    RegisterWidget(Widget* w);
+    Widget* WidgetAt(int id);
 
 private:
     static LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
@@ -147,6 +166,7 @@ private:
 
     std::vector<PageSlot> m_pages;
     std::vector<NavGroup> m_navGroups;   // 侧栏结构（单一数据源）
+    std::vector<Widget*>  m_widgets;     // 控件注册表（页面拥有）
     int           m_pageId = -1;
 
     RECT          m_content = {};

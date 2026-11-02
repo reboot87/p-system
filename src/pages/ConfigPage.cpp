@@ -5,20 +5,15 @@
 
 using namespace air::ui;
 
-void ConfigPage::OnAttach(Shell& shell)
-{
-    (void)shell;
-}
-
 void ConfigPage::OnShow(bool shown)
 {
     if (!shown) {
-        KillTimer(m_shell->Hwnd(), TIMER_SYSINFO);
+        KillTimer(TIMER_SYSINFO);
         return;
     }
     m_sys = sysinfo::Collect();
     m_sysLoaded = true;
-    SetTimer(m_shell->Hwnd(), TIMER_SYSINFO, 2000, nullptr);
+    StartTimer(TIMER_SYSINFO, 2000);
 }
 
 void ConfigPage::OnLayout(const RECT& content)
@@ -34,28 +29,26 @@ bool ConfigPage::OnTimer(UINT_PTR id)
     return true;
 }
 
-void ConfigPage::DrawInfoCard(HDC dc, RECT rc, const CardData& c)
+void ConfigPage::DrawInfoCard(Canvas& g, RECT rc, const CardData& c)
 {
     const Palette& p = Pal();
     const Metrics& m = Mx();
 
-    gfx::FillRound(dc, rc, p.surface, m.radiusLg);
-    gfx::Stroke(dc, rc, p.split, m.radiusLg);
+    g.FillRound(rc, p.surface, m.radiusLg);
+    g.Stroke(rc, p.split, m.radiusLg);
 
     // 头部：图标块 + 标题 + 右上角状态
     RECT ic = { rc.left + 14, rc.top + 10, rc.left + 40, rc.top + 36 };
-    gfx::IconTile(dc, ic, c.glyph, F().Get(FontRole::Icon),
-                  p.primarySoft, p.primary, 6);
+    g.IconTile(ic, c.glyph, FontRole::Icon, p.primarySoft, p.primary, 6);
 
     RECT rcT = { ic.right + 8, rc.top + 10, rc.right - 90, rc.top + 36 };
-    gfx::Text(dc, F().Get(FontRole::Title), p.text, rcT, c.title,
-              DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
+    g.Text(rcT, c.title, FontRole::Title, p.text,
+           DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
 
     if (!c.badge.empty()) {
-        gfx::PillRight(dc, rc.right - 14, rc.top + 13, c.badge.c_str(),
-                       F().Get(FontRole::Meta),
-                       c.badgeOk ? p.okSoft : p.primarySoft,
-                       c.badgeOk ? p.okText : p.primaryText);
+        g.PillRight(rc.right - 14, rc.top + 13, c.badge, FontRole::Meta,
+                    c.badgeOk ? p.okSoft : p.primarySoft,
+                    c.badgeOk ? p.okText : p.primaryText);
     }
 
     // 行
@@ -67,36 +60,34 @@ void ConfigPage::DrawInfoCard(HDC dc, RECT rc, const CardData& c)
         int bar = f.size() > 2 ? _wtoi(f[2].c_str()) : -1;
 
         RECT rcK = { rc.left + 16, y, rc.left + 112, y + 22 };
-        gfx::Text(dc, F().Get(FontRole::Meta), p.textFaint, rcK, k,
-                  DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
+        g.Text(rcK, k, FontRole::Meta, p.textFaint,
+               DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
 
         bool hasBar = (bar >= 0 && bar <= 100);
         int vRight = hasBar ? rc.right - 16 - 158 : rc.right - 16;
         RECT rcV = { rc.left + 118, y, vRight, y + 22 };
-        gfx::Text(dc, F().Get(FontRole::Body), p.text, rcV, v,
-                  DT_SINGLELINE | DT_LEFT | DT_VCENTER |
-                  DT_END_ELLIPSIS | DT_NOPREFIX);
+        g.Text(rcV, v, FontRole::Body, p.text,
+               DT_SINGLELINE | DT_LEFT | DT_VCENTER |
+               DT_END_ELLIPSIS | DT_NOPREFIX);
 
         if (hasBar) {
             RECT rcBar = { rc.right - 16 - 160, y + 7, rc.right - 16 - 46,
                            y + 14 };
-            gfx::ProgressBar(dc, rcBar, bar, RGB(239, 241, 244),
-                             p.primary, RGB(250, 173, 20), RGB(229, 72, 77));
+            g.ProgressBar(rcBar, bar, RGB(239, 241, 244),
+                          p.primary, RGB(250, 173, 20), RGB(229, 72, 77));
 
             wchar_t pct[16];
             swprintf_s(pct, 16, L"%d%%", bar);
             RECT rcPct = { rc.right - 16 - 42, y, rc.right - 16, y + 22 };
-            gfx::Text(dc, F().Get(FontRole::Meta), p.textFaint, rcPct, pct,
-                      DT_SINGLELINE | DT_RIGHT | DT_VCENTER | DT_NOPREFIX);
+            g.Text(rcPct, pct, FontRole::Meta, p.textFaint,
+                   DT_SINGLELINE | DT_RIGHT | DT_VCENTER | DT_NOPREFIX);
         }
         y += 26;
     }
 }
 
-void ConfigPage::OnPaint(HDC dc, const RECT& content)
+void ConfigPage::OnPaint(Canvas& g, const RECT& content)
 {
-    const Palette& p = Pal();
-
     if (!m_sysLoaded) {
         m_sys = sysinfo::Collect();
         m_sysLoaded = true;
@@ -227,9 +218,7 @@ void ConfigPage::OnPaint(HDC dc, const RECT& content)
         RECT rc;
         if (col == 0) { rc = { x0, yL, x0 + colW, yL + h }; yL += h + 14; }
         else          { rc = { x0 + colW + 14, yR, x1, yR + h }; yR += h + 14; }
-        DrawInfoCard(dc, rc, c);
+        DrawInfoCard(g, rc, c);
         col ^= 1;
     }
-
-    (void)p;
 }
