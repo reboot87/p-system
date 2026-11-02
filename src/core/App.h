@@ -36,8 +36,9 @@ enum {
     IDC_LIST        = 1002,   // 记录列表（owner-draw 双行卡片）
     IDC_MANUAL_EDIT = 1003,   // F4 内容录入框
     IDC_SAVE_BUTTON = 1004,   // F4 保存按钮（自绘强调色）
-    IDC_NOTE_EDIT   = 1005,   // 备注输入框
+    IDC_NOTE_EDIT   = 1005,   // 备注输入框（表单卡，单行）
     IDC_SEARCH_CHIP = 1006,   // 搜索框右侧 Ctrl+Shift+V 快捷键提示（独立置顶子窗口）
+    IDC_NOTE_MULTI  = 1007,   // 备注输入框（详情面板编辑态，多行）
 };
 
 // 定时器 ID
@@ -68,6 +69,7 @@ public:
     HWND     SearchEdit() const { return m_hSearch; }
     HWND     ManualEdit() const { return m_hManualEdit; }
     HWND     NoteEdit() const { return m_hNoteEdit; }
+    HWND     NoteEditMulti() const { return m_hNoteMulti; }
     PipeClient& Ipc() { return m_ipc; }
     PluginManager& Plugins() { return m_plugins; }
 
@@ -124,6 +126,8 @@ private:
     void Layout();
     void ApplyRoundedRegion(HWND ctrl, int radius);
     void UpdateFont(HWND ctrl);
+    // 输入类控件显隐：表单卡单行备注框 / 详情面板多行备注框互斥
+    void SyncEditCtrlsVisibility();
 
     void DrawListItem(const DRAWITEMSTRUCT* dis);
     void DrawSaveButton(const DRAWITEMSTRUCT* dis);
@@ -165,7 +169,8 @@ private:
     HWND           m_hSearch     = nullptr;
     HWND           m_hList       = nullptr;
     HWND           m_hManualEdit = nullptr;
-    HWND           m_hNoteEdit   = nullptr;
+    HWND           m_hNoteEdit   = nullptr;   // 备注输入框（表单卡，单行）
+    HWND           m_hNoteMulti  = nullptr;   // 备注输入框（详情面板编辑态，多行）
     HWND           m_hSaveBtn    = nullptr;
     HWND           m_hSearchChip = nullptr;   // 搜索框右侧 Ctrl+Shift+V 快捷键提示（置顶子窗口）
     HFONT          m_font     = nullptr;  // 正文 14
@@ -184,6 +189,7 @@ private:
     RECT           m_rcSide      = {};    // 侧栏区域
     RECT           m_rcSearchBox = {};    // 搜索框视觉外框（父窗口绘制圆角底与边框）
     RECT           m_rcNoteBox   = {};    // 表单卡备注框视觉外框
+    RECT           m_rcNoteMulti = {};    // 详情面板备注编辑框视觉外框
     int            m_lineH = 21;          // 单行输入框内部文字行高（EDIT 客户区高度）
     bool           m_btnHover = false;
     int            m_hoverItem = -1;      // 列表 hover 项

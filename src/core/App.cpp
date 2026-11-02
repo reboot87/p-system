@@ -209,6 +209,15 @@ void App::CreateUI(HWND hwnd)
         0, 0, 0, 0, hwnd, (HMENU)IDC_NOTE_EDIT, nullptr, nullptr);
     SetWindowSubclass(m_hNoteEdit, &App::EditPlaceholderProc, 4, (DWORD_PTR)this);
 
+    // 详情面板备注编辑态：多行 EDIT（备注显示区本就是多行折行，
+    // 用单行框无法编辑长备注；且单行 EDIT 只能占 64px 显示框中间一条，
+    // 上下留大片空白，视觉失衡）
+    m_hNoteMulti = CreateWindowExW(0, L"EDIT", L"",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_MULTILINE |
+        ES_AUTOVSCROLL | ES_WANTRETURN,
+        0, 0, 0, 0, hwnd, (HMENU)IDC_NOTE_MULTI, nullptr, nullptr);
+    SetWindowSubclass(m_hNoteMulti, &App::EditPlaceholderProc, 7, (DWORD_PTR)this);
+
     m_hManualEdit = CreateWindowExW(0, L"EDIT", L"",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_MULTILINE |
         ES_AUTOVSCROLL | ES_WANTRETURN,
@@ -262,6 +271,9 @@ void App::CreateUI(HWND hwnd)
     UpdateFont(m_hList);
     UpdateFont(m_hManualEdit);
     UpdateFont(m_hNoteEdit);
+    // 多行备注框用 12px 元信息字体：与详情面板备注显示态（12px）一致，
+    // 进入编辑时字号不变，避免文字换行位置跳动。
+    SendMessageW(m_hNoteMulti, WM_SETFONT, (WPARAM)m_fontMeta, TRUE);
     UpdateFont(m_hSaveBtn);
 
     // 统一 8px 文字内边距（企业级输入规范），并修复 cue 文字贴边
@@ -271,6 +283,7 @@ void App::CreateUI(HWND hwnd)
     };
     SetMargins(m_hSearch);
     SetMargins(m_hNoteEdit);
+    SetMargins(m_hNoteMulti);
     SetMargins(m_hManualEdit);
 
     m_brBg    = CreateSolidBrush(theme::Bg);
@@ -416,22 +429,45 @@ void App::Layout()
         MoveWindow(m_hSaveBtn, fx + fw - btnW, rowY, btnW, 32, TRUE);
         m_rcFormClose = { m_rcFormCard.right - 62, m_rcFormCard.top + 14,
                           m_rcFormCard.right - 16, m_rcFormCard.top + 36 };
+        m_rcNoteMulti = {};
     }
     // ---- 备注编辑态：备注框/按钮覆盖到详情面板"备注"区 ----
     else if (m_editingId && m_rcDetail.right > m_rcDetail.left) {
         RECT nb = DetailNoteBox(m_rcDetail);
-        // 备注编辑态同样是单行 EDIT：客户区压到一行文字高并垂直居中，文字真正居中
-        MoveWindow(m_hNoteEdit,
-                   nb.left, nb.top + (nb.bottom - nb.top - m_lineH) / 2,
-                   nb.right - nb.left, m_lineH, TRUE);
+        // 编辑态用多行 EDIT 铺满整个备注区（与显示态的多行折行版式一致）：
+        // 单行 EDIT 只能占 64px 框中间一条，上下留大片空白，
+        // 且无法编辑长备注（单行会横向滚动）。
+        m_rcNoteMulti = nb;
+        // 内缩 4px：给父窗口画的输入框边框留出空间（多行 EDIT 无自身边框）
+        MoveWindow(m_hNoteMulti,
+                   nb.left + 4, nb.top + 4,
+                   nb.right - nb.left - 8, nb.bottom - nb.top - 8, TRUE);
         MoveWindow(m_hSaveBtn, m_rcDetail.left + 16,
                    nb.bottom + 10, 96, 30, TRUE);
         m_rcFormClose = {};
+        m_rcNoteBox = {};      // 表单卡备注框不参与命中（编辑态用的是多行框）
     }
     else {
         // 无表单 / 无备注编辑态：备注框不可见，清空视觉框避免误命中
         m_rcNoteBox = {};
+        m_rcNoteMulti = {};
     }
+}
+
+// 输入类控件显隐：
+//   表单卡态（m_formOpen）→ 单行内容框 + 单行备注框 + 保存按钮
+//   备注编辑态（m_editingId）→ 多行备注框 + 保存按钮（内容框收起）
+// 两者互斥，避免单行备注框与多行备注框同时出现在详情面板上。
+void App::SyncEditCtrlsVisibility()
+{
+    bool clips = (m_page == PageClips);
+    bool form  = clips && m_formOpen && !m_editingId;
+    bool edit  = clips && (m_editingId != 0);
+    if (m_hManualEdit) ShowWindow(m_hManualEdit, form ? SW_SHOW : SW_HIDE);
+    if (m_hNoteEdit)   ShowWindow(m_hNoteEdit,   form ? SW_SHOW : SW_HIDE);
+    if (m_hNoteMulti)  ShowWindow(m_hNoteMulti,  edit ? SW_SHOW : SW_HIDE);
+    if (m_hSaveBtn)    ShowWindow(m_hSaveBtn,
+                                   (form || edit) ? SW_SHOW : SW_HIDE);
 }
 
 std::wstring App::GetWindowTextStr(HWND ctrl)
@@ -508,11 +544,8 @@ void App::SwitchPage(WorkPage page)
     ShowWindow(m_hSearch, clips ? SW_SHOW : SW_HIDE);
     ShowWindow(m_hSearchChip, clips ? SW_SHOW : SW_HIDE);
     ShowWindow(m_hList,  clips ? SW_SHOW : SW_HIDE);
-    // 录入/备注/按钮：表单卡展开或备注编辑态时显示（位置由 Layout 决定）
-    bool editCtrls = clips && (m_formOpen || m_editingId);
-    HWND ctrls[] = { m_hManualEdit, m_hNoteEdit, m_hSaveBtn };
-    for (HWND h : ctrls)
-        if (h) ShowWindow(h, editCtrls ? SW_SHOW : SW_HIDE);
+    // 录入/备注/按钮：按当前状态显隐（位置由 Layout 决定）
+    SyncEditCtrlsVisibility();
     SendMessageW(m_hwnd, WM_SETREDRAW, TRUE, 0);
 
     if (page == PageConfig) {
@@ -534,10 +567,7 @@ void App::ToggleForm(bool open)
     m_formOpen = open;
     Layout();
     SendMessageW(m_hwnd, WM_SETREDRAW, FALSE, 0);
-    bool showCtrls = (m_page == PageClips) && (m_formOpen || m_editingId);
-    HWND ctrls[] = { m_hManualEdit, m_hNoteEdit, m_hSaveBtn };
-    for (HWND h : ctrls)
-        if (h) ShowWindow(h, showCtrls ? SW_SHOW : SW_HIDE);
+    SyncEditCtrlsVisibility();
     SendMessageW(m_hwnd, WM_SETREDRAW, TRUE, 0);
     InvalidateRect(m_hwnd, nullptr, FALSE);
     if (open && m_hManualEdit) {
@@ -1226,6 +1256,17 @@ static void ForwardClickToEdit(HWND edit, HFONT font, POINT pt)
     SetCaretPos(cx, cy);
 }
 
+// 清空编辑框文本。
+// 用 EM_SETSEL + EM_REPLACESEL（而非 SetWindowTextW）：
+// 前者真正替换选区内容，是编辑框修改文本的标准可靠方式，
+// 且在多行 EDIT 上同样适用。
+static void ClearEditText(HWND edit)
+{
+    if (!edit || !IsWindow(edit)) return;
+    SendMessageW(edit, EM_SETSEL, 0, -1);
+    SendMessageW(edit, EM_REPLACESEL, FALSE, (LPARAM)L"");
+}
+
 void App::DrawClipsPage(HDC dc, const RECT& rcClient)
 {
     SetBkMode(dc, TRANSPARENT);
@@ -1383,23 +1424,31 @@ void App::DrawDetailPanel(HDC dc)
     RECT rcNs = { d.left + 16, d.top + 308, d.right - 16, d.top + 326 };
     SelectObject(dc, m_fontMeta);
     SetTextColor(dc, RGB(143, 149, 158));
-    DrawTextW(dc, L"备注（点击编辑）", -1, &rcNs,
-              DT_SINGLELINE | DT_LEFT | DT_VCENTER);
+    bool noteEditing = (m_editingId != 0);
+    DrawTextW(dc, noteEditing ? L"备注（编辑中，Esc 取消）" : L"备注（点击编辑）",
+              -1, &rcNs, DT_SINGLELINE | DT_LEFT | DT_VCENTER);
     RECT nb = DetailNoteBox(d);
-    FillRoundRect(dc, nb, RGB(255, 254, 245), 8);
-    HPEN pen = CreatePen(PS_DASH, 1, RGB(212, 217, 225));
-    HPEN oldPen = (HPEN)SelectObject(dc, pen);
-    HBRUSH oldBr = (HBRUSH)SelectObject(dc, GetStockObject(NULL_BRUSH));
-    RoundRect(dc, nb.left, nb.top, nb.right + 1, nb.bottom + 1, 8, 8);
-    SelectObject(dc, oldPen);
-    SelectObject(dc, oldBr);
-    DeleteObject(pen);
-    RECT rcNote = { nb.left + 10, nb.top + 8,
-                    nb.right - 10, nb.bottom - 8 };
-    SelectObject(dc, m_fontMeta);
-    SetTextColor(dc, RGB(100, 106, 115));
-    DrawTextW(dc, e.note.c_str(), (int)e.note.size(), &rcNote,
-              DT_WORDBREAK | DT_END_ELLIPSIS | DT_LEFT);
+    if (noteEditing) {
+        // 编辑态：改成常规输入框外观（白底 + 实线边框），
+        // 多行 EDIT 铺满其内部；不画旧备注文本，避免与编辑内容重叠。
+        FillRoundRect(dc, nb, theme::Surface, 8);
+        DrawRoundRectOutline(dc, nb, theme::BorderIn, 8);
+    } else {
+        FillRoundRect(dc, nb, RGB(255, 254, 245), 8);
+        HPEN pen = CreatePen(PS_DASH, 1, RGB(212, 217, 225));
+        HPEN oldPen = (HPEN)SelectObject(dc, pen);
+        HBRUSH oldBr = (HBRUSH)SelectObject(dc, GetStockObject(NULL_BRUSH));
+        RoundRect(dc, nb.left, nb.top, nb.right + 1, nb.bottom + 1, 8, 8);
+        SelectObject(dc, oldPen);
+        SelectObject(dc, oldBr);
+        DeleteObject(pen);
+        RECT rcNote = { nb.left + 10, nb.top + 8,
+                        nb.right - 10, nb.bottom - 8 };
+        SelectObject(dc, m_fontMeta);
+        SetTextColor(dc, RGB(100, 106, 115));
+        DrawTextW(dc, e.note.c_str(), (int)e.note.size(), &rcNote,
+                  DT_WORDBREAK | DT_END_ELLIPSIS | DT_LEFT);
+    }
 
     // 底部操作：复制内容 / 备注 / 删除
     int bw = (d.right - d.left - 32 - 16) / 3;
@@ -1815,12 +1864,11 @@ void App::StartNoteEdit(long long id, const std::wstring& note)
 {
     if (m_formOpen) ToggleForm(false);   // 表单卡收起，备注控件让位
     m_editingId = id;
-    Layout();                            // 备注框覆盖到详情面板
-    SetWindowTextW(m_hNoteEdit, note.c_str());
+    Layout();                            // 多行备注框覆盖到详情面板备注区
+    SetWindowTextW(m_hNoteMulti, note.c_str());
     SetWindowTextW(m_hSaveBtn, L"保存备注");
-    ShowWindow(m_hNoteEdit, SW_SHOW);
-    ShowWindow(m_hSaveBtn, SW_SHOW);
-    SetFocus(m_hNoteEdit);
+    SyncEditCtrlsVisibility();
+    SetFocus(m_hNoteMulti);
     InvalidateRect(m_hwnd, nullptr, FALSE);
 }
 
@@ -1829,27 +1877,23 @@ void App::CancelNoteEdit()
     if (!m_editingId) return;
     m_editingId = 0;
     SetWindowTextW(m_hSaveBtn, L"保存记录");
+    ClearEditText(m_hNoteMulti);
     Layout();
-    bool show = (m_page == PageClips && m_formOpen);
-    ShowWindow(m_hNoteEdit, show ? SW_SHOW : SW_HIDE);
-    ShowWindow(m_hSaveBtn, show ? SW_SHOW : SW_HIDE);
-    ShowWindow(m_hManualEdit, show ? SW_SHOW : SW_HIDE);
+    SyncEditCtrlsVisibility();
     InvalidateRect(m_hwnd, nullptr, FALSE);
 }
 
 void App::SaveNoteEdit()
 {
     if (!m_editingId) return;
-    std::wstring note = GetWindowTextStr(m_hNoteEdit);
+    std::wstring note = GetWindowTextStr(m_hNoteMulti);
     m_ipc.Request(L"NOTE\t" + std::to_wstring(m_editingId) +
                   L"\t" + ipc::EscapeField(note));
     m_editingId = 0;
     SetWindowTextW(m_hSaveBtn, L"保存记录");
+    ClearEditText(m_hNoteMulti);
     Layout();
-    bool show = (m_page == PageClips && m_formOpen);
-    ShowWindow(m_hNoteEdit, show ? SW_SHOW : SW_HIDE);
-    ShowWindow(m_hSaveBtn, show ? SW_SHOW : SW_HIDE);
-    ShowWindow(m_hManualEdit, show ? SW_SHOW : SW_HIDE);
+    SyncEditCtrlsVisibility();
     RefreshList(GetSearchText());
     RefreshStats();
 }
@@ -2182,10 +2226,18 @@ LRESULT CALLBACK App::EditPlaceholderProc(HWND hwnd, UINT msg, WPARAM wParam,
 {
     auto* self = (App*)ref;
     // 备注编辑态：Esc 取消（吞掉默认提示音）
+    // 详情面板编辑态用的是多行备注框（IDC_NOTE_MULTI），
+    // 表单卡里的单行备注框（IDC_NOTE_EDIT）不参与备注编辑。
     if (msg == WM_KEYDOWN && wParam == VK_ESCAPE &&
-        GetDlgCtrlID(hwnd) == IDC_NOTE_EDIT && self->m_editingId) {
+        GetDlgCtrlID(hwnd) == IDC_NOTE_MULTI && self->m_editingId) {
         self->CancelNoteEdit();
-        SetWindowTextW(hwnd, L"");
+        return 0;
+    }
+    // 备注编辑态：Ctrl+Enter 保存（与手动录入框一致）
+    if (msg == WM_KEYDOWN && wParam == VK_RETURN &&
+        (GetKeyState(VK_CONTROL) & 0x8000) &&
+        GetDlgCtrlID(hwnd) == IDC_NOTE_MULTI && self->m_editingId) {
+        self->SaveNoteEdit();
         return 0;
     }
     // 表单卡展开：Esc 收起
@@ -2233,6 +2285,7 @@ LRESULT CALLBACK App::EditPlaceholderProc(HWND hwnd, UINT msg, WPARAM wParam,
             case IDC_SEARCH_EDIT: ph = L"搜索内容和备注…"; break;
             case IDC_MANUAL_EDIT: ph = L"输入要保存的内容…"; break;
             case IDC_NOTE_EDIT:   ph = L"备注（可选）";     break;
+            case IDC_NOTE_MULTI:  ph = L"输入备注…";         break;
             }
             if (ph) {
                 HDC dc = GetDC(hwnd);
@@ -2244,7 +2297,10 @@ LRESULT CALLBACK App::EditPlaceholderProc(HWND hwnd, UINT msg, WPARAM wParam,
                 rc.right -= 9;
                 SetBkMode(dc, TRANSPARENT);
                 SetTextColor(dc, theme::TextFaint);
-                SelectObject(dc, self->m_font);
+                // 多行备注框用 12px 元信息字体（与详情面板显示态一致），
+                // 其余输入框用 14px 正文字体。
+                SelectObject(dc, (GetDlgCtrlID(hwnd) == IDC_NOTE_MULTI)
+                                 ? self->m_fontMeta : self->m_font);
                 // 真实文字由系统绘制：单行 EDIT 恒定贴在客户区顶部（不是垂直居中），
                 // 多行 EDIT 首行同样在顶部。故占位字一律用 DT_TOP 顶对齐，
                 // 与真实文字落在完全相同的基线上，避免"空态居中 / 有字贴顶"的错位。
@@ -2481,7 +2537,9 @@ LRESULT App::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 return 0;
             }
             // 详情面板"备注"框：点击就地编辑
-            if (m_selEntry >= 0) {
+            // （编辑态下多行备注框已覆盖该区域，由 EDIT 自身接收点击；
+            //   若在此重复触发 StartNoteEdit 会重置已输入的备注内容）
+            if (m_selEntry >= 0 && !m_editingId) {
                 RECT nb = DetailNoteBox(m_rcDetail);
                 if (PtInRect(&nb, pt)) {
                     OnListOp(m_selEntry, 1);
