@@ -1,2 +1,5 @@
 // AireRecord 应用图标资源
 1 ICON "app.ico"
+
+// 启用视觉样式（comctl32 v6）：单行 EDIT 控件文字垂直居中、现代主题边框
+1 RT_MANIFEST "app.manifest"
