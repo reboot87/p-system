@@ -337,7 +337,7 @@ void App::Layout()
                      m_rcDetail.left - 14, content.bottom };
 
     // ---- 表单卡（展开时占列表列底部） ----
-    const int FormH = 182;
+    const int FormH = 194;
     if (m_formOpen || m_editingId) {
         m_rcFormCard = { m_rcListCard.left, m_rcListCard.bottom - FormH,
                          m_rcListCard.right, m_rcListCard.bottom };
@@ -355,8 +355,8 @@ void App::Layout()
         int fx = m_rcFormCard.left + 16;
         int fw = (m_rcFormCard.right - m_rcFormCard.left) - 32;
         int contentY = m_rcFormCard.top + 16 + 22 + 8;
-        MoveWindow(m_hManualEdit, fx, contentY, fw, 76, TRUE);
-        int rowY = contentY + 76 + 12;
+        MoveWindow(m_hManualEdit, fx, contentY, fw, 88, TRUE);
+        int rowY = contentY + 88 + 12;
         int btnW = 96;
         MoveWindow(m_hNoteEdit, fx, rowY, fw - btnW - 12, 32, TRUE);
         MoveWindow(m_hSaveBtn, fx + fw - btnW, rowY, btnW, 32, TRUE);
@@ -2067,33 +2067,6 @@ LRESULT CALLBACK App::ListProc(HWND hwnd, UINT msg, WPARAM wParam,
     return DefSubclassProc(hwnd, msg, wParam, lParam);
 }
 
-// ---------- 输入框子类化：空内容时自绘占位提示 ----------
-// cue banner 在部分场景被裁剪且不支持多行，统一自绘占位
-bool App::IsImeComposing(HWND ctrl) const
-{
-    switch (GetDlgCtrlID(ctrl)) {
-    case IDC_SEARCH_EDIT: return m_imeSearch;
-    case IDC_MANUAL_EDIT: return m_imeManual;
-    case IDC_NOTE_EDIT:   return m_imeNote;
-    }
-    return false;
-}
-
-void App::SetImeComposing(HWND ctrl, bool on)
-{
-    bool* flag = nullptr;
-    switch (GetDlgCtrlID(ctrl)) {
-    case IDC_SEARCH_EDIT: flag = &m_imeSearch; break;
-    case IDC_MANUAL_EDIT: flag = &m_imeManual; break;
-    case IDC_NOTE_EDIT:   flag = &m_imeNote;   break;
-    }
-    if (flag && *flag != on) {
-        *flag = on;
-        // 组词开始/结束都会改变占位文字可见性，整体重绘一次
-        InvalidateRect(ctrl, nullptr, FALSE);
-    }
-}
-
 LRESULT CALLBACK App::EditPlaceholderProc(HWND hwnd, UINT msg, WPARAM wParam,
                                           LPARAM lParam, UINT_PTR idSub,
                                           DWORD_PTR ref)
@@ -2106,12 +2079,6 @@ LRESULT CALLBACK App::EditPlaceholderProc(HWND hwnd, UINT msg, WPARAM wParam,
         SetWindowTextW(hwnd, L"");
         return 0;
     }
-    // IME 组词开始/结束：组词期间编辑控件文本长度仍为 0，
-    // 若照常绘制占位字会压在拼音候选字下面 —— 期间强制隐藏
-    if (msg == WM_IME_STARTCOMPOSITION)
-        self->SetImeComposing(hwnd, true);
-    else if (msg == WM_IME_ENDCOMPOSITION)
-        self->SetImeComposing(hwnd, false);
     // 表单卡展开：Esc 收起
     if (msg == WM_KEYDOWN && wParam == VK_ESCAPE &&
         GetDlgCtrlID(hwnd) == IDC_MANUAL_EDIT && self->m_formOpen) {
@@ -2119,54 +2086,97 @@ LRESULT CALLBACK App::EditPlaceholderProc(HWND hwnd, UINT msg, WPARAM wParam,
         return 0;
     }
 
-    LRESULT r = DefSubclassProc(hwnd, msg, wParam, lParam);
-    if (msg == WM_PAINT && GetWindowTextLengthW(hwnd) == 0 &&
-        !self->IsImeComposing(hwnd)) {
-        const wchar_t* ph = L"输入要保存的内容…";
-        switch (GetDlgCtrlID(hwnd)) {
-        case IDC_SEARCH_EDIT: ph = L"搜索内容和备注…";   break;
-        case IDC_NOTE_EDIT:   ph = L"备注（可选）";       break;
+    // IME 组词期间：编辑框内文本长度仍为 0，若照常画占位字会压在拼音候选字上面。
+    // 用窗口属性标记组词态，并在组词结束时强制重绘一次。
+    if (msg == WM_IME_STARTCOMPOSITION) {
+        SetPropW(hwnd, L"AireRecPhComp", (HANDLE)1);
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    }
+    if (msg == WM_IME_ENDCOMPOSITION) {
+        RemovePropW(hwnd, L"AireRecPhComp");
+        LRESULT r = DefSubclassProc(hwnd, msg, wParam, lParam);
+        InvalidateRect(hwnd, nullptr, FALSE);
+        return r;
+    }
+
+    // 焦点变化：强制重绘一次，使占位提示在“获得/失去焦点”时正确切换
+    // （失去焦点后 GetFocus()!=hwnd，WM_PAINT 才会画占位字；否则可能停留在空焦点态）
+    if (msg == WM_SETFOCUS || msg == WM_KILLFOCUS) {
+        InvalidateRect(hwnd, nullptr, FALSE);
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    }
+
+    if (msg == WM_PAINT) {
+        // 先让系统把编辑框本身（背景/文本/光标）画好，再在其上叠加占位提示，
+        // 这样占位字永远只会出现在“内容为空”的前提下，绝不与已输入文字重叠。
+        LRESULT r = DefSubclassProc(hwnd, msg, wParam, lParam);
+
+        // 搜索框：右侧常驻快捷键提示 chip（原型 toolbar .kbd）
+        if (GetDlgCtrlID(hwnd) == IDC_SEARCH_EDIT) {
+            HDC dc = GetDC(hwnd);
+            SetBkMode(dc, TRANSPARENT);
+            SelectObject(dc, self->m_fontMeta);
+            const wchar_t* key = L"Ctrl+Shift+V";
+            SIZE sz;
+            GetTextExtentPoint32W(dc, key, 12, &sz);
+            RECT rc;
+            GetClientRect(hwnd, &rc);
+            int chipW = sz.cx + 12;
+            RECT rcChip = { rc.right - chipW - 6, rc.bottom / 2 - 9,
+                            rc.right - 6, rc.bottom / 2 + 9 };
+            FillRoundRect(dc, rcChip, RGB(242, 243, 245), 4);
+            HPEN pen = CreatePen(PS_SOLID, 1, RGB(229, 232, 237));
+            HPEN oldPen = (HPEN)SelectObject(dc, pen);
+            HBRUSH oldBr = (HBRUSH)SelectObject(dc, GetStockObject(NULL_BRUSH));
+            RoundRect(dc, rcChip.left, rcChip.top,
+                      rcChip.right + 1, rcChip.bottom + 1, 4, 4);
+            SelectObject(dc, oldPen);
+            SelectObject(dc, oldBr);
+            DeleteObject(pen);
+            SetTextColor(dc, RGB(143, 149, 158));
+            TextOutW(dc, rcChip.left + 6,
+                     rc.bottom / 2 - sz.cy / 2, key, 12);
+            ReleaseDC(hwnd, dc);
         }
-        HDC dc = GetDC(hwnd);
-        SetBkMode(dc, TRANSPARENT);
-        SetTextColor(dc, theme::TextFaint);
-        SelectObject(dc, self->m_font);
-        RECT rc;
-        GetClientRect(hwnd, &rc);
-        rc.left += 9;
-        bool multiline = (GetWindowLongW(hwnd, GWL_STYLE) & ES_MULTILINE) != 0;
-        DrawTextW(dc, ph, -1, &rc,
-                  DT_SINGLELINE | DT_LEFT | (multiline ? 0 : DT_VCENTER));
-        ReleaseDC(hwnd, dc);
+
+        // 占位提示：仅当“内容为空 + 不在 IME 组词中”时绘制。
+        // 只要框内有任意字符（含 IME 组词结果）或正在组词，都不画 —— 因此输入/组词
+        // 过程中绝不会看到占位字；多行框用 DT_WORDBREAK|DT_EDITCONTROL 跟随编辑框
+        // 换行并裁剪在框内，绝不会溢出到框外“下方”。
+        bool composing = GetPropW(hwnd, L"AireRecPhComp") != nullptr;
+        if (GetWindowTextLengthW(hwnd) == 0 && !composing) {
+            const wchar_t* ph = nullptr;
+            switch (GetDlgCtrlID(hwnd)) {
+            case IDC_SEARCH_EDIT: ph = L"搜索内容和备注…"; break;
+            case IDC_MANUAL_EDIT: ph = L"输入要保存的内容…"; break;
+            case IDC_NOTE_EDIT:   ph = L"备注（可选）";     break;
+            }
+            if (ph) {
+                HDC dc = GetDC(hwnd);
+                RECT rc;
+                GetClientRect(hwnd, &rc);
+                bool multiline =
+                    (GetWindowLongW(hwnd, GWL_STYLE) & ES_MULTILINE) != 0;
+                rc.left += 9;
+                rc.right -= 9;
+                if (multiline) rc.top += 6;
+                SetBkMode(dc, TRANSPARENT);
+                SetTextColor(dc, theme::TextFaint);
+                SelectObject(dc, self->m_font);
+                UINT fmt = DT_LEFT | DT_NOPREFIX;
+                if (multiline)
+                    fmt |= DT_TOP | DT_WORDBREAK | DT_EDITCONTROL |
+                           DT_NOFULLWIDTHCHARBREAK;
+                else
+                    fmt |= DT_SINGLELINE | DT_VCENTER;
+                DrawTextW(dc, ph, -1, &rc, fmt);
+                ReleaseDC(hwnd, dc);
+            }
+        }
+        return r;
     }
-    // 搜索框：右侧常驻快捷键提示 chip（原型 toolbar .kbd）
-    if (msg == WM_PAINT && GetDlgCtrlID(hwnd) == IDC_SEARCH_EDIT) {
-        HDC dc = GetDC(hwnd);
-        SetBkMode(dc, TRANSPARENT);
-        SelectObject(dc, self->m_fontMeta);
-        const wchar_t* key = L"Ctrl+Shift+V";
-        SIZE sz;
-        GetTextExtentPoint32W(dc, key, 12, &sz);
-        RECT rc;
-        GetClientRect(hwnd, &rc);
-        int chipW = sz.cx + 12;
-        RECT rcChip = { rc.right - chipW - 6, rc.bottom / 2 - 9,
-                        rc.right - 6, rc.bottom / 2 + 9 };
-        FillRoundRect(dc, rcChip, RGB(242, 243, 245), 4);
-        HPEN pen = CreatePen(PS_SOLID, 1, RGB(229, 232, 237));
-        HPEN oldPen = (HPEN)SelectObject(dc, pen);
-        HBRUSH oldBr = (HBRUSH)SelectObject(dc, GetStockObject(NULL_BRUSH));
-        RoundRect(dc, rcChip.left, rcChip.top,
-                  rcChip.right + 1, rcChip.bottom + 1, 4, 4);
-        SelectObject(dc, oldPen);
-        SelectObject(dc, oldBr);
-        DeleteObject(pen);
-        SetTextColor(dc, RGB(143, 149, 158));
-        TextOutW(dc, rcChip.left + 6,
-                 rc.bottom / 2 - sz.cy / 2, key, 12);
-        ReleaseDC(hwnd, dc);
-    }
-    return r;
+
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
 }
 
 // ---------- 保存按钮子类化（hover 跟踪） ----------

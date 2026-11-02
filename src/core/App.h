@@ -111,12 +111,9 @@ private:
                                      UINT_PTR, DWORD_PTR);
     static LRESULT CALLBACK SaveBtnProc(HWND, UINT, WPARAM, LPARAM,
                                         UINT_PTR, DWORD_PTR);
-    // 多行输入框子类化：空内容时自绘占位提示（cue banner 不支持多行）
+    // 输入框子类化：Esc 收起表单 / 取消备注编辑；搜索框右侧快捷键 chip
     static LRESULT CALLBACK EditPlaceholderProc(HWND, UINT, WPARAM, LPARAM,
                                                 UINT_PTR, DWORD_PTR);
-    // IME 组词状态跟踪（组词期间隐藏占位文字，避免压在候选字下面）
-    bool IsImeComposing(HWND ctrl) const;
-    void SetImeComposing(HWND ctrl, bool on);
 
     bool CreateMainWindow(HINSTANCE hInstance);
     void CreateUI(HWND hwnd);
@@ -185,9 +182,6 @@ private:
     int            m_capHover  = 0;       // 标题栏按钮 hover（1/2/3）
     int            m_navHover  = -1;      // 侧栏导航 hover 项
     long long      m_editingId = 0;       // 正在编辑备注的条目 id
-    bool           m_imeSearch = false;   // 搜索框 IME 组词中
-    bool           m_imeManual = false;   // 录入框 IME 组词中
-    bool           m_imeNote   = false;   // 备注框 IME 组词中
 
     // ---- 工作台状态 ----
     WorkPage       m_page    = PageOverview;
