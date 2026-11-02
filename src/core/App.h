@@ -92,6 +92,9 @@ public:
     void   StartNoteEdit(long long id, const std::wstring& note);
     void   SaveNoteEdit();      // 保存当前编辑的备注并退出编辑态
     void   CancelNoteEdit();    // 放弃编辑（Esc）
+    // 选中记录切换时同步备注编辑态：有改动先落库原条目，
+    // 再把编辑目标切到新条目（避免编辑框停留在旧记录、保存写错 id）
+    void   SwitchNoteEditTarget(int newEntryIdx);
 
     // ---- 剪贴板模块页：手动录入表单卡显隐（＋手动录入 / F4） ----
     void   ToggleForm(bool open);

@@ -1667,6 +1667,9 @@ void App::RefreshList(const std::wstring& filter)
     else if (firstEntryRow < 0)
         m_selEntry = -1;
 
+    // 选中迁移（如条目被删除/筛选后选中丢失）时同步备注编辑态
+    SwitchNoteEditTarget(m_selEntry);
+
     InvalidateRect(m_hList, nullptr, TRUE);
     if (m_page == PageClips) {
         RECT rcD = m_rcDetail;
@@ -1842,6 +1845,9 @@ void App::OnListOp(int entryIdx, int op)
         if (MessageBoxW(m_hwnd,
                 L"确定删除这条记录吗？删除后不可恢复。",
                 L"删除记录", MB_OKCANCEL | MB_ICONWARNING) == IDOK) {
+            // 删除的正是正在编辑备注的条目 → 先退出编辑态，
+            // 避免随后的选中迁移把编辑内容落库到已删除的 id
+            if (m_editingId == e.id) CancelNoteEdit();
             m_ipc.Request(L"DEL\t" + std::to_wstring(e.id));
             m_selEntry = -1;
             RefreshList(GetSearchText());
@@ -1866,6 +1872,11 @@ void App::StartNoteEdit(long long id, const std::wstring& note)
     m_editingId = id;
     Layout();                            // 多行备注框覆盖到详情面板备注区
     SetWindowTextW(m_hNoteMulti, note.c_str());
+    // 光标落到末尾：编辑已有备注时直接续写，而不是插到开头
+    {
+        int len = GetWindowTextLengthW(m_hNoteMulti);
+        SendMessageW(m_hNoteMulti, EM_SETSEL, len, len);
+    }
     SetWindowTextW(m_hSaveBtn, L"保存备注");
     SyncEditCtrlsVisibility();
     SetFocus(m_hNoteMulti);
@@ -1896,6 +1907,35 @@ void App::SaveNoteEdit()
     SyncEditCtrlsVisibility();
     RefreshList(GetSearchText());
     RefreshStats();
+}
+
+// 选中记录切换时同步备注编辑态（列表点击 / RefreshList 选中变化 / 删除后选中迁移）：
+//   新选中的就是正在编辑的条目 → 保持不动（不重置已输入内容）
+//   编辑器内容与原条目备注不同 → 先保存回原条目，避免丢字
+//   然后把编辑目标切到新条目，多行框载入其备注 → 之后保存自然写到新 id
+void App::SwitchNoteEditTarget(int newEntryIdx)
+{
+    if (!m_editingId) return;
+    if (newEntryIdx < 0 || newEntryIdx >= (int)m_entries.size()) {
+        CancelNoteEdit();   // 选中失效（如当前条目被删除）→ 退出编辑态
+        return;
+    }
+    const UiEntry& ne = m_entries[newEntryIdx];
+    if (ne.id == m_editingId) return;
+
+    // 先落库原条目（按 id 查找，不依赖下标），并同步本地缓存
+    std::wstring cur = GetWindowTextStr(m_hNoteMulti);
+    for (UiEntry& e : m_entries) {
+        if (e.id == m_editingId) {
+            if (cur != e.note) {
+                m_ipc.Request(L"NOTE\t" + std::to_wstring(e.id) +
+                              L"\t" + ipc::EscapeField(cur));
+                e.note = cur;
+            }
+            break;
+        }
+    }
+    StartNoteEdit(ne.id, ne.note);
 }
 
 // ---------- 列表右键菜单：复制 / 编辑备注 / 删除 ----------
@@ -2645,6 +2685,8 @@ LRESULT App::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             if (sel != LB_ERR && sel < (int)m_rows.size() &&
                 !m_rows[sel].header) {
                 m_selEntry = (int)m_rows[sel].entry;
+                // 备注编辑态跟随选中切换（否则编辑框停留旧记录、保存写错 id）
+                SwitchNoteEditTarget(m_selEntry);
                 RECT rcD = m_rcDetail;
                 InvalidateRect(hwnd, &rcD, FALSE);
             }
