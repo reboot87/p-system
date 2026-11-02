@@ -480,7 +480,8 @@ void App::ToggleForm(bool open)
     SendMessageW(m_hwnd, WM_SETREDRAW, TRUE, 0);
     InvalidateRect(m_hwnd, nullptr, FALSE);
     if (open && m_hManualEdit) {
-        SetFocus(m_hManualEdit);
+        // 不自动聚焦录入框：让占位提示“输入要保存的内容…”在展开时自然可见，
+        // 用户点击进入后才隐藏（聚焦态一律不画占位字），避免输入时透出。
         RECT rc = m_rcFormCard;
         InvalidateRect(m_hwnd, &rc, FALSE);
     }
@@ -2111,40 +2112,32 @@ LRESULT CALLBACK App::EditPlaceholderProc(HWND hwnd, UINT msg, WPARAM wParam,
         // 这样占位字永远只会出现在“内容为空”的前提下，绝不与已输入文字重叠。
         LRESULT r = DefSubclassProc(hwnd, msg, wParam, lParam);
 
-        // 搜索框：右侧常驻快捷键提示 chip（原型 toolbar .kbd）
-        if (GetDlgCtrlID(hwnd) == IDC_SEARCH_EDIT) {
-            HDC dc = GetDC(hwnd);
-            SetBkMode(dc, TRANSPARENT);
-            SelectObject(dc, self->m_fontMeta);
-            const wchar_t* key = L"Ctrl+Shift+V";
-            SIZE sz;
-            GetTextExtentPoint32W(dc, key, 12, &sz);
-            RECT rc;
-            GetClientRect(hwnd, &rc);
-            int chipW = sz.cx + 12;
-            RECT rcChip = { rc.right - chipW - 6, rc.bottom / 2 - 9,
-                            rc.right - 6, rc.bottom / 2 + 9 };
-            FillRoundRect(dc, rcChip, RGB(242, 243, 245), 4);
-            HPEN pen = CreatePen(PS_SOLID, 1, RGB(229, 232, 237));
-            HPEN oldPen = (HPEN)SelectObject(dc, pen);
-            HBRUSH oldBr = (HBRUSH)SelectObject(dc, GetStockObject(NULL_BRUSH));
-            RoundRect(dc, rcChip.left, rcChip.top,
-                      rcChip.right + 1, rcChip.bottom + 1, 4, 4);
-            SelectObject(dc, oldPen);
-            SelectObject(dc, oldBr);
-            DeleteObject(pen);
-            SetTextColor(dc, RGB(143, 149, 158));
-            TextOutW(dc, rcChip.left + 6,
-                     rc.bottom / 2 - sz.cy / 2, key, 12);
-            ReleaseDC(hwnd, dc);
+        bool isSearch = (GetDlgCtrlID(hwnd) == IDC_SEARCH_EDIT);
+
+        // 预计算搜索框右侧快捷键 chip 的几何，供占位字右边界让位使用
+        const wchar_t* key = L"Ctrl+Shift+V";
+        int chipW = 0;
+        RECT rcChip = {0};
+        if (isSearch) {
+            HDC dcm = GetDC(hwnd);
+            SelectObject(dcm, self->m_fontMeta);
+            SIZE szc;
+            GetTextExtentPoint32W(dcm, key, 12, &szc);
+            ReleaseDC(hwnd, dcm);
+            chipW = szc.cx + 12;
+            RECT rc0;
+            GetClientRect(hwnd, &rc0);
+            rcChip = { rc0.right - chipW - 6, rc0.bottom / 2 - 9,
+                       rc0.right - 6, rc0.bottom / 2 + 9 };
         }
 
-        // 占位提示：仅当“内容为空 + 不在 IME 组词中”时绘制。
-        // 只要框内有任意字符（含 IME 组词结果）或正在组词，都不画 —— 因此输入/组词
-        // 过程中绝不会看到占位字；多行框用 DT_WORDBREAK|DT_EDITCONTROL 跟随编辑框
-        // 换行并裁剪在框内，绝不会溢出到框外“下方”。
+        // 占位提示：仅当“未聚焦 + 内容为空 + 不在 IME 组词中”时绘制。
+        // 聚焦（输入 / IME 组词必在聚焦态）时一律不画，从根本上杜绝“输入时仍透出
+        // 占位字”以及多行框占位字压在拼音候选字上的问题；多行框用
+        // DT_WORDBREAK|DT_EDITCONTROL 跟随编辑框换行并裁剪在框内，不溢出框外“下方”。
         bool composing = GetPropW(hwnd, L"AireRecPhComp") != nullptr;
-        if (GetWindowTextLengthW(hwnd) == 0 && !composing) {
+        if (!composing && GetWindowTextLengthW(hwnd) == 0 &&
+            GetFocus() != hwnd) {
             const wchar_t* ph = nullptr;
             switch (GetDlgCtrlID(hwnd)) {
             case IDC_SEARCH_EDIT: ph = L"搜索内容和备注…"; break;
@@ -2159,6 +2152,8 @@ LRESULT CALLBACK App::EditPlaceholderProc(HWND hwnd, UINT msg, WPARAM wParam,
                     (GetWindowLongW(hwnd, GWL_STYLE) & ES_MULTILINE) != 0;
                 rc.left += 9;
                 rc.right -= 9;
+                // 搜索框：右边界让开快捷键 chip，避免占位字盖住它
+                if (isSearch && chipW > 0) rc.right -= (chipW + 8);
                 if (multiline) rc.top += 6;
                 SetBkMode(dc, TRANSPARENT);
                 SetTextColor(dc, theme::TextFaint);
@@ -2172,6 +2167,29 @@ LRESULT CALLBACK App::EditPlaceholderProc(HWND hwnd, UINT msg, WPARAM wParam,
                 DrawTextW(dc, ph, -1, &rc, fmt);
                 ReleaseDC(hwnd, dc);
             }
+        }
+
+        // 搜索框快捷键 chip：最后绘制，盖在占位字之上，确保两者绝不重叠
+        if (isSearch) {
+            HDC dc = GetDC(hwnd);
+            SetBkMode(dc, TRANSPARENT);
+            SelectObject(dc, self->m_fontMeta);
+            FillRoundRect(dc, rcChip, RGB(242, 243, 245), 4);
+            HPEN pen = CreatePen(PS_SOLID, 1, RGB(229, 232, 237));
+            HPEN oldPen = (HPEN)SelectObject(dc, pen);
+            HBRUSH oldBr = (HBRUSH)SelectObject(dc, GetStockObject(NULL_BRUSH));
+            RoundRect(dc, rcChip.left, rcChip.top,
+                      rcChip.right + 1, rcChip.bottom + 1, 4, 4);
+            SelectObject(dc, oldPen);
+            SelectObject(dc, oldBr);
+            DeleteObject(pen);
+            SetTextColor(dc, RGB(143, 149, 158));
+            SIZE sz;
+            GetTextExtentPoint32W(dc, key, 12, &sz);
+            TextOutW(dc, rcChip.left + 6,
+                     rcChip.top + (rcChip.bottom - rcChip.top) / 2 - sz.cy / 2,
+                     key, 12);
+            ReleaseDC(hwnd, dc);
         }
         return r;
     }
