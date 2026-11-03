@@ -3,6 +3,8 @@
 #include <oleacc.h>
 #include <sstream>
 #include <iomanip>
+#include <fstream>
+#include <regex>
 
 #pragma comment(lib, "oleacc.lib")
 
@@ -136,9 +138,62 @@ LocalizationManager& LocalizationManager::Instance()
 
 bool LocalizationManager::LoadLocale(const std::wstring& jsonPath)
 {
-    (void)jsonPath;
-    // Stub: JSON parsing not implemented yet to avoid dependencies
-    return false;
+    std::wifstream file(jsonPath);
+    if (!file) return false;
+    std::wstringstream ss;
+    ss << file.rdbuf();
+    std::wstring json = ss.str();
+    if (json.empty()) return false;
+
+    auto getString = [&](const std::wstring& src, const std::wstring& key, std::wstring def = L"") -> std::wstring {
+        std::wstring pattern = L"\"" + key + L"\"\\\\s*:\\\\s*\"([^\"]*)\"";
+        std::wregex re(pattern);
+        std::wsmatch m;
+        if (std::regex_search(src, m, re)) return m[1].str();
+        return def;
+    };
+    auto getBool = [&](const std::wstring& src, const std::wstring& key, bool def = false) -> bool {
+        std::wstring pattern = L"\"" + key + L"\"\\\\s*:\\\\s*(true|false)";
+        std::wregex re(pattern);
+        std::wsmatch m;
+        if (std::regex_search(src, m, re)) return m[1].str() == L"true";
+        return def;
+    };
+
+    Locale loc;
+    loc.code = getString(json, L"code");
+    if (loc.code.empty()) return false;
+    loc.name = getString(json, L"name");
+    loc.dateFormat = getString(json, L"dateFormat", L"yyyy/MM/dd");
+    loc.timeFormat = getString(json, L"timeFormat", L"HH:mm:ss");
+    loc.numberFormat = getString(json, L"numberFormat", L"#,##0.00");
+    loc.currencySymbol = getString(json, L"currencySymbol", L"¥");
+    loc.listSeparator = getString(json, L"listSeparator", L",");
+    loc.decimalPoint = getString(json, L"decimalPoint", L".");
+    loc.thousandSep = getString(json, L"thousandSep", L",");
+    loc.rtl = getBool(json, L"rtl", false);
+
+    std::wstring stringsPattern = L"\"strings\"\\\\s*:\\\\s*\\\\{([^}]*)\\\\}";
+    std::wregex stringsRe(stringsPattern);
+    std::wsmatch stringsM;
+    if (std::regex_search(json, stringsM, stringsRe)) {
+        std::wstring obj = stringsM[1].str();
+        std::wregex kvRe(L"\"([^\"]+)\"\\\\s*:\\\\s*\"([^\"]*)\"");
+        auto it = std::wsregex_iterator(obj.begin(), obj.end(), kvRe);
+        auto end = std::wsregex_iterator();
+        for (; it != end; ++it) {
+            std::wstring k = (*it)[1].str();
+            std::wstring v = (*it)[2].str();
+            loc.strings[k] = v;
+        }
+    }
+
+    m_locales[loc.code] = loc;
+    m_available.push_back(loc.code);
+    if (m_current.empty() || m_locales.find(m_current) == m_locales.end()) {
+        m_current = loc.code;
+    }
+    return true;
 }
 
 void LocalizationManager::SetLocale(const std::wstring& code)
