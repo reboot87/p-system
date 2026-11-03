@@ -38,18 +38,27 @@ void Card::Paint(Canvas& g)
                     m.tagH);
     }
 
+    // 文本行高（不能拿 m.titleH —— 那是自绘标题栏高度，不是文字行高）
+    const int titleLineH   = g.LineHeight(FontRole::Title);
+    const int metaLineH    = g.LineHeight(FontRole::Meta);
+    const int displayLineH = g.LineHeight(FontRole::Display);
+    const int buttonLineH  = g.LineHeight(FontRole::Button);
+
     // 标题
-    RECT rcTitle = { r.left + 16, ic.bottom + 8, r.right - 16, ic.bottom + 8 + m.titleH };
+    RECT rcTitle = { r.left + 16, ic.bottom + 8, r.right - 16,
+                     ic.bottom + 8 + titleLineH };
     g.Text(rcTitle, m_cfg.title, FontRole::Title, m_cfg.disabled ? p.textFaint : p.text,
            DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
 
     // 描述
-    RECT rcDesc = { r.left + 16, rcTitle.bottom + 4, r.right - 16, rcTitle.bottom + 4 + m.fontMeta + 4 };
+    RECT rcDesc = { r.left + 16, rcTitle.bottom + 4, r.right - 16,
+                    rcTitle.bottom + 4 + metaLineH };
     g.Text(rcDesc, m_cfg.desc, FontRole::Meta, p.textFaint,
            DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
 
     // 大数字
-    RECT rcNum = { r.left + 16, rcDesc.bottom + 8, r.right - 16, rcDesc.bottom + 8 + m.fontDisplay };
+    RECT rcNum = { r.left + 16, rcDesc.bottom + 8, r.right - 16,
+                   rcDesc.bottom + 8 + displayLineH };
     g.Text(rcNum, m_cfg.number, FontRole::Display, m_cfg.disabled ? p.textFaint : p.text,
            DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
 
@@ -63,7 +72,8 @@ void Card::Paint(Canvas& g)
 
     // 底部链接
     if (!m_cfg.linkText.empty()) {
-        RECT rcLink = { r.left + 16, r.bottom - 16 - m.btnH, r.right - 16, r.bottom - 16 };
+        RECT rcLink = { r.left + 16, r.bottom - 16 - buttonLineH,
+                        r.right - 16, r.bottom - 16 };
         g.Text(rcLink, m_cfg.linkText, FontRole::Button,
                m_cfg.disabled ? RGB(169, 174, 184) : p.primaryText,
                DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
