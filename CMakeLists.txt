@@ -38,6 +38,8 @@ set(AIRUI_SOURCES
     src/airui/src/Accessibility.cpp
     # Theme JSON
     src/airui/src/ThemeJson.cpp
+    # Theme Manager encapsulation
+    src/airui/src/ThemeManager.cpp
     # TestShell
     src/airui/src/TestShell.cpp
 )
