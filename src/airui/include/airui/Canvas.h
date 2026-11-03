@@ -14,9 +14,11 @@
 // ============================================================
 #include <windows.h>
 #include <string>
+#include <vector>
 #include "Controls.h"
 #include "Fonts.h"
 #include "Theme.h"
+#include "DrawCall.h"
 
 namespace air {
 namespace ui {
@@ -31,6 +33,10 @@ public:
 
     // 逃生舱：极少数需要原生 GDI 的场景（一般用不到）
     HDC Native() const { return m_dc; }
+
+    // 录制支持（测试用）
+    static void SetRecorder(std::vector<DrawCall>* rec) { s_recorder = rec; }
+    static void ClearRecorder() { s_recorder = nullptr; }
 
     // ---- 形状 ----
     void Fill(const RECT& rc, COLORREF color);
@@ -92,6 +98,7 @@ public:
 private:
     HDC          m_dc;
     const Fonts& m_fonts;
+    static std::vector<DrawCall>* s_recorder;
 };
 
 } // namespace ui

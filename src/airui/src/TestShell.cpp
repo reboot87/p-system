@@ -57,17 +57,13 @@ IPage* TestShell::CurrentPage() const
 void TestShell::PaintFrame()
 {
     m_drawCalls.clear();
+    Canvas::SetRecorder(&m_drawCalls);
     IPage* page = CurrentPage();
     if (page && m_memDC) {
         page->OnLayout(m_content);
-        // Record a generic draw call for the paint operation
-        DrawCall dc;
-        dc.type = DrawCall::Fill;
-        dc.rect = m_content;
-        dc.color = 0xFFFFFF;
-        m_drawCalls.push_back(dc);
         PaintPage(page, m_memDC);
     }
+    Canvas::ClearRecorder();
 }
 
 void TestShell::SimulateMouseMove(int x, int y)
