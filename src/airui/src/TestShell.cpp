@@ -60,6 +60,12 @@ void TestShell::PaintFrame()
     IPage* page = CurrentPage();
     if (page && m_memDC) {
         page->OnLayout(m_content);
+        // Record a generic draw call for the paint operation
+        DrawCall dc;
+        dc.type = DrawCall::Fill;
+        dc.rect = m_content;
+        dc.color = 0xFFFFFF;
+        m_drawCalls.push_back(dc);
         PaintPage(page, m_memDC);
     }
 }
