@@ -1,5 +1,6 @@
 #include "airui/Shell.h"
 #include "airui/Gfx.h"
+#include "airui/Responsive.h"
 #include <commctrl.h>
 
 #pragma comment(lib, "comctl32.lib")
@@ -888,6 +889,86 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     }
 
     return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+// ============================================================
+// 新增功能实现
+// ============================================================
+void Shell::SetSidebarWidth(int width)
+{
+    m_opt.sidebarW = width;
+    LayoutAll();
+    Invalidate();
+}
+
+void Shell::SetBreakpoints(std::vector<Breakpoint> bps)
+{
+    if (!m_responsive) m_responsive.reset(new ResponsiveManager(this));
+    m_responsive->SetBreakpoints(std::move(bps));
+}
+
+void Shell::OnSize(int width, int height)
+{
+    if (m_responsive) m_responsive->OnSize(width, height);
+}
+
+void Shell::Tick(uint64_t now)
+{
+    if (m_toastMgr) m_toastMgr->Tick();
+}
+
+::air::ui::ToastManager& Shell::ToastManager()
+{
+    if (!m_toastMgr) m_toastMgr.reset(new ::air::ui::ToastManager());
+    m_toastMgr->m_invalidateCb = [this] { Invalidate(); };
+    return *m_toastMgr;
+}
+
+// ============================================================
+// ToastManager 实现
+// ============================================================
+void ToastManager::Show(const Toast& toast)
+{
+    InternalToast t;
+    t.text = toast.text;
+    t.ok = toast.ok;
+    t.durationMs = toast.durationMs;
+    t.onDismiss = toast.onDismiss;
+    t.startTime = GetTickCount64();
+    m_toasts.push_back(std::move(t));
+    InvalidateAll();
+}
+
+void ToastManager::Paint(Canvas& g, const RECT& viewport)
+{
+    const auto& p = Pal();
+    const auto& m = Mx();
+    int y = viewport.bottom - m.unit;
+    for (auto it = m_toasts.rbegin(); it != m_toasts.rend(); ++it) {
+        auto& t = *it;
+        int w = g.MeasureWidth(t.text, FontRole::Body) + 32;
+        RECT r = { viewport.right - w - m.unit, y - 48, viewport.right - m.unit, y };
+        COLORREF bg = t.ok ? p.okSoft : p.errorSoft;
+        COLORREF tx = t.ok ? p.okText : p.errorText;
+        g.FillRound(r, bg, m.radiusMd);
+        g.Stroke(r, t.ok ? p.okBorder : p.errorBorder, m.radiusMd);
+        g.TextRowCenter(r, t.text, FontRole::Body, tx);
+        y -= 56;
+    }
+}
+
+void ToastManager::Tick()
+{
+    auto now = GetTickCount64();
+    bool changed = false;
+    for (auto it = m_toasts.begin(); it != m_toasts.end(); ) {
+        if (now - it->startTime > (uint64_t)it->durationMs) {
+            if (it->onDismiss) it->onDismiss();
+            it = m_toasts.erase(it);
+            changed = true;
+        } else ++it;
+    }
+    if (changed) InvalidateAll();
 }
 
 } // namespace ui

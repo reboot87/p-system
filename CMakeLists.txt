@@ -17,9 +17,29 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/third_party/sqlite
 )
 
-# Source files
-file(GLOB_RECURSE AIRUI_SOURCES 
-    src/airui/src/*.cpp
+# Source files - core + new features
+set(AIRUI_SOURCES
+    src/airui/src/Canvas.cpp
+    src/airui/src/Controls.cpp
+    src/airui/src/Fonts.cpp
+    src/airui/src/Gfx.cpp
+    src/airui/src/Page.cpp
+    src/airui/src/Shell.cpp
+    src/airui/src/Theme.cpp
+    src/airui/src/Widgets.cpp
+    # New features - Layout & Components
+    src/airui/src/Layout.cpp
+    src/airui/src/Components.cpp
+    # Animation
+    src/airui/src/Animation.cpp
+    # Responsive
+    src/airui/src/Responsive.cpp
+    # Accessibility / i18n
+    src/airui/src/Accessibility.cpp
+    # Theme JSON
+    src/airui/src/ThemeJson.cpp
+    # TestShell
+    src/airui/src/TestShell.cpp
 )
 file(GLOB_RECURSE CORE_SOURCES 
     src/core/*.cpp
