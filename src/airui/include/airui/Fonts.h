@@ -52,6 +52,7 @@ public:
     void SetFamily(const std::wstring& family) { m_family = family; }
     void SetIconFamily(const std::wstring& family) { m_iconFamily = family; }
     const std::wstring& Family() const { return m_family; }
+    const std::wstring& IconFamily() const { return m_iconFamily; }
 
     // 进程内共享实例（懒加载，第一次 Get 时创建）
     static Fonts& Default();
