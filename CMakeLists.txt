@@ -131,3 +131,33 @@ set_target_properties(test_theme_manager PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
     LINK_FLAGS "/SUBSYSTEM:CONSOLE"
 )
+
+# Draw calls test
+add_executable(test_draw_calls 
+    tests/test_draw_calls.cpp
+    ${COMMON_SOURCES}
+    ${RESOURCE_FILE}
+)
+target_link_libraries(test_draw_calls 
+    user32 gdi32 shell32 comctl32 shlwapi advapi32 ole32
+)
+set_target_properties(test_draw_calls PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/Release
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
+    LINK_FLAGS "/SUBSYSTEM:CONSOLE"
+)
+
+# Locale test
+add_executable(test_locale 
+    tests/test_locale.cpp
+    ${COMMON_SOURCES}
+    ${RESOURCE_FILE}
+)
+target_link_libraries(test_locale 
+    user32 gdi32 shell32 comctl32 shlwapi advapi32 ole32
+)
+set_target_properties(test_locale PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/Release
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
+    LINK_FLAGS "/SUBSYSTEM:CONSOLE"
+)

@@ -146,14 +146,14 @@ bool LocalizationManager::LoadLocale(const std::wstring& jsonPath)
     if (json.empty()) return false;
 
     auto getString = [&](const std::wstring& src, const std::wstring& key, std::wstring def = L"") -> std::wstring {
-        std::wstring pattern = L"\"" + key + L"\"\\\\s*:\\\\s*\"([^\"]*)\"";
+        std::wstring pattern = L"\"" + key + L"\"\\s*:\\s*\"([^\"]*)\"";
         std::wregex re(pattern);
         std::wsmatch m;
         if (std::regex_search(src, m, re)) return m[1].str();
         return def;
     };
     auto getBool = [&](const std::wstring& src, const std::wstring& key, bool def = false) -> bool {
-        std::wstring pattern = L"\"" + key + L"\"\\\\s*:\\\\s*(true|false)";
+        std::wstring pattern = L"\"" + key + L"\"\\s*:\\s*(true|false)";
         std::wregex re(pattern);
         std::wsmatch m;
         if (std::regex_search(src, m, re)) return m[1].str() == L"true";
@@ -173,12 +173,12 @@ bool LocalizationManager::LoadLocale(const std::wstring& jsonPath)
     loc.thousandSep = getString(json, L"thousandSep", L",");
     loc.rtl = getBool(json, L"rtl", false);
 
-    std::wstring stringsPattern = L"\"strings\"\\\\s*:\\\\s*\\\\{([^}]*)\\\\}";
+    std::wstring stringsPattern = L"\"strings\"\\s*:\\s*\\{([^}]*)\\}";
     std::wregex stringsRe(stringsPattern);
     std::wsmatch stringsM;
     if (std::regex_search(json, stringsM, stringsRe)) {
         std::wstring obj = stringsM[1].str();
-        std::wregex kvRe(L"\"([^\"]+)\"\\\\s*:\\\\s*\"([^\"]*)\"");
+        std::wregex kvRe(L"\"([^\"]+)\"\\s*:\\s*\"([^\"]*)\"");
         auto it = std::wsregex_iterator(obj.begin(), obj.end(), kvRe);
         auto end = std::wsregex_iterator();
         for (; it != end; ++it) {
