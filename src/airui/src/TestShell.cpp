@@ -124,10 +124,20 @@ bool TestShell::ExportDrawCallsToFile(const std::wstring& path) const
     file << L"[\n";
     for (size_t i = 0; i < m_drawCalls.size(); ++i) {
         const auto& dc = m_drawCalls[i];
+        auto hex = [](COLORREF c)->std::wstring {
+            wchar_t buf[16];
+            swprintf_s(buf, L"%06X", c & 0xFFFFFF);
+            return std::wstring(L"#") + buf;
+        };
         file << L"  {\n";
-        file << L"    \"type\": " << dc.type << L",\n";
+        file << L"    \"type\": " << static_cast<int>(dc.type) << L",\n";
         file << L"    \"rect\": [" << dc.rect.left << L"," << dc.rect.top << L"," << dc.rect.right << L"," << dc.rect.bottom << L"],\n";
-        file << L"    \"color\": " << dc.color << L"\n";
+        file << L"    \"color\": \"" << hex(dc.color) << L"\",\n";
+        file << L"    \"color2\": \"" << hex(dc.color2) << L"\",\n";
+        file << L"    \"color3\": \"" << hex(dc.color3) << L"\",\n";
+        file << L"    \"radius\": " << dc.radius << L",\n";
+        file << L"    \"width\": " << dc.width << L",\n";
+        file << L"    \"text\": \"" << dc.text << L"\"\n";
         file << L"  }";
         if (i + 1 < m_drawCalls.size()) file << L",";
         file << L"\n";
