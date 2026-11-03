@@ -4,6 +4,7 @@
 #include <fstream>
 #include <sstream>
 #include <iomanip>
+#include <regex>
 
 namespace air {
 namespace ui {
@@ -103,8 +104,141 @@ COLORREF ParseColor(const std::wstring& str, COLORREF fallback)
 
 bool LoadTheme(const std::wstring& jsonPath)
 {
-    (void)jsonPath;
-    return false;
+    std::wifstream file(jsonPath);
+    if (!file) return false;
+    std::wstringstream ss;
+    ss << file.rdbuf();
+    std::wstring json = ss.str();
+    if (json.empty()) return false;
+
+    ThemeJson theme = DefaultThemeJson();
+
+    auto getString = [&](const std::wstring& src, const std::wstring& key, std::wstring def = L"") -> std::wstring {
+        std::wstring pattern = L"\"" + key + L"\"\\s*:\\s*\"([^\"]*)\"";
+        std::wregex re(pattern);
+        std::wsmatch m;
+        if (std::regex_search(src, m, re)) return m[1].str();
+        return def;
+    };
+    auto getInt = [&](const std::wstring& src, const std::wstring& key, int def = 0) -> int {
+        std::wstring pattern = L"\"" + key + L"\"\\s*:\\s*(-?\\d+)";
+        std::wregex re(pattern);
+        std::wsmatch m;
+        if (std::regex_search(src, m, re)) {
+            try { return std::stoi(m[1].str()); } catch (...) {}
+        }
+        return def;
+    };
+
+    theme.name = getString(json, L"name", theme.name);
+
+    {
+        std::wstring pattern = L"\"fonts\"\\s*:\\s*\\{([^}]*)\\}";
+        std::wregex re(pattern);
+        std::wsmatch m;
+        if (std::regex_search(json, m, re)) {
+            std::wstring obj = m[1].str();
+            theme.fontFamily = getString(obj, L"family", theme.fontFamily);
+            theme.iconFontFamily = getString(obj, L"iconFamily", theme.iconFontFamily);
+        }
+    }
+
+    {
+        std::wstring pattern = L"\"colors\"\\s*:\\s*\\{([^}]*)\\}";
+        std::wregex re(pattern);
+        std::wsmatch m;
+        if (std::regex_search(json, m, re)) {
+            std::wstring obj = m[1].str();
+            auto getColor = [&](const std::wstring& key, COLORREF def) -> COLORREF {
+                std::wstring v = getString(obj, key);
+                if (v.empty()) return def;
+                return ParseColor(v, def);
+            };
+            theme.colors.bg = getColor(L"bg", theme.colors.bg);
+            theme.colors.surface = getColor(L"surface", theme.colors.surface);
+            theme.colors.sunken = getColor(L"sunken", theme.colors.sunken);
+            theme.colors.sidebar = getColor(L"sidebar", theme.colors.sidebar);
+            theme.colors.sidebarLine = getColor(L"sidebarLine", theme.colors.sidebarLine);
+            theme.colors.split = getColor(L"split", theme.colors.split);
+            theme.colors.border = getColor(L"border", theme.colors.border);
+            theme.colors.text = getColor(L"text", theme.colors.text);
+            theme.colors.textSub = getColor(L"textSub", theme.colors.textSub);
+            theme.colors.textFaint = getColor(L"textFaint", theme.colors.textFaint);
+            theme.colors.textDisabled = getColor(L"textDisabled", theme.colors.textDisabled);
+            theme.colors.textInverse = getColor(L"textInverse", theme.colors.textInverse);
+            theme.colors.hover = getColor(L"hover", theme.colors.hover);
+            theme.colors.active = getColor(L"active", theme.colors.active);
+            theme.colors.selectFill = getColor(L"selectFill", theme.colors.selectFill);
+            theme.colors.selectRing = getColor(L"selectRing", theme.colors.selectRing);
+            theme.colors.hoverBorder = getColor(L"hoverBorder", theme.colors.hoverBorder);
+            theme.colors.primary = getColor(L"primary", theme.colors.primary);
+            theme.colors.primaryHover = getColor(L"primaryHover", theme.colors.primaryHover);
+            theme.colors.primaryDown = getColor(L"primaryDown", theme.colors.primaryDown);
+            theme.colors.primarySoft = getColor(L"primarySoft", theme.colors.primarySoft);
+            theme.colors.primaryText = getColor(L"primaryText", theme.colors.primaryText);
+            theme.colors.ok = getColor(L"ok", theme.colors.ok);
+            theme.colors.okSoft = getColor(L"okSoft", theme.colors.okSoft);
+            theme.colors.okText = getColor(L"okText", theme.colors.okText);
+            theme.colors.okBorder = getColor(L"okBorder", theme.colors.okBorder);
+            theme.colors.warn = getColor(L"warn", theme.colors.warn);
+            theme.colors.warnSoft = getColor(L"warnSoft", theme.colors.warnSoft);
+            theme.colors.warnText = getColor(L"warnText", theme.colors.warnText);
+            theme.colors.warnBorder = getColor(L"warnBorder", theme.colors.warnBorder);
+            theme.colors.error = getColor(L"error", theme.colors.error);
+            theme.colors.errorSoft = getColor(L"errorSoft", theme.colors.errorSoft);
+            theme.colors.errorText = getColor(L"errorText", theme.colors.errorText);
+            theme.colors.errorBorder = getColor(L"errorBorder", theme.colors.errorBorder);
+            theme.colors.noteBg = getColor(L"noteBg", theme.colors.noteBg);
+            theme.colors.noteBorder = getColor(L"noteBorder", theme.colors.noteBorder);
+            theme.colors.iconTile = getColor(L"iconTile", theme.colors.iconTile);
+            theme.colors.iconTileHover = getColor(L"iconTileHover", theme.colors.iconTileHover);
+            theme.colors.chipBg = getColor(L"chipBg", theme.colors.chipBg);
+            theme.colors.chipBorder = getColor(L"chipBorder", theme.colors.chipBorder);
+            theme.colors.captionBtnHover = getColor(L"captionBtnHover", theme.colors.captionBtnHover);
+            theme.colors.captionCloseHover = getColor(L"captionCloseHover", theme.colors.captionCloseHover);
+            theme.colors.scrollThumb = getColor(L"scrollThumb", theme.colors.scrollThumb);
+        }
+    }
+
+    {
+        std::wstring pattern = L"\"metrics\"\\s*:\\s*\\{([^}]*)\\}";
+        std::wregex re(pattern);
+        std::wsmatch m;
+        if (std::regex_search(json, m, re)) {
+            std::wstring obj = m[1].str();
+            theme.metrics.titleH = getInt(obj, L"titleH", theme.metrics.titleH);
+            theme.metrics.capBtnW = getInt(obj, L"capBtnW", theme.metrics.capBtnW);
+            theme.metrics.sidebarW = getInt(obj, L"sidebarW", theme.metrics.sidebarW);
+            theme.metrics.statusH = getInt(obj, L"statusH", theme.metrics.statusH);
+            theme.metrics.unit = getInt(obj, L"unit", theme.metrics.unit);
+            theme.metrics.pagePad = getInt(obj, L"pagePad", theme.metrics.pagePad);
+            theme.metrics.cardGap = getInt(obj, L"cardGap", theme.metrics.cardGap);
+            theme.metrics.radiusSm = getInt(obj, L"radiusSm", theme.metrics.radiusSm);
+            theme.metrics.radiusMd = getInt(obj, L"radiusMd", theme.metrics.radiusMd);
+            theme.metrics.radiusLg = getInt(obj, L"radiusLg", theme.metrics.radiusLg);
+            theme.metrics.radiusCard = getInt(obj, L"radiusCard", theme.metrics.radiusCard);
+            theme.metrics.radiusPill = getInt(obj, L"radiusPill", theme.metrics.radiusPill);
+            theme.metrics.rowH = getInt(obj, L"rowH", theme.metrics.rowH);
+            theme.metrics.inputH = getInt(obj, L"inputH", theme.metrics.inputH);
+            theme.metrics.searchH = getInt(obj, L"searchH", theme.metrics.searchH);
+            theme.metrics.btnH = getInt(obj, L"btnH", theme.metrics.btnH);
+            theme.metrics.tagH = getInt(obj, L"tagH", theme.metrics.tagH);
+            theme.metrics.statusTagH = getInt(obj, L"statusTagH", theme.metrics.statusTagH);
+            theme.metrics.itemH = getInt(obj, L"itemH", theme.metrics.itemH);
+            theme.metrics.groupH = getInt(obj, L"groupH", theme.metrics.groupH);
+            theme.metrics.fontBody = getInt(obj, L"fontBody", theme.metrics.fontBody);
+            theme.metrics.fontMeta = getInt(obj, L"fontMeta", theme.metrics.fontMeta);
+            theme.metrics.fontTitle = getInt(obj, L"fontTitle", theme.metrics.fontTitle);
+            theme.metrics.fontSection = getInt(obj, L"fontSection", theme.metrics.fontSection);
+            theme.metrics.fontButton = getInt(obj, L"fontButton", theme.metrics.fontButton);
+            theme.metrics.fontIcon = getInt(obj, L"fontIcon", theme.metrics.fontIcon);
+            theme.metrics.fontIconLg = getInt(obj, L"fontIconLg", theme.metrics.fontIconLg);
+            theme.metrics.fontDisplay = getInt(obj, L"fontDisplay", theme.metrics.fontDisplay);
+        }
+    }
+
+    ApplyThemeJson(theme);
+    return true;
 }
 
 bool ExportTheme(const std::wstring& jsonPath)
