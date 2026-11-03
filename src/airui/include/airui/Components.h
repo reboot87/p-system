@@ -64,10 +64,13 @@ public:
 
     void Paint(Canvas& g);
     bool HitTest(POINT pt) const { return PtInRect(&m_cfg.rect, pt); }
-    const RECT& Rect() const { return m_cfg.rect; }
+    const RECT& GetRect() const { return m_cfg.rect; }
     void SetRect(const RECT& r) { m_cfg.rect = r; }
     void SetNumber(const std::wstring& n) { m_cfg.number = n; }
     void SetBadge(const Badge& b) { m_cfg.badge = b; }
+    // Interaction methods for GUI
+    void SetHover(bool hover) { m_hover = hover; }
+    const Config& GetConfig() const { return m_cfg; }
 
 private:
     Config m_cfg;

@@ -1,3 +1,7 @@
+// ============================================================
+// AirUI — GalleryDraw.cpp
+// 组件画廊的共享绘制代码，供无头截图和 GUI 预览程序复用。
+// ============================================================
 #include "GalleryDraw.h"
 #include "airui/AirUi.h"
 #include "airui/Components.h"
@@ -358,6 +362,89 @@ void DrawGallery(Canvas& g, int left, int top, int width, bool dark)
     int emptyW = (width - panelGap) * 48 / 100;
     EmptyPanel(g, {left, y0 + 1146, left + emptyW, y0 + 1438});
     TypographyPanel(g, {left + emptyW + panelGap, y0 + 1146, right, y0 + 1438});
+}
+
+std::vector<ComponentLayout> CalculateGalleryLayout(int left, int top, int width)
+{
+    std::vector<ComponentLayout> layouts;
+    const Palette& p = Pal();
+    const Metrics& m = Mx();
+
+    // --- 1. 页头和固定元素布局 (不作为可交互组件，直接计算区域) ---
+    int right = left + width;
+    
+    // 页头区域
+    ComponentLayout header0;
+    header0.cardConfig = {};
+    header0.drawRect = {left, top + 22, right, top + 58};
+    header0.type = ComponentLayout::CARD_TYPE;
+    layouts.push_back(header0);
+
+    header0.cardConfig = {};
+    header0.drawRect = {left, top + 58, right, top + 82};
+    header0.type = ComponentLayout::CARD_TYPE;
+    layouts.push_back(header0);
+
+    // --- 2. 调色板布局 ---
+    ComponentLayout paletteSection;
+    paletteSection.cardConfig = {};
+    paletteSection.drawRect = {left, top + 110, right, top + 132};
+    paletteSection.type = ComponentLayout::CARD_TYPE;
+    layouts.push_back(paletteSection);
+
+    // --- 3. 按钮布局 ---
+    ComponentLayout buttonSection;
+    buttonSection.cardConfig = {};
+    buttonSection.drawRect = {left, top + 300, right, top + 322};
+    buttonSection.type = ComponentLayout::CARD_TYPE;
+    layouts.push_back(buttonSection);
+
+    // --- 4. 卡片布局 ---
+    int cardW = (width - 32) / 3;
+    int cardH = 188;
+    int cardY = top + 874;
+    
+    // 创建卡片组件配置
+    auto makeCardConfig = [&](int idx, const wchar_t* glyph, COLORREF icBg,
+                            COLORREF icTx, const wchar_t* title,
+                            const wchar_t* desc, const wchar_t* number,
+                            const wchar_t* unit, const wchar_t* badgeText,
+                            bool badgeOk, bool disabled) {
+        ComponentLayout layout;
+        Card::Config cfg;
+        cfg.rect = { left + idx * (cardW + 16), cardY,
+                     left + idx * (cardW + 16) + cardW, cardY + cardH };
+        cfg.icon.glyph = glyph;
+        cfg.icon.bg = icBg;
+        cfg.icon.color = icTx;
+        cfg.icon.size = 40;
+        cfg.icon.radius = 10;
+        cfg.title = title;
+        cfg.desc = desc;
+        cfg.number = number;
+        cfg.unit = unit;
+        cfg.badge.text = badgeText;
+        cfg.badge.ok = badgeOk;
+        cfg.linkText = disabled ? L"敬请期待" : L"进入模块 →";
+        cfg.disabled = disabled;
+        
+        layout.cardConfig = cfg;
+        layout.drawRect = cfg.rect;
+        layout.type = ComponentLayout::CARD_TYPE;
+        layouts.push_back(layout);
+    };
+    
+    makeCardConfig(0, L"\xE8C8", p.primarySoft, p.primary,
+             L"剪贴板监控", L"自动记录剪贴板内容，支持搜索与备注",
+             L"1,286", L"条记录", L"运行中", true, false);
+    makeCardConfig(1, L"\xE8B7", RGB(230,244,241), RGB(15,163,127),
+             L"文件监控", L"监控指定目录的新增 / 修改 / 删除",
+             L"—", L"未启用", L"规划中", false, true);
+    makeCardConfig(2, L"\xE749", RGB(243,238,255), RGB(123,97,255),
+             L"打印监控", L"记录本机打印任务与文档信息",
+             L"—", L"未启用", L"规划中", false, true);
+
+    return layouts;
 }
 
 } // namespace gallery

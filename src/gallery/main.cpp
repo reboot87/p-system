@@ -1,1 +1,331 @@
-// ============================================================\n// AirUI Gallery — 可视化组件画廊\n// ============================================================\n#ifndef NOMINMAX\n#define NOMINMAX\n#endif\n#include <windows.h>\n#include <algorithm>\n#include <memory>\n#include <string>\n#include <vector>\n\n#include \"airui/AirUi.h\"\n#include \"GalleryDraw.h\"\n\nusing namespace air::ui;\n\nnamespace {\n\nconstexpr int kScrollStep = 72;\n\nclass GalleryPage : public Page\n{\npublic:\n    const wchar_t* Title() const override { return L\"组件画廊\"; }\n\n    void OnAttach(Shell& shell) override\n    {\n        m_shell = &shell;\n        m_content = shell.ContentRect();\n\n        shell.SetCaptionSubtitle(L\"Canvas · Gfx · Components\");\n        shell.SetStatusKeys({\n            { L\"滚轮\", L\"滚动\" },\n            { L\"T\", L\"切换主题\" },\n            { L\"Home / End\", L\"顶部 / 底部\" },\n        });\n\n        shell.SetMessageHook(\n            [this](HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,\n                   LRESULT& result) -> bool {\n                (void)hwnd;\n                (void)lParam;\n\n                if (msg == WM_MOUSEWHEEL) {\n                    int steps = GET_WHEEL_DELTA_WPARAM(wParam) / WHEEL_DELTA;\n                    if (steps == 0) {\n                        steps = GET_WHEEL_DELTA_WPARAM(wParam) > 0 ? 1 : -1;\n                    }\n                    ScrollBy(-steps * kScrollStep);\n                    result = 0;\n                    return true;\n                }\n\n                if (msg == WM_KEYDOWN) {\n                    switch (wParam) {\n                    case 'T':\n                        ToggleTheme();\n                        result = 0;\n                        return true;\n                    case VK_HOME:\n                        SetScroll(0);\n                        result = 0;\n                        return true;\n                    case VK_END:\n                        SetScroll(MaxScroll());\n                        result = 0;\n                        return true;\n                    case VK_PRIOR:\n                        ScrollBy(-(ViewHeight() - 40));\n                        result = 0;\n                        return true;\n                    case VK_NEXT:\n                        ScrollBy(ViewHeight() - 40);\n                        result = 0;\n                        return true;\n                    case VK_UP:\n                        ScrollBy(-40);\n                        result = 0;\n                        return true;\n                    case VK_DOWN:\n                        ScrollBy(40);\n                        result = 0;\n                        return true;\n                    default:\n                        break;\n                    }\n                }\n                // *** 关键：在此处实现控件消息路由 (WM_LBUTTONDOWN, WM_MOUSEMOVE) ***\n                if (msg == WM_LBUTTONDOWN || msg == WM_MOUSEMOVE) {\n                    HandleControlHit(wParam, lParam);\n                    return true;\n                }\n                return false;\n            });\n\n        // 1. 计算布局，获取组件配置和区域\n        auto layouts = gallery::CalculateGalleryLayout(0, 0, 1280);\n        \n        // 2. 实例化组件\n        for (const auto& layout : layouts) {\n            if (layout.type == gallery::ComponentLayout::CARD_TYPE) {\n                // 假设 Page::CreateCard 接受 Card::Config\n                auto card = CreateCard(layout.cardConfig);\n                m_cards.push_back(std::move(card));\n            }\n        }\n\n        UpdateStatus();\n    }\n\n    void OnLayout(const RECT& content) override\n    {\n        m_content = content;\n        m_scroll = std::min(m_scroll, MaxScroll());\n    }\n\n    void OnShow(bool shown) override\n    {\n        if (shown) UpdateStatus();\n    }\n\n    void OnPaint(Canvas& g, const RECT& content) override\n    {\n        const Palette& p = Pal();\n        g.Fill(content, p.bg);\n\n        // 滚动处理：裁剪到内容区\n        HDC dc = g.Native();\n        int saved = 0;\n        if (dc) {\n            saved = SaveDC(dc);\n            IntersectClipRect(dc, content.left, content.top,\n                              content.right, content.bottom);\n        }\n        \n        // *** 关键：遍历实例化的组件调用 Paint ***\n        for (const auto& card : m_cards) {\n            card->Paint(g);\n        }\n\n        if (dc && saved) RestoreDC(dc, saved);\n\n        DrawScrollBar(g, content);\n    }\n\nprivate:\n    // 命中测试函数 (需要实现) \n    void HandleControlHit(WPARAM wParam, LPARAM lParam) {\n        POINT pt = { (short)LOWORD(lParam), (short)HIWORD(lParam) };\n        // 遍历 m_cards，判断 pt 是否在 card->GetRect() 内，并更新其状态\n        for (const auto& card : m_cards) {\n            // 假设 Card 类提供 GetRect() 方法返回一个 RECT\n            RECT cardRect = card->GetRect();\n            if (PtInRect(&pt, &cardRect)) {\n                // 仅处理鼠标移动（悬停）和左键点击\n                if (msg == WM_MOUSEMOVE) {\n                    card->SetHover(true); // 假设存在 SetHover 方法\n                } else if (msg == WM_LBUTTONDOWN) {\n                    card->SetHover(true);\n                    // 模拟点击事件，例如触发回调\n                    // card->TriggerClick(); // 假设存在 TriggerClick 方法\n                    card->SetHover(false); // 点击瞬间不保持悬停\n                }\n                // 优化：一旦命中，就停止检查其他组件\n                break;\n            }\n        }\n    }\n\n    int ViewHeight() const\n    {\n        int h = static_cast<int>(m_content.bottom - m_content.top);\n        return h > 0 ? h : 0;\n    }\n\n    int MaxScroll() const\n    {\n        return std::max(0, gallery::kGalleryHeight - ViewHeight());\n    }\n\n    void SetScroll(int value)\n    {\n        int clamped = std::max(0, std::min(value, MaxScroll()));\n        if (clamped == m_scroll) return;\n        m_scroll = clamped;\n        if (m_shell) m_shell->Invalidate();\n        UpdateStatus();\n    }\n\n    void ScrollBy(int delta) { SetScroll(m_scroll + delta); }\n\n    void ToggleTheme()\n    {\n        m_dark = !m_dark;\n        SetPalette(m_dark ? DarkPalette() : LightPalette());\n        if (m_shell) m_shell->Invalidate();\n        UpdateStatus();\n    }\n\n    void UpdateStatus()\n    {\n        if (!m_shell) return;\n\n        int maxScroll = MaxScroll();\n        int percent = maxScroll > 0\n                          ? (m_scroll * 100 + maxScroll / 2) / maxScroll\n                          : 0;\n\n        wchar_t extra[96] = {};\n        swprintf_s(extra, L\"%s · %d%% · 总高 %d px\",\n                   m_dark ? L\"深色主题\" : L\"浅色主题\",\n                   percent, gallery::kGalleryHeight);\n\n        m_shell->SetStatus(L\"组件画廊\", true);\n        m_shell->SetStatusExtra(extra);\n        m_shell->SetCaptionBadge(m_dark ? L\"Dark\" : L\"Light\", true);\n    }\n\n    void DrawScrollBar(Canvas& g, const RECT& content)\n    {\n        int viewH = content.bottom - content.top;\n        int maxScroll = MaxScroll();\n        if (viewH <= 0 || maxScroll <= 0) return;\n\n        const Palette& p = Pal();\n        const int trackW = 6;\n        const int x = content.right - trackW - 2;\n\n        RECT track = { x, content.top, x + trackW, content.bottom };\n        g.FillRound(track, p.split, trackW / 2);\n\n        int thumbH = std::max(40, viewH * viewH / gallery::kGalleryHeight);\n        thumbH = std::min(thumbH, viewH);\n        int travel = viewH - thumbH;\n        int thumbY = content.top + travel * m_scroll / maxScroll;\n\n        RECT thumb = { x, thumbY, x + trackW, thumbY + thumbH };\n        g.FillRound(thumb, p.textDisabled, trackW / 2);\n    }\n\n    std::vector<std::unique_ptr<Card>> m_cards;\n    RECT  m_content = {};\n    int   m_scroll  = 0;\n    bool  m_dark    = false;\n};\n\n} // namespace\n\nint WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int)\n{\n    SetProcessDPIAware();\n\n    // 进程可能被反复启动，先恢复默认浅色主题，避免受上一次调色板影响。\n    SetPalette(LightPalette());\n\n    ShellOptions opt;\n    opt.className  = L\"AirUiGalleryWnd\";\n    opt.appName    = L\"AirUI Gallery\";\n    opt.logoLetter = L\"A\";\n    opt.width      = 1280;\n    opt.height     = 920;\n    opt.minWidth   = 960;\n    opt.minHeight  = 640;\n    opt.sidebar    = false;\n    opt.statusBar  = true;\n    opt.dark       = false;\n\n    Shell shell;\n    if (!shell.Create(hInstance, opt)) {\n        MessageBoxW(nullptr, L\"创建 AirUI Gallery 窗口失败。\",\n                    L\"AirUI Gallery\", MB_ICONERROR | MB_OK);\n        return 1;\n    }\n\n    shell.AddPage(1, std::make_unique<GalleryPage>());\n    shell.SwitchPage(1);\n\n    return shell.RunMessageLoop();\n}\n
+// ============================================================
+// AirUI Gallery — 清晰布局的可视化组件画廊
+// ============================================================
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <algorithm>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "airui/AirUi.h"
+#include "airui/Components.h"
+#include "gallery/GalleryDraw.h"
+
+using namespace air::ui;
+
+namespace {
+constexpr int kScrollStep = 72;
+
+enum class CompType { Button, Checkbox, Radio, Text, Label, Card };
+
+struct CompInstance {
+    CompType type = CompType::Button;
+    RECT rect{};
+    std::wstring text;
+    BtnStyle btnStyle = BtnStyle::Primary;
+    bool hover = false;
+    bool pressed = false;
+    bool disabled = false;
+    bool checked = false;
+};
+
+class GalleryPage : public Page
+{
+public:
+    const wchar_t* Title() const override { return L"组件画廊"; }
+
+    void OnAttach(Shell& shell) override
+    {
+        m_shell = &shell;
+        m_content = shell.ContentRect();
+
+        shell.SetCaptionSubtitle(L"Button · Checkbox · Radio · Text · Label · Card");
+        shell.SetStatusKeys({
+            { L"滚轮", L"滚动" },
+            { L"T", L"切换主题" },
+            { L"Home/End", L"顶部/底部" },
+        });
+
+        shell.SetMessageHook([this](HWND, UINT msg, WPARAM wParam, LPARAM lParam, LRESULT& result)->bool {
+            if (msg == WM_MOUSEWHEEL) {
+                int steps = GET_WHEEL_DELTA_WPARAM(wParam) / WHEEL_DELTA;
+                if (steps == 0) steps = GET_WHEEL_DELTA_WPARAM(wParam) > 0 ? 1 : -1;
+                ScrollBy(-steps * kScrollStep);
+                result = 0; return true;
+            }
+            if (msg == WM_KEYDOWN) {
+                if (wParam == 'T') { ToggleTheme(); result = 0; return true; }
+                if (wParam == VK_HOME) { SetScroll(0); result = 0; return true; }
+                if (wParam == VK_END) { SetScroll(MaxScroll()); result = 0; return true; }
+                if (wParam == VK_PRIOR) { ScrollBy(-(ViewHeight()-40)); result = 0; return true; }
+                if (wParam == VK_NEXT) { ScrollBy(ViewHeight()-40); result = 0; return true; }
+                if (wParam == VK_UP) { ScrollBy(-40); result = 0; return true; }
+                if (wParam == VK_DOWN) { ScrollBy(40); result = 0; return true; }
+            }
+            if (msg == WM_MOUSEMOVE || msg == WM_LBUTTONDOWN || msg == WM_LBUTTONUP) {
+                HandleHit(msg, wParam, lParam);
+                result = 0; return true;
+            }
+            return false;
+        });
+
+        BuildComponents();
+        UpdateStatus();
+    }
+
+    void OnLayout(const RECT& content) override
+    {
+        m_content = content;
+        m_scroll = std::min(m_scroll, MaxScroll());
+    }
+
+    void OnPaint(Canvas& g, const RECT& content) override
+    {
+        const Palette& p = Pal();
+        g.Fill(content, p.bg);
+
+        // 标题
+        RECT header = { content.left+24, content.top+24, content.right-24, content.top+64 };
+        g.Text(header, L"AirUI 组件画廊", FontRole::Display, p.text, DT_SINGLELINE|DT_LEFT|DT_VCENTER);
+
+        int y = content.top + 80;
+        int scrollOffset = m_scroll;
+        // 绘制所有实例
+        for (auto& c : m_comps) {
+            RECT rc = c.rect;
+            rc.top -= scrollOffset;
+            rc.bottom -= scrollOffset;
+            if (rc.bottom < content.top || rc.top > content.bottom) continue;
+            PaintComponent(g, c, rc);
+        }
+        // 绘制卡片
+        for (auto& card : m_cards) {
+            RECT rc = card->GetRect();
+            rc.top -= scrollOffset;
+            rc.bottom -= scrollOffset;
+            if (rc.bottom < content.top || rc.top > content.bottom) continue;
+            // 临时调整卡片位置
+            RECT old = card->GetRect();
+            card->SetRect(rc);
+            card->Paint(g);
+            card->SetRect(old);
+        }
+
+        DrawScrollBar(g, content);
+    }
+
+private:
+    void BuildComponents()
+    {
+        m_comps.clear();
+        m_cards.clear();
+        int y = 120;
+        const int left = 40;
+        const int gap = 16;
+
+        auto section = [&](const wchar_t* title){
+            CompInstance c; c.type = CompType::Label; c.text = title;
+            c.rect = { left, y, left+600, y+28 };
+            m_comps.push_back(c);
+            y += 36;
+        };
+        auto btn = [&](const wchar_t* txt, BtnStyle s){
+            CompInstance c; c.type = CompType::Button; c.text = txt; c.btnStyle = s;
+            c.rect = { left, y, left+180, y+36 };
+            m_comps.push_back(c);
+            y += 52;
+        };
+        auto check = [&](const wchar_t* txt, bool checked=false, bool disabled=false){
+            CompInstance c; c.type = CompType::Checkbox; c.text = txt; c.checked = checked; c.disabled = disabled;
+            c.rect = { left, y, left+260, y+24 };
+            m_comps.push_back(c);
+            y += 32;
+        };
+        auto radio = [&](const wchar_t* txt, bool checked=false){
+            CompInstance c; c.type = CompType::Radio; c.text = txt; c.checked = checked;
+            c.rect = { left, y, left+260, y+24 };
+            m_comps.push_back(c);
+            y += 32;
+        };
+        auto text = [&](const wchar_t* txt){
+            CompInstance c; c.type = CompType::Text; c.text = txt;
+            c.rect = { left, y, left+900, y+24 };
+            m_comps.push_back(c);
+            y += 36;
+        };
+
+        section(L"按钮 / Buttons");
+        btn(L"主按钮", BtnStyle::Primary);
+        btn(L"次按钮", BtnStyle::Secondary);
+        btn(L"危险操作", BtnStyle::Danger);
+        btn(L"幽灵按钮", BtnStyle::Ghost);
+
+        section(L"复选框 / Checkbox");
+        check(L"选项 A", true);
+        check(L"选项 B", false);
+        check(L"禁用项", false, true);
+
+        section(L"单选框 / Radio");
+        radio(L"红色", false);
+        radio(L"绿色", true);
+        radio(L"蓝色", false);
+
+        section(L"文本与标签 / Text & Label");
+        text(L"正文示例：AirUI 提供企业级 Win32 自绘组件库，支持主题切换、滚动、交互状态。");
+        CompInstance lbl; lbl.type = CompType::Label; lbl.text = L"状态标签"; lbl.rect = { left, y, left+200, y+26 }; m_comps.push_back(lbl); y+=40;
+
+        // 卡片示例
+        section(L"卡片 / Card");
+        int cardY = y;
+        const int cardW = 340; const int cardH = 180;
+        for (int i=0;i<3;i++){
+            Card::Config cfg;
+            cfg.rect = { left + i*(cardW+24), cardY, left + i*(cardW+24)+cardW, cardY+cardH };
+            cfg.title = L"示例卡片";
+            cfg.desc = L"这是一个可交互的卡片组件";
+            cfg.number = L"128";
+            cfg.unit = L"条记录";
+            cfg.badge.text = L"运行中";
+            cfg.badge.ok = true;
+            cfg.linkText = L"进入 →";
+            cfg.icon.glyph = L"\xE8C8";
+            cfg.icon.bg = Pal().primarySoft;
+            cfg.icon.color = Pal().primary;
+            auto card = std::make_unique<Card>(cfg);
+            m_cards.push_back(std::move(card));
+        }
+        m_totalHeight = cardY + cardH + 200;
+    }
+
+    void PaintComponent(Canvas& g, const CompInstance& c, const RECT& rc)
+    {
+        const Palette& p = Pal();
+        switch (c.type) {
+        case CompType::Button:
+            g.Button(rc, c.text, c.btnStyle, c.hover, c.pressed, c.disabled);
+            break;
+        case CompType::Checkbox: {
+            RECT box = { rc.left, rc.top+3, rc.left+18, rc.top+18 };
+            g.FillRound(box, p.surface, 4);
+            g.Stroke(box, p.border, 4);
+            if (c.checked && !c.disabled) {
+                RECT chk = { box.left+4, box.top+4, box.right-4, box.bottom-4 };
+                g.FillRound(chk, p.primary, 2);
+            }
+            g.Text({rc.left+26, rc.top, rc.right, rc.bottom}, c.text, FontRole::Body, c.disabled? p.textDisabled : p.text, DT_SINGLELINE|DT_LEFT|DT_VCENTER);
+            break;
+        }
+        case CompType::Radio: {
+            RECT box = { rc.left, rc.top+3, rc.left+18, rc.top+18 };
+            g.FillRound(box, p.surface, 9);
+            g.Stroke(box, p.border, 9);
+            if (c.checked) {
+                RECT inner = { box.left+5, box.top+5, box.right-5, box.bottom-5 };
+                g.FillRound(inner, p.primary, 4);
+            }
+            g.Text({rc.left+26, rc.top, rc.right, rc.bottom}, c.text, FontRole::Body, p.text, DT_SINGLELINE|DT_LEFT|DT_VCENTER);
+            break;
+        }
+        case CompType::Text:
+            g.Text(rc, c.text, FontRole::Body, p.text, DT_SINGLELINE|DT_LEFT|DT_VCENTER|DT_END_ELLIPSIS);
+            break;
+        case CompType::Label:
+            g.Text(rc, c.text, FontRole::Section, p.text, DT_SINGLELINE|DT_LEFT|DT_VCENTER);
+            break;
+        default: break;
+        }
+    }
+
+    void HandleHit(UINT msg, WPARAM, LPARAM lParam)
+    {
+        POINT pt = { (short)LOWORD(lParam), (short)HIWORD(lParam) };
+        pt.y += m_scroll;
+        bool needInvalidate = false;
+        for (auto& c : m_comps) {
+            bool inside = PtInRect(&c.rect, pt);
+            if (c.type == CompType::Button && !c.disabled) {
+                if (msg == WM_MOUSEMOVE) { if (c.hover != inside) { c.hover = inside; needInvalidate = true; } }
+                else if (msg == WM_LBUTTONDOWN) { if (inside) { c.pressed = true; needInvalidate = true; } }
+                else if (msg == WM_LBUTTONUP) { c.pressed = false; needInvalidate = true; }
+            } else if ((c.type == CompType::Checkbox || c.type == CompType::Radio) && !c.disabled) {
+                if (msg == WM_LBUTTONDOWN && inside) {
+                    if (c.type == CompType::Checkbox) c.checked = !c.checked;
+                    else {
+                        for (auto& r : m_comps) if (r.type == CompType::Radio) r.checked = false;
+                        c.checked = true;
+                    }
+                    needInvalidate = true;
+                }
+            }
+        }
+        for (auto& card : m_cards) {
+            RECT rc = card->GetRect();
+            bool inside = PtInRect(&rc, pt);
+            card->SetHover(inside);
+        }
+        if (needInvalidate && m_shell) m_shell->Invalidate();
+    }
+
+    int ViewHeight() const { int h = m_content.bottom - m_content.top; return h>0?h:0; }
+    int MaxScroll() const { return std::max(0, m_totalHeight - ViewHeight()); }
+    void SetScroll(int v){ int clamped = std::max(0, std::min(v, MaxScroll())); if(clamped!=m_scroll){ m_scroll=clamped; if(m_shell) m_shell->Invalidate(); UpdateStatus(); } }
+    void ScrollBy(int d){ SetScroll(m_scroll+d); }
+    void ToggleTheme(){ m_dark=!m_dark; SetPalette(m_dark?DarkPalette():LightPalette()); if(m_shell) m_shell->Invalidate(); UpdateStatus(); }
+    void UpdateStatus()
+    {
+        if(!m_shell) return;
+        int maxS = MaxScroll();
+        int pct = maxS>0 ? (m_scroll*100+maxS/2)/maxS : 0;
+        wchar_t extra[64]; swprintf_s(extra, L"%s %d%%", m_dark?L"深色":L"浅色", pct);
+        m_shell->SetStatus(L"组件画廊", true);
+        m_shell->SetStatusExtra(extra);
+    }
+    void DrawScrollBar(Canvas& g, const RECT& content)
+    {
+        int viewH = content.bottom - content.top;
+        int maxS = MaxScroll();
+        if(viewH<=0||maxS<=0) return;
+        const Palette& p = Pal();
+        int x = content.right - 8;
+        RECT track = { x, content.top, x+6, content.bottom };
+        g.FillRound(track, p.split, 3);
+        int thumbH = std::max(40, viewH*viewH/m_totalHeight);
+        int thumbY = content.top + (viewH-thumbH)*m_scroll/maxS;
+        RECT thumb = { x, thumbY, x+6, thumbY+thumbH };
+        g.FillRound(thumb, p.textDisabled, 3);
+    }
+
+    std::vector<CompInstance> m_comps;
+    std::vector<std::unique_ptr<Card>> m_cards;
+    RECT m_content{};
+    int m_scroll = 0;
+    int m_totalHeight = 2000;
+    bool m_dark = false;
+    Shell* m_shell = nullptr;
+};
+} // namespace
+
+int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int)
+{
+    SetProcessDPIAware();
+    SetPalette(LightPalette());
+
+    ShellOptions opt;
+    opt.className = L"AirUiGalleryWnd";
+    opt.appName = L"AirUI Gallery";
+    opt.logoLetter = L"A";
+    opt.width = 1280; opt.height = 900;
+    opt.minWidth = 960; opt.minHeight = 640;
+    opt.sidebar = false;
+    opt.statusBar = true;
+    opt.dark = false;
+
+    Shell shell;
+    if (!shell.Create(hInstance, opt)) { MessageBoxW(nullptr, L"创建失败", L"AirUI Gallery", MB_ICONERROR); return 1; }
+    shell.AddPage(1, std::make_unique<GalleryPage>());
+    shell.SwitchPage(1);
+    return shell.RunMessageLoop();
+}
