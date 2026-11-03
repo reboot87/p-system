@@ -91,6 +91,7 @@ public:
     // 绘制调用捕获
     const std::vector<DrawCall>& CaptureDrawCalls() const { return m_drawCalls; }
     void ClearDrawCalls() { m_drawCalls.clear(); }
+    bool ExportDrawCallsToFile(const std::wstring& path) const;
 
     // 断言辅助
     bool AssertDrawCall(size_t index, const DrawCall& expected) const;

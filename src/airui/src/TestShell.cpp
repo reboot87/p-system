@@ -1,5 +1,7 @@
 #include "airui/TestShell.h"
 #include <windows.h>
+#include <fstream>
+#include <sstream>
 
 namespace air {
 namespace ui {
@@ -113,6 +115,25 @@ size_t TestShell::CountDrawCalls(DrawCall::Type type) const
     size_t cnt = 0;
     for (const auto& d : m_drawCalls) if (d.type == type) ++cnt;
     return cnt;
+}
+
+bool TestShell::ExportDrawCallsToFile(const std::wstring& path) const
+{
+    std::wofstream file(path);
+    if (!file) return false;
+    file << L"[\n";
+    for (size_t i = 0; i < m_drawCalls.size(); ++i) {
+        const auto& dc = m_drawCalls[i];
+        file << L"  {\n";
+        file << L"    \"type\": " << dc.type << L",\n";
+        file << L"    \"rect\": [" << dc.rect.left << L"," << dc.rect.top << L"," << dc.rect.right << L"," << dc.rect.bottom << L"],\n";
+        file << L"    \"color\": " << dc.color << L"\n";
+        file << L"  }";
+        if (i + 1 < m_drawCalls.size()) file << L",";
+        file << L"\n";
+    }
+    file << L"]\n";
+    return true;
 }
 
 void TestShell::OnSize(int w, int h)

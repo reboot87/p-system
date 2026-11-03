@@ -116,3 +116,18 @@ set_target_properties(test_ui PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
     LINK_FLAGS "/SUBSYSTEM:CONSOLE"
 )
+
+# Theme manager test
+add_executable(test_theme_manager 
+    tests/test_theme_manager.cpp
+    ${COMMON_SOURCES}
+    ${RESOURCE_FILE}
+)
+target_link_libraries(test_theme_manager 
+    user32 gdi32 shell32 comctl32 shlwapi advapi32 ole32
+)
+set_target_properties(test_theme_manager PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/Release
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
+    LINK_FLAGS "/SUBSYSTEM:CONSOLE"
+)
