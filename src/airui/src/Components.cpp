@@ -33,8 +33,8 @@ void Card::Paint(Canvas& g)
     if (!m_cfg.badge.text.empty()) {
         g.PillRight(r.right - 16, r.top + 16 + m_cfg.icon.size / 2,
                     m_cfg.badge.text, FontRole::Meta,
-                    m_cfg.badge.ok ? p.okSoft : RGB(239, 241, 244),
-                    m_cfg.badge.ok ? p.okText : RGB(143, 149, 158),
+                    m_cfg.badge.ok ? p.okSoft : p.sunken,
+                    m_cfg.badge.ok ? p.okText : p.textSub,
                     m.tagH);
     }
 
@@ -75,7 +75,7 @@ void Card::Paint(Canvas& g)
         RECT rcLink = { r.left + 16, r.bottom - 16 - buttonLineH,
                         r.right - 16, r.bottom - 16 };
         g.Text(rcLink, m_cfg.linkText, FontRole::Button,
-               m_cfg.disabled ? RGB(169, 174, 184) : p.primaryText,
+               m_cfg.disabled ? p.textDisabled : p.primaryText,
                DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
     }
 }

@@ -165,6 +165,7 @@ set_target_properties(test_locale PROPERTIES
 # Component gallery renderer
 add_executable(test_component_gallery 
     tests/test_component_gallery.cpp
+    src/gallery/GalleryDraw.cpp
     ${COMMON_SOURCES}
     ${RESOURCE_FILE}
 )
@@ -175,4 +176,20 @@ set_target_properties(test_component_gallery PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/Release
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
     LINK_FLAGS "/SUBSYSTEM:CONSOLE"
+)
+
+# AirUI interactive component gallery (GUI)
+add_executable(airui_gallery
+    src/gallery/main.cpp
+    src/gallery/GalleryDraw.cpp
+    ${AIRUI_SOURCES}
+    ${RESOURCE_FILE}
+)
+target_link_libraries(airui_gallery
+    user32 gdi32 shell32 comctl32 shlwapi advapi32 ole32
+)
+set_target_properties(airui_gallery PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/Release
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
+    LINK_FLAGS "/SUBSYSTEM:WINDOWS"
 )
