@@ -13,7 +13,7 @@
 //     air::ui::Mx().titleH          取当前度量
 //     air::ui::SetPalette(darkPal)  运行期换肤（可选）
 // ============================================================
-#include <windows.h>
+#include "airui/types.h"
 
 namespace air {
 namespace ui {
@@ -25,61 +25,61 @@ namespace ui {
 struct Palette
 {
     // ---- 底层表面 ----
-    COLORREF bg;            // 页面底板（卡片之间的灰）
-    COLORREF surface;       // 卡片 / 容器 / 输入框底色
-    COLORREF sunken;        // 下沉区块（灰底内容框）
-    COLORREF sidebar;       // 侧栏底色
-    COLORREF sidebarLine;   // 侧栏右侧分隔线
-    COLORREF split;         // 卡片描边 / 细分隔线
-    COLORREF border;        // 输入框、次级按钮描边
+    Color bg;            // 页面底板（卡片之间的灰）
+    Color surface;       // 卡片 / 容器 / 输入框底色
+    Color sunken;        // 下沉区块（灰底内容框）
+    Color sidebar;       // 侧栏底色
+    Color sidebarLine;   // 侧栏右侧分隔线
+    Color split;         // 卡片描边 / 细分隔线
+    Color border;        // 输入框、次级按钮描边
 
     // ---- 文本 ----
-    COLORREF text;          // 主文本
-    COLORREF textSub;       // 次要文本（正文说明、取值）
-    COLORREF textFaint;     // 辅助文本（标签、元信息）
-    COLORREF textDisabled;  // 禁用
-    COLORREF textInverse;   // 深底上的文字（主按钮）
+    Color text;          // 主文本
+    Color textSub;       // 次要文本（正文说明、取值）
+    Color textFaint;     // 辅助文本（标签、元信息）
+    Color textDisabled;  // 禁用
+    Color textInverse;   // 深底上的文字（主按钮）
 
     // ---- 交互态 ----
-    COLORREF hover;         // 悬停填充
-    COLORREF active;        // 按下填充
-    COLORREF selectFill;    // 选中填充
-    COLORREF selectRing;    // 选中外环
-    COLORREF hoverBorder;   // 悬停描边
+    Color hover;         // 悬停填充
+    Color active;        // 按下填充
+    Color selectFill;    // 选中填充
+    Color selectRing;    // 选中外环
+    Color hoverBorder;   // 悬停描边
 
     // ---- 品牌 ----
-    COLORREF primary;
-    COLORREF primaryHover;
-    COLORREF primaryDown;
-    COLORREF primarySoft;   // 主色浅底（图标块 / 信息标签）
-    COLORREF primaryText;   // 主色文字（浅底上的深主色）
+    Color primary;
+    Color primaryHover;
+    Color primaryDown;
+    Color primarySoft;   // 主色浅底（图标块 / 信息标签）
+    Color primaryText;   // 主色文字（浅底上的深主色）
 
     // ---- 状态：成功 ----
-    COLORREF ok;
-    COLORREF okSoft;
-    COLORREF okText;
-    COLORREF okBorder;
+    Color ok;
+    Color okSoft;
+    Color okText;
+    Color okBorder;
     // ---- 状态：警告 ----
-    COLORREF warn;
-    COLORREF warnSoft;
-    COLORREF warnText;
-    COLORREF warnBorder;
+    Color warn;
+    Color warnSoft;
+    Color warnText;
+    Color warnBorder;
     // ---- 状态：错误 ----
-    COLORREF error;
-    COLORREF errorSoft;
-    COLORREF errorText;
-    COLORREF errorBorder;
+    Color error;
+    Color errorSoft;
+    Color errorText;
+    Color errorBorder;
 
     // ---- 组件专用 ----
-    COLORREF noteBg;        // 备注区（淡黄提示底）
-    COLORREF noteBorder;
-    COLORREF iconTile;      // 列表项图标块底
-    COLORREF iconTileHover; // 悬停操作钮底
-    COLORREF chipBg;        // 键位提示 chip 底
-    COLORREF chipBorder;
-    COLORREF captionBtnHover;
-    COLORREF captionCloseHover;
-    COLORREF scrollThumb;
+    Color noteBg;        // 备注区（淡黄提示底）
+    Color noteBorder;
+    Color iconTile;      // 列表项图标块底
+    Color iconTileHover; // 悬停操作钮底
+    Color chipBg;        // 键位提示 chip 底
+    Color chipBorder;
+    Color captionBtnHover;
+    Color captionCloseHover;
+    Color scrollThumb;
 };
 
 // ------------------------------------------------------------

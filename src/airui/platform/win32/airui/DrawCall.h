@@ -1,7 +1,8 @@
 #pragma once
 #include <windows.h>
 #include <string>
-#include "Theme.h"
+#include "airui/Theme.h"
+#include "airui/ControlsCore.h"
 
 namespace air {
 namespace ui {
@@ -46,7 +47,7 @@ struct DrawCall
     bool hover = false;
     bool pressed = false;
     bool disabled = false;
-    BtnStyle btnStyle = BtnStyle::Primary;
+    ButtonStyle btnStyle = ButtonStyle::Primary;
 
     bool Matches(const DrawCall& expected) const {
         if (type != expected.type) return false;

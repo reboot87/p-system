@@ -10,21 +10,12 @@
 #include <windows.h>
 #include <string>
 
+// FontRole is defined once, in the platform-free HAL. The Win32
+// backend only maps each role to an HFONT.
+#include "airui/hal.h"
+
 namespace air {
 namespace ui {
-
-enum class FontRole
-{
-    Body,       // 正文 14
-    Meta,       // 元信息 12
-    Title,      // 小标题 13 semibold
-    Section,    // 区块标题 14 semibold
-    Button,     // 按钮 14 semibold
-    Icon,       // 图标 11（Segoe MDL2 Assets）
-    IconLarge,  // 大图标 16
-    Display,    // 大数字 22 semibold
-    Count
-};
 
 class Fonts
 {

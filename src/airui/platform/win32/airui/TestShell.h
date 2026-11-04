@@ -22,9 +22,9 @@
 #include <string>
 #include <functional>
 #include <memory>
-#include "Shell.h"
-#include "Canvas.h"
-#include "DrawCall.h"
+#include "airui/Shell.h"
+#include "airui/Canvas.h"
+#include "airui/DrawCall.h"
 
 namespace air {
 namespace ui {

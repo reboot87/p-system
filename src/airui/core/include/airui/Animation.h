@@ -1,7 +1,7 @@
 #pragma once
 // ============================================================
 // AirUI — Animation.h
-// 入场/退场/展开/淡入淡出动画系统（WM_TIMER 驱动）
+// 入场/退场/展开/淡入淡出动画系统（由后端的 IClock 驱动）
 //
 // 用法：
 //     Animation anim;
@@ -10,7 +10,7 @@
 //     anim.onFrame = [](float p) { ... };
 //     anim::AnimationManager::Instance().Start(std::move(anim));
 // ============================================================
-#include <windows.h>
+#include <cstdint>
 #include <functional>
 #include <vector>
 #include <memory>
@@ -52,7 +52,8 @@ public:
     static AnimationManager& Instance();
 
     // 启动动画，返回动画 ID（可用于取消）
-    int Start(Animation anim);
+    // now 由后端时钟注入
+    int Start(Animation anim, uint64_t now);
 
     // 取消动画
     void Cancel(int id);
@@ -62,6 +63,10 @@ public:
 
     // 缓动函数
     static float Ease(Easing e, float t);
+
+    // 注入平台时钟。core 不自带时钟实现，保证平台无关。
+    static void SetClock(std::function<uint64_t()> clock);
+    static uint64_t Now();
 
 private:
     AnimationManager() = default;

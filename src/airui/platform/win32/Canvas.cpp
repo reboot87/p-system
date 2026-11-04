@@ -1,4 +1,6 @@
 #include "airui/Canvas.h"
+#include "airui/CanvasPainter.h"
+#include "airui/ControlsCore.h"
 #include "airui/Gfx.h"
 #include "airui/Controls.h"
 
@@ -236,8 +238,45 @@ void Canvas::Button(const RECT& rc, const std::wstring& text, BtnStyle style,
         DrawCall dc; dc.type = DrawCall::Button; dc.rect = rc; dc.text = text; dc.btnStyle = style; dc.hover = hover; dc.pressed = pressed; dc.disabled = disabled;
         s_recorder->push_back(dc);
     }
-    DrawButton(m_dc, rc, text.c_str(), m_fonts.Get(FontRole::Button),
-               style, hover, pressed, disabled);
+
+    // One high-level DrawCall is the documented contract for Button,
+    // so the individual fills/text painted by core are not recorded.
+    std::vector<DrawCall>* saved = s_recorder;
+    s_recorder = nullptr;
+
+    ControlState st;
+    st.hover    = hover;
+    st.pressed  = pressed;
+    st.disabled = disabled;
+
+    CanvasPainter painter(*this);
+    PaintButton(painter, ToRect(rc), text, style, st, Pal(), Mx());
+
+    s_recorder = saved;
+}
+
+void Canvas::Checkbox(const RECT& rc, const std::wstring& text, bool checked,
+                      bool hover, bool disabled)
+{
+    ControlState st;
+    st.checked  = checked;
+    st.hover    = hover;
+    st.disabled = disabled;
+
+    CanvasPainter painter(*this);
+    PaintCheckbox(painter, ToRect(rc), text, st, Pal());
+}
+
+void Canvas::Radio(const RECT& rc, const std::wstring& text, bool checked,
+                   bool hover, bool disabled)
+{
+    ControlState st;
+    st.checked  = checked;
+    st.hover    = hover;
+    st.disabled = disabled;
+
+    CanvasPainter painter(*this);
+    PaintRadio(painter, ToRect(rc), text, st, Pal());
 }
 
 } // namespace ui

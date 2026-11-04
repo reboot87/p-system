@@ -61,18 +61,56 @@ Layout& Layout::Nest(std::function<void(Layout&)> builder)
 // ------------------------------------------------------------
 // 核心计算
 // ------------------------------------------------------------
-void Layout::Apply(const RECT& container)
+void Layout::Apply(const Rect& container)
 {
     m_computed.clear();
+    m_widgetRects.clear();
     m_root->assigned = container;
     Compute(m_root.get(), container);
     int widgetIndex = 0;
     PlaceWidgets(m_root.get(), widgetIndex);
 }
 
-void Layout::Compute(Node* node, const RECT& rc)
+void Layout::Compute(Node* node, const Rect& rc)
 {
     if (node->items.empty() && node->children.empty()) return;
+
+    // The implicit root: every chained node gets the same container.
+    if (node->forward) {
+        for (auto& child : node->children) {
+            if (child) {
+                child->assigned = rc;
+                Compute(child.get(), rc);
+            }
+        }
+        return;
+    }
+
+    // A container node without items (e.g. the Grid row stack) splits
+    // the container along its own direction and recurses.
+    if (node->items.empty()) {
+        const int count = (int)node->children.size();
+        if (count <= 0) return;
+
+        const int total = (node->dir == Dir::Row) ? (rc.right - rc.left)
+                                                  : (rc.bottom - rc.top);
+        const int gaps  = (count - 1) * node->gap;
+        const int each  = (total - gaps) > 0 ? (total - gaps) / count : 0;
+
+        int pos = (node->dir == Dir::Row) ? rc.left : rc.top;
+        for (int i = 0; i < count; ++i) {
+            Rect assigned = {};
+            if (node->dir == Dir::Row) {
+                assigned = Rect(pos, rc.top, pos + each, rc.bottom);
+            } else {
+                assigned = Rect(rc.left, pos, rc.right, pos + each);
+            }
+            node->children[i]->assigned = assigned;
+            Compute(node->children[i].get(), assigned);
+            pos += each + node->gap;
+        }
+        return;
+    }
 
     int totalFixed = 0;
     int totalGrow  = 0;
@@ -151,7 +189,7 @@ void Layout::Compute(Node* node, const RECT& rc)
             }
         }
 
-        RECT assigned = {};
+        Rect assigned = {};
         if (node->dir == Dir::Row) {
             assigned.left   = pos + spec.margin.left;
             assigned.right  = assigned.left + mainSize - spec.margin.left - spec.margin.right;
@@ -168,8 +206,10 @@ void Layout::Compute(Node* node, const RECT& rc)
         if (i < (int)node->children.size() && node->children[i]) {
             node->children[i]->assigned = assigned;
         } else if (spec.widget) {
-            // 记录 leaf widget 的最终矩形
-            // 稍后在 PlaceWidgets 里统一处理
+            // Record the leaf rect both positionally (public API) and
+            // keyed by widget (robust against traversal order).
+            m_widgetRects[spec.widget] = assigned;
+            m_computed.push_back(assigned);
         }
 
         pos += mainSize + node->gap;
@@ -185,22 +225,18 @@ void Layout::Compute(Node* node, const RECT& rc)
 
 void Layout::PlaceWidgets(Node* node, int& widgetIndex)
 {
-    for (size_t i = 0; i < node->items.size(); ++i) {
-        const auto& spec = node->items[i];
+    for (const auto& spec : node->items) {
         if (spec.widget) {
-            if (widgetIndex < (int)m_computed.size()) {
-                // 已有预留，更新
-            } else {
-                m_computed.push_back({});
+            auto it = m_widgetRects.find(spec.widget);
+            if (it != m_widgetRects.end()) {
+                spec.widget->Move(it->second);
             }
-            RECT target = m_computed[widgetIndex];
-            // 这里需要从计算结果获取，简化：直接 Move
-            // 实际应该在 Compute 里存 leaf 的 assigned
-            spec.widget->Move(target);
             widgetIndex++;
         }
-        if (i < node->children.size() && node->children[i]) {
-            PlaceWidgets(node->children[i].get(), widgetIndex);
+    }
+    for (auto& child : node->children) {
+        if (child) {
+            PlaceWidgets(child.get(), widgetIndex);
         }
     }
 }

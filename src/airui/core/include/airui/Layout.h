@@ -1,7 +1,7 @@
 #pragma once
 // ============================================================
 // AirUI — Layout.h
-// Flex/Grid 布局系统：消除手写 RECT 计算
+// Flex/Grid 布局系统：消除手写 Rect 计算
 //
 // 用法：
 //     Layout()
@@ -9,16 +9,23 @@
 //         .Col({ {list, 1}, {detail, 0, 0, 300} }, 12)
 //         .Apply(content);
 // ============================================================
-#include <windows.h>
+#include "airui/types.h"
 #include <vector>
 #include <functional>
 #include <memory>
-#include "Widgets.h"
+#include <unordered_map>
 
 namespace air {
 namespace ui {
 
-class Widget;
+// Minimal interface for anything a layout can position. This keeps
+// core free of any concrete widget / windowing dependency.
+class ILayoutItem
+{
+public:
+    virtual ~ILayoutItem() = default;
+    virtual void Move(const Rect& rc) = 0;
+};
 
 // ------------------------------------------------------------
 // 规格
@@ -42,7 +49,7 @@ struct LayoutMargins
 
 struct LayoutSpec
 {
-    Widget*     widget   = nullptr;
+    ILayoutItem* widget   = nullptr;
     int         grow     = 0;
     int         minSize  = 0;
     int         maxSize  = -1;
@@ -59,14 +66,14 @@ class Layout
 public:
     enum class Dir { Row, Col };
 
-    Layout() = default;
+    Layout() { m_root->forward = true; }
 
     Layout& Row(std::vector<LayoutSpec> items, int gap = 8);
     Layout& Col(std::vector<LayoutSpec> items, int gap = 8);
     Layout& Grid(std::vector<LayoutSpec> items, int cols, int hGap = 8, int vGap = 8);
     Layout& Nest(std::function<void(Layout&)> builder);
-    void Apply(const RECT& container);
-    const std::vector<RECT>& ComputedRects() const { return m_computed; }
+    void Apply(const Rect& container);
+    const std::vector<Rect>& ComputedRects() const { return m_computed; }
 
 private:
     struct Node
@@ -75,13 +82,18 @@ private:
         int gap = 8;
         std::vector<LayoutSpec> items;
         std::vector<std::unique_ptr<Node>> children;
-        RECT assigned = {};
+        Rect assigned = {};
+        // The implicit root forwards its rect to every child (chained
+        // .Row().Col() calls share the same container). Nested container
+        // nodes instead stack their children along their own direction.
+        bool forward = false;
     };
 
     std::unique_ptr<Node> m_root = std::make_unique<Node>();
-    std::vector<RECT> m_computed;
+    std::vector<Rect> m_computed;
+    std::unordered_map<ILayoutItem*, Rect> m_widgetRects;
 
-    void Compute(Node* node, const RECT& rc);
+    void Compute(Node* node, const Rect& rc);
     void PlaceWidgets(Node* node, int& widgetIndex);
 };
 

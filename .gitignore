@@ -1,5 +1,6 @@
 # 编译产物
 build/
+build-linux-smoke/
 *.obj
 *.exe
 *.res
@@ -8,6 +9,19 @@ build/
 *.exp
 *.lib
 *.manifest.bak
+
+# 阶段0备份
+.phase0_backup/
+
+# 测试输出
+test_output*.txt
+test_draw_calls.json
+test_locale.json
+test_theme.json
+component_gallery.*
+gallery_gui_*.png
+*.log
+
 
 # 工具与编辑器
 .vs/

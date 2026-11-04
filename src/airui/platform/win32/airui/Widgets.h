@@ -14,8 +14,8 @@
 #include <windows.h>
 #include <functional>
 #include <string>
-#include "Controls.h"
-#include "Canvas.h"
+#include "airui/Controls.h"
+#include "airui/Canvas.h"
 
 namespace air {
 namespace ui {

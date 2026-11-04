@@ -96,15 +96,9 @@ public:
             } else if (it.kind == Item::Button) {
                 g.Button(r,it.text,it.style,it.hover,it.pressed,it.disabled);
             } else if (it.kind == Item::Checkbox) {
-                RECT b={r.left,r.top+4,r.left+16,r.top+20};
-                g.FillRound(b,p.surface,3); g.Stroke(b,p.border,3);
-                if (it.checked) g.Text(b,L"✓",FontRole::Body,p.primary,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
-                g.Text({r.left+24,r.top,r.right,r.bottom},it.text,FontRole::Body,p.text,DT_SINGLELINE|DT_LEFT|DT_VCENTER);
+                g.Checkbox(r,it.text,it.checked,it.hover,it.disabled);
             } else if (it.kind == Item::Radio) {
-                RECT b={r.left,r.top+4,r.left+16,r.top+20};
-                g.FillRound(b,p.surface,8); g.Stroke(b,p.border,8);
-                if (it.checked) { RECT d={b.left+4,b.top+4,b.right-4,b.bottom-4}; g.FillRound(d,p.primary,4); }
-                g.Text({r.left+24,r.top,r.right,r.bottom},it.text,FontRole::Body,p.text,DT_SINGLELINE|DT_LEFT|DT_VCENTER);
+                g.Radio(r,it.text,it.checked,it.hover,it.disabled);
             }
         }
         for (auto& c : m_cards) {

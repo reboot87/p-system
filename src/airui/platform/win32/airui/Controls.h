@@ -14,8 +14,9 @@
 #include <functional>
 #include <string>
 #include <vector>
-#include "Theme.h"
-#include "Fonts.h"
+#include "airui/Theme.h"
+#include "airui/ControlsCore.h"
+#include "airui/Fonts.h"
 
 namespace air {
 namespace ui {
@@ -61,13 +62,9 @@ void ForwardClickToEdit(HWND edit, HFONT font, POINT ptParent);
 // ============================================================
 // 按钮
 // ============================================================
-enum class BtnStyle
-{
-    Primary,    // 主色填充 + 白字
-    Secondary,  // 白底 + 边框 + 深字
-    Danger,     // 白底 + 红边 + 红字
-    Ghost       // 透明底 + 主色字
-};
+// ButtonStyle is defined in core (airui/ControlsCore.h); BtnStyle
+// stays as a source-compatible alias for the Win32 backend.
+using BtnStyle = ButtonStyle;
 
 void DrawButton(HDC dc, const RECT& rc, const wchar_t* text, HFONT font,
                 BtnStyle style, bool hover, bool pressed, bool disabled = false);

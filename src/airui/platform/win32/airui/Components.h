@@ -9,10 +9,10 @@
 #include <vector>
 #include <map>
 #include <memory>
-#include "Layout.h"
-#include "Canvas.h"
-#include "Widgets.h"
-#include "Theme.h"
+#include "airui/Layout.h"
+#include "airui/Canvas.h"
+#include "airui/Widgets.h"
+#include "airui/Theme.h"
 
 namespace air {
 namespace ui {

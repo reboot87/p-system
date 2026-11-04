@@ -27,11 +27,11 @@
 //   · 定时器  → StartTimer / KillTimer
 //   · 弹窗    → ShowMessageBox / ShowPopupMenu
 // ============================================================
-#include "Theme.h"
-#include "Gfx.h"
-#include "Fonts.h"
-#include "Canvas.h"
-#include "Controls.h"
-#include "Widgets.h"
-#include "Page.h"
-#include "Shell.h"
+#include "airui/Theme.h"
+#include "airui/Gfx.h"
+#include "airui/Fonts.h"
+#include "airui/Canvas.h"
+#include "airui/Controls.h"
+#include "airui/Widgets.h"
+#include "airui/Page.h"
+#include "airui/Shell.h"

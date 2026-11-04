@@ -15,10 +15,10 @@
 #include <windows.h>
 #include <string>
 #include <vector>
-#include "Controls.h"
-#include "Fonts.h"
-#include "Theme.h"
-#include "DrawCall.h"
+#include "airui/Controls.h"
+#include "airui/Fonts.h"
+#include "airui/Theme.h"
+#include "airui/DrawCall.h"
 
 namespace air {
 namespace ui {
@@ -94,6 +94,11 @@ public:
     // 按钮（纯视觉；点击由页面在 OnMouseDown 里命中）
     void Button(const RECT& rc, const std::wstring& text, BtnStyle style,
                 bool hover = false, bool pressed = false, bool disabled = false);
+    // 复选 / 单选（视觉与 Button 同属纯自绘控件；逻辑在页面）
+    void Checkbox(const RECT& rc, const std::wstring& text, bool checked,
+                  bool hover = false, bool disabled = false);
+    void Radio(const RECT& rc, const std::wstring& text, bool checked,
+               bool hover = false, bool disabled = false);
 
 private:
     HDC          m_dc;

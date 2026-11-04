@@ -1,11 +1,25 @@
 #include "airui/Animation.h"
-#include "airui/Widgets.h"
 #include <cmath>
 #include <algorithm>
 
 namespace air {
 namespace ui {
 namespace anim {
+
+// ------------------------------------------------------------
+// Injected platform clock
+// ------------------------------------------------------------
+static std::function<uint64_t()> s_clock;
+
+void AnimationManager::SetClock(std::function<uint64_t()> clock)
+{
+    s_clock = std::move(clock);
+}
+
+uint64_t AnimationManager::Now()
+{
+    return s_clock ? s_clock() : 0;
+}
 
 // ------------------------------------------------------------
 // AnimationManager 单例
@@ -16,12 +30,12 @@ AnimationManager& AnimationManager::Instance()
     return inst;
 }
 
-int AnimationManager::Start(Animation anim)
+int AnimationManager::Start(Animation anim, uint64_t now)
 {
     int id = m_nextId++;
     auto inst = std::make_unique<AnimInstance>();
     inst->anim = std::move(anim);
-    inst->startTime = GetTickCount64();
+    inst->startTime = now;
     inst->running = true;
     m_anims.push_back(std::move(inst));
     return id;
