@@ -720,11 +720,35 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         return DefWindowProcW(hwnd, msg, wParam, -1);
 
     case WM_NCHITTEST: {
-        LRESULT ht = DefWindowProcW(hwnd, msg, wParam, lParam);
-        if (ht != HTCLIENT) return ht;          // 边缘留给系统做缩放
         POINT pt = { (short)LOWORD(lParam), (short)HIWORD(lParam) };
         ScreenToClient(hwnd, &pt);
-        if (CaptionButtonAt(pt)) return HTCLIENT;   // 三键按客户区点击处理
+
+        // 1) 标题栏三键优先：按客户区点击处理
+        if (CaptionButtonAt(pt)) return HTCLIENT;
+
+        // 2) 无边框 + NCCALCSIZE 返回 0 后，DefWindowProc 找不到边缘区；
+        //    这里显式提供 6px 边缘热区，拖拽边框即可调整窗口大小。
+        if (!IsZoomed(hwnd)) {
+            RECT rc;
+            GetClientRect(hwnd, &rc);
+            const int B = 6;
+            bool onLeft   = pt.x >= 0 && pt.x < B;
+            bool onRight  = pt.x < rc.right && pt.x >= rc.right - B;
+            bool onTop    = pt.y >= 0 && pt.y < B;
+            bool onBottom = pt.y < rc.bottom && pt.y >= rc.bottom - B;
+
+            if (onTop && onLeft)     return HTTOPLEFT;
+            if (onTop && onRight)    return HTTOPRIGHT;
+            if (onBottom && onLeft)  return HTBOTTOMLEFT;
+            if (onBottom && onRight) return HTBOTTOMRIGHT;
+            if (onLeft)              return HTLEFT;
+            if (onRight)             return HTRIGHT;
+            if (onTop)               return HTTOP;
+            if (onBottom)            return HTBOTTOM;
+        }
+
+        LRESULT ht = DefWindowProcW(hwnd, msg, wParam, lParam);
+        if (ht != HTCLIENT) return ht;
         if (pt.y >= 0 && pt.y < m.titleH) return HTCAPTION;  // 拖动/双击/吸附
         return HTCLIENT;
     }
