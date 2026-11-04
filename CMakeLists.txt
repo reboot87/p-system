@@ -30,6 +30,7 @@ set(AIRUI_CORE_SOURCES
     src/airui/core/src/Layout.cpp
     src/airui/core/src/Animation.cpp
     src/airui/core/src/ControlsCore.cpp
+    src/airui/core/src/ShellCore.cpp
 )
 add_library(airui-core STATIC ${AIRUI_CORE_SOURCES})
 target_include_directories(airui-core PUBLIC
