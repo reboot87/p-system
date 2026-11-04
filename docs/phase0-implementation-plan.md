@@ -28,7 +28,7 @@
 
 ## 1. 原阶段 0 的边界与本文档的修订
 
-原阶段 0（总体方案）：物理移动文件 + 剥离 `windows.h` + `RECT→Rect` 过渡 typedef + `IClock` 注入 + 测试通过。
+原阶段 0（总体方案）：物理移动文件 + 剥离 `windows.h` + `RECT`→`Rect` 全面类型替换 + `IClock` 注入 + 测试通过。
 
 **评审修订**：直接把「控件的实现方式」提到阶段 0 的主线，原「机械搬迁」降级为步骤 0。原因：
 
@@ -74,7 +74,7 @@ AirUI 里「控件」分三类，跨平台处置完全不同：
 |---|---|---|---|
 | `Button` | `BUTTON` + `BS_OWNERDRAW`；`WM_DRAWITEM` → Shell 路由 → `Button::HandleDrawItem`；hover 走 `GetPropW` | HWND/WM_DRAWITEM/GetPropW | owner-draw 的焦点矩形/键盘可用性 |
 | `ListBox` | `LISTBOX` + `LBS_OWNERDRAWVARIABLE` + `LBS_NOINTEGRALHEIGHT`；`WM_MEASUREITEM`/`WM_DRAWITEM` 路由；hover 由 `ListBoxProc` 子类跟踪 + `LB_GETITEMRECT` | HWND/LB_* 消息/子类 | 可变行高 + 原生滚动条 + 原生键盘选中 |
-| `Custom` | `STATIC` + 子类，`HTTRANSPARENT` 鼠标穿透 | HWND |  trivial |
+| `Custom` | `STATIC` + 子类，`HTTRANSPARENT` 鼠标穿透 | HWND |  **阶段 0 去掉 HWND**，改为 core `CustomControl`（纯自绘，命中穿透由 `hitTransparent` 标志控制） |
 
 ### 2.3 第三类：原生深包装（目标：Windows 保持，Skia 分步重写）
 
@@ -165,6 +165,14 @@ public:
     virtual void Show() = 0;
     virtual int  PumpOne() = 0;      // 或 RunLoop
     virtual void RequestRedraw() = 0;
+
+    // 标题栏 / 状态栏 / 侧栏（ShellCore 状态通过这些注入 backend）
+    virtual void SetCaptionBadge(const std::wstring& text, bool ok) = 0;
+    virtual void SetCaptionSubtitle(const std::wstring& text) = 0;
+    virtual void SetStatus(const std::wstring& text, bool ok) = 0;
+    virtual void SetStatusExtra(const std::wstring& text) = 0;
+    virtual void SetNavBadge(int id, const std::wstring& text, bool ok) = 0;
+
     // 事件注入（core 注册，backend 触发）
     virtual void OnMouseMove(std::function<void(Point)>) = 0;
     virtual void OnMouseDown(std::function<void(Point, int button)>) = 0;
@@ -172,6 +180,11 @@ public:
     virtual void OnWheel(std::function<void(Point, float delta)>) = 0;
     virtual void OnKeyDown(std::function<void(int vk, bool ctrl, bool shift)>) = 0;
     virtual void OnResized(std::function<void(Rect content)>) = 0;
+
+    // 标题栏 caption 事件（ShellCore 解码后回调）
+    virtual void OnMinimize() = 0;
+    virtual void OnMaximizeRestore() = 0;
+    virtual void OnClose() = 0;
 };
 ```
 
@@ -181,7 +194,7 @@ public:
 |---|---|---|---|
 | Button（自绘） | core 状态机定稿；Windows 保持 `BS_OWNERDRAW` 路由 | 画 `GdiPainter`；状态机复用 | 画 `SkiaPainter`；**同一份 core 代码** |
 | Checkbox / Radio（自绘） | **阶段 0 直接迁入 core** | 同 Button | 同 Button |
-| Custom（STATIC+子类） | core `CustomControl` 状态机定稿 | 保持 STATIC 或改为无窗口自绘（推荐后者） | 无窗口自绘 |
+| Custom（STATIC+子类） | core `CustomControl`：**无 HWND**，纯自绘；鼠标穿透 → `hitTransparent` | 阶段 0 落地 | 阶段 2 原样复用 |
 | Card / DataGrid / EmptyState 等组件 | core（本就是 Canvas 组合） | 同现状 | 同现状 |
 | ListBox | core `ListData`（数据/选中/hover/滚动/可变行高）定稿 | 保持 `LISTBOX` + owner-draw，backend 做 `ListData↔LB_*` 同步 | **全自绘 ListView**（滚动条/键盘在 core） |
 | TextBox | core 接口定稿：`IEditControl`（Text/Selection/Caret/IME 钩子） | 保持 `EDIT` + `PlaceholderEdit`，包一层 `IEditControl(win32)` | 全自绘 EditBox：v1 基础输入（无 IME）→ v2 IME 组词 → v3 选区/剪贴板/撤销 |
@@ -223,7 +236,7 @@ target_link_libraries(airui-gallery PRIVATE airui-win32)
 
 | 现有文件 | 阶段 0 目标 | 内容 |
 |---|---|---|
-| `src/airui/src/Canvas.cpp` | `core/src/Canvas.cpp` | 不动（过渡期 RECT 仍指向 `types.h` 的 `using Rect = RECT`） |
+| `src/airui/src/Canvas.cpp` | `core/src/Canvas.cpp` | 全部 `RECT`→`Rect`、`COLORREF`→`Color`（物理同构替换，行为一致） |
 | `src/airui/src/Layout.cpp` | `core/src/Layout.cpp` | 不动 |
 | `src/airui/src/Components.cpp` / `Theme.cpp` / `Responsive.cpp` / `Animation.cpp`（注入 `IClock`） | `core/src/…` | 不动（Anim 时间源参数化） |
 | `src/airui/src/Shell.cpp` | `platform/win32/ShellWindow.cpp` | 先文件名不动，仅改 include |
@@ -247,7 +260,7 @@ target_link_libraries(airui-gallery PRIVATE airui-win32)
 | 6 | `airui-core` 在 **Linux** 仅编译（`cmake -B build-linux`）：证明 core 无平台头 | CI 可跑 | 编译成功即可，不运行 |
 | 7 | 文档：`docs/phase0-signoff.md`（变更清单 + diff 统计 + 退出标准打勾） | 签收单 | 本文档 §8 |
 
-**刻意不做（阶段 0）**：TextBox/ListBox 行为修改、Skia 引入、IME、字体跨平台、`RECT` 真正消亡（过渡 typedef 保留，阶段 1 再删）。
+**刻意不做（阶段 0）**：TextBox/ListBox 行为修改、Skia 引入、IME、字体跨平台。`RECT` 等 Windows 类型全面替换为 core `Rect`（`types.h`），`RECT/COLORREF` 只存在于 `platform/win32/` 源码内部。
 
 ---
 
@@ -306,12 +319,33 @@ if ($leak) { $leak | ForEach-Object { Write-Error $_ }; exit 1 } else { exit 0 }
 
 ---
 
-## 10. 开放问题
+## 10. 评审结论（2026-11-05 定稿）
 
-1. `Custom`（画廊自绘提示 chip）是否在阶段 0 就去掉 HWND、改为纯自绘子控件？（建议：是——STATIC 子类换 core `CustomControl`）
-2. `NavBar`/标题栏/状态栏是否纳入阶段 0 的 HAL 定稿？（建议：纳入 `ShellCore`，否则 §3.2 `IWindow` 缺少对应事件）
-3. Linux 编译烟雾测试以哪个发行版为准？（建议：Ubuntu 22.04 + GCC 11）
-4. 过渡 typedef `Rect = RECT` 是否允许泄漏到 Linux 编译期？（建议：基准类型 `Rect/Point/Color` 全新定义，Win32 后端内部转换；`RECT` 仅 Windows 源码用）
+| # | 问题 | 决议 |
+|---|---|---|
+| 1 | Custom（画廊提示 chip）是否去 HWND | **是**：STATIC 子类 + HTTRANSPARENT → core `CustomControl`（纯自绘、无窗口）；MouseTransparent 变成 `Control::hitTransparent` 标志 |
+| 2 | NavBar/标题栏/状态栏是否纳入阶段 0 HAL | **是**：`ShellCore`（core）= 纯状态 + 布局 + IPainter 绘制；IWindow 增加 caption/status/nav 事件回调 |
+| 3 | Linux 烟雾编译以哪个发行版为准 | **Ubuntu 22.04，GCC 11** |
+| 4 | 过渡 typedef `Rect = RECT` 是否允许泄漏 | **否**：core 基准类型全新定义（`Rect/Point/Size/Color/TextFormat`），Win32 后端内部与 `RECT/COLORREF` 互转；`RECT` 仅允许出现在 `platform/win32/` 源码 |
+
+**推论（评审已确认）**
+
+- R-3 路由收口进 `core/ShellCore` 时，`RouteMessage` 的参数统一为翻译后的 `OnPointer* / OnKeyDown / OnCommand / OnDrawItem / OnMeasureItem` 语义事件，core 不出现 `WM_*` 常量；
+- 阶段 0 的 `types.h` 只有 `Rect/Point/Size/Color/TextFormat/FontRole`，没有 `RECT`；
+- `ControlsCore` 增补 `CustomControl`、`CaptionBar`、`StatusBar`、`NavBar`（纯状态机 + IPainter）。
+
+### 阶段 0 实施顺序（按决议修订）
+
+```
+0  基线冻结：git tag phase0-baseline + gallery light/dark 截图 + DrawCall dump
+1  目录/CMake：core/ + platform/win32/；airui-core / airui-win32 / airui-gallery
+2  types.h + hal.h（无 RECT）+ 门禁脚本
+3  CustomControl（去 HWND）+ CaptionBar/StatusBar/NavBar 纳入 ShellCore HAL
+4  自绘控件迁入 core（Button/Checkbox/Radio/Custom/Caption/Status）+ 画廊回归
+5  IClock（Animation）+ DrawCall/TestShell 移入 core + Linux 编译烟雾（Ubuntu 22.04）
+6  签收：snapshot diff = 0、ctest 全绿、docs/phase0-signoff.md
+```
+
 
 ---
 
