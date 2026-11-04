@@ -114,6 +114,23 @@ public:
             RECT old = c->GetRect(); c->SetRect(r); c->Paint(g); c->SetRect(old);
         }
         if (dc && s) RestoreDC(dc,s);
+
+        if (m_max > 0) {
+            const int h = content.bottom - content.top;
+            const int barX = content.right - 6;
+            const int top = content.top + titleH;
+            const int trackH = content.bottom - top;
+            if (trackH > 0) {
+                RECT track = { barX, top, barX + 4, content.bottom };
+                g.FillRound(track, p.split, 2);
+                int thumbH = h * h / (h + m_max);
+                if (thumbH < 24) thumbH = 24;
+                if (thumbH > trackH) thumbH = trackH;
+                int ty = top + (trackH - thumbH) * m_scroll / m_max;
+                RECT thumb = { barX, ty, barX + 4, ty + thumbH };
+                g.FillRound(thumb, p.textDisabled, 2);
+            }
+        }
     }
 
 private:
