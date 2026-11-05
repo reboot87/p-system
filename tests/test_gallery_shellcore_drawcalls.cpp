@@ -39,6 +39,10 @@ int main() {
 
     shell.Paint(painter, Pal(), Mx());
     std::cout << "ShellCore draw ops count: " << painter.ops.size() << "\n";
+    if (painter.ops.size() != 13) {
+        std::cerr << "FAIL: expected 13 ops, got " << painter.ops.size() << "\n";
+        return 1;
+    }
     for (size_t i=0;i<painter.ops.size() && i<10; ++i) {
         std::wcout << L"Op " << i << L": type=" << painter.ops[i].type << L" text=" << painter.ops[i].text << L"\n";
     }
