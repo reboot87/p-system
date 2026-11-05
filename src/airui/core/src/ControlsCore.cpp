@@ -272,5 +272,37 @@ void PaintComboBox(IPainter& g,
     g.Text(arrowR, L"\u25BE", FontRole::Body, txtCol, dt::SingleLine | dt::Center | dt::VCenter);
 }
 
+void PaintTag(IPainter& g,
+              const Rect& rc,
+              const TagState& st,
+              const Palette& pal,
+              const Metrics& mx)
+{
+    Color bg = st.base.disabled ? pal.sunken :
+               st.selected ? pal.primarySoft : pal.surface;
+    g.FillRound(rc, mx.radiusPill, bg);
+    Color border = st.base.disabled ? pal.border : pal.border;
+    g.StrokeRound(rc, mx.radiusPill, border, 1);
+    Color txtCol = st.base.disabled ? pal.textDisabled :
+                   st.selected ? pal.primaryText : pal.text;
+    g.Text(rc, st.text, FontRole::Body, txtCol, dt::SingleLine | dt::Center | dt::VCenter);
+}
+
+void PaintRating(IPainter& g,
+                 const Rect& rc,
+                 const RatingState& st,
+                 const Palette& pal,
+                 const Metrics& mx)
+{
+    int starCount = st.max;
+    int w = (rc.right - rc.left) / starCount;
+    for (int i = 0; i < starCount; ++i) {
+        Rect star{rc.left + i*w, rc.top, rc.left + (i+1)*w, rc.bottom};
+        Color col = st.base.disabled ? pal.textDisabled :
+                    i < st.rating ? pal.primary : pal.border;
+        g.Text(star, L"\u2605", FontRole::Body, col, dt::SingleLine | dt::Center | dt::VCenter);
+    }
+}
+
 } // namespace ui
 } // namespace air

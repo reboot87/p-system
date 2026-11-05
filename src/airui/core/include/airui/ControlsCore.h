@@ -167,5 +167,37 @@ void PaintComboBox(IPainter& g,
                    const Palette& pal,
                    const Metrics& mx);
 
+// ------------------------------------------------------------
+// PaintTag - chip/tag pill.
+// ------------------------------------------------------------
+struct TagState
+{
+    ControlState base = {};
+    std::wstring text;
+    bool selected = false;
+};
+
+void PaintTag(IPainter& g,
+              const Rect& rc,
+              const TagState& st,
+              const Palette& pal,
+              const Metrics& mx);
+
+// ------------------------------------------------------------
+// PaintRating - star rating.
+// ------------------------------------------------------------
+struct RatingState
+{
+    ControlState base = {};
+    int rating = 3;   // 0-5
+    int max = 5;
+};
+
+void PaintRating(IPainter& g,
+                 const Rect& rc,
+                 const RatingState& st,
+                 const Palette& pal,
+                 const Metrics& mx);
+
 } // namespace ui
 } // namespace air

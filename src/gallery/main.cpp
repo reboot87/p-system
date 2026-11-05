@@ -18,7 +18,7 @@ using namespace air::ui;
 namespace {
 
 struct Item {
-    enum Kind { Section, Button, Checkbox, Radio, Slider, ProgressBar, ToggleSwitch, TextField, Segmented, ComboBox } kind = Button;
+    enum Kind { Section, Button, Checkbox, Radio, Slider, ProgressBar, ToggleSwitch, TextField, Segmented, ComboBox, Tag, Rating } kind = Button;
     RECT rect;
     std::wstring text;
     BtnStyle style = BtnStyle::Primary;
@@ -31,6 +31,8 @@ struct Item {
     bool toggled = false; // for ToggleSwitch
     std::wstring placeholder; // for TextField
     int segmentedSelected = 0; // for Segmented
+    bool tagSelected = false; // for Tag
+    int rating = 3; // for Rating
 };
 
 class GalleryPage : public Page {
@@ -200,6 +202,25 @@ public:
                 CanvasPainter painter(g);
                 PaintComboBox(painter, rc, st, Pal(), Mx());
                 g.Text({r.left, r.bottom+2, r.right, r.bottom+16}, it.text, FontRole::Meta, p.textSub, DT_SINGLELINE|DT_LEFT|DT_VCENTER);
+            } else if (it.kind == Item::Tag) {
+                Rect rc{ r.left, r.top, r.right, r.bottom };
+                TagState st;
+                st.base.disabled = it.disabled;
+                st.base.hover = it.hover;
+                st.text = it.text.empty() ? L"标签" : it.text;
+                st.selected = it.tagSelected;
+                CanvasPainter painter(g);
+                PaintTag(painter, rc, st, Pal(), Mx());
+                g.Text({r.left, r.bottom+2, r.right, r.bottom+16}, L"Tag", FontRole::Meta, p.textSub, DT_SINGLELINE|DT_LEFT|DT_VCENTER);
+            } else if (it.kind == Item::Rating) {
+                Rect rc{ r.left, r.top, r.right, r.bottom };
+                RatingState st;
+                st.base.disabled = it.disabled;
+                st.base.hover = it.hover;
+                st.rating = it.rating;
+                CanvasPainter painter(g);
+                PaintRating(painter, rc, st, Pal(), Mx());
+                g.Text({r.left, r.bottom+2, r.right, r.bottom+16}, it.text, FontRole::Meta, p.textSub, DT_SINGLELINE|DT_LEFT|DT_VCENTER);
             }
         }
         for (auto& c : m_cards) {
@@ -346,6 +367,32 @@ private:
             }
         }
 
+        sec(L"Tag");
+        {
+            const wchar_t* labels[] = {L"正常", L"选中", L"禁用"};
+            for (int i = 0; i < 3; i++) {
+                Item it; it.kind=Item::Tag; it.text=labels[i];
+                it.disabled = (i==2);
+                it.tagSelected = (i==1);
+                it.rect={x, y, x+200, y+28};
+                m_items.push_back(it);
+                y += 44;
+            }
+        }
+
+        sec(L"Rating");
+        {
+            const wchar_t* labels[] = {L"3星", L"5星", L"禁用"};
+            for (int i = 0; i < 3; i++) {
+                Item it; it.kind=Item::Rating; it.text=labels[i];
+                it.disabled = (i==2);
+                it.rating = (i==0)?3:5;
+                it.rect={x, y, x+contentW, y+32};
+                m_items.push_back(it);
+                y += 48;
+            }
+        }
+
         sec(L"Slider");
         {
             const wchar_t* labels[] = {L"正常", L"禁用"};
@@ -457,6 +504,23 @@ private:
                         if (seg < 0) seg = 0;
                         if (seg > 2) seg = 2;
                         it.segmentedSelected = seg;
+                        d=true;
+                    }
+                }
+            } else if (it.kind==Item::Tag) {
+                if (msg==WM_LBUTTONDOWN && h && !it.disabled) {
+                    it.tagSelected = !it.tagSelected;
+                    d=true;
+                }
+            } else if (it.kind==Item::Rating) {
+                if (msg==WM_LBUTTONDOWN && h && !it.disabled) {
+                    int w = it.rect.right - it.rect.left;
+                    if (w > 0) {
+                        float t = float(p.x - it.rect.left) / float(w);
+                        int newRating = int(t * 5) + 1;
+                        if (newRating < 1) newRating = 1;
+                        if (newRating > 5) newRating = 5;
+                        it.rating = newRating;
                         d=true;
                     }
                 }
