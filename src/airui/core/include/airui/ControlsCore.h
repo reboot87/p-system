@@ -103,5 +103,20 @@ void PaintSlider(IPainter& g,
                  const Palette& pal,
                  const Metrics& mx);
 
+// ------------------------------------------------------------
+// PaintToggleSwitch - on/off switch with hover/pressed/disabled.
+// ------------------------------------------------------------
+struct ToggleState
+{
+    ControlState base = {};
+    bool on = false;
+};
+
+void PaintToggleSwitch(IPainter& g,
+                       const Rect& rc,
+                       const ToggleState& st,
+                       const Palette& pal,
+                       const Metrics& mx);
+
 } // namespace ui
 } // namespace air

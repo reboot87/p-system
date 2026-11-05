@@ -18,7 +18,7 @@ using namespace air::ui;
 namespace {
 
 struct Item {
-    enum Kind { Section, Button, Checkbox, Radio, Slider, ProgressBar } kind = Button;
+    enum Kind { Section, Button, Checkbox, Radio, Slider, ProgressBar, ToggleSwitch } kind = Button;
     RECT rect;
     std::wstring text;
     BtnStyle style = BtnStyle::Primary;
@@ -28,6 +28,7 @@ struct Item {
     bool pressed = false;
     int value = 50; // for Slider
     float progress = 0.5f; // for ProgressBar
+    bool toggled = false; // for ToggleSwitch
 };
 
 class GalleryPage : public Page {
@@ -125,8 +126,14 @@ public:
             OffsetRect(&r, ox, oy);
             if (r.bottom < content.top || r.top > content.bottom) continue;
             if (it.kind == Item::Section) {
+                // Section header with subtle background
+                RECT bg = r;
+                bg.top -= 4;
+                bg.bottom += 8;
+                bg.left -= 8;
+                bg.right += 8;
+                g.FillRound(bg, Pal().surface, 4);
                 g.Text(r,it.text,FontRole::Section,p.text,DT_SINGLELINE|DT_LEFT|DT_VCENTER);
-                g.HLine(r.left,r.right,r.bottom,p.split);
             } else if (it.kind == Item::Button) {
                 g.Button(r,it.text,it.style,it.hover,it.pressed,it.disabled);
             } else if (it.kind == Item::Checkbox) {
@@ -150,6 +157,16 @@ public:
                 st.disabled = it.disabled;
                 CanvasPainter painter(g);
                 PaintProgressBar(painter, rc, it.progress, st, Pal(), Mx());
+                g.Text({r.left, r.bottom+2, r.right, r.bottom+16}, it.text, FontRole::Meta, p.textSub, DT_SINGLELINE|DT_LEFT|DT_VCENTER);
+            } else if (it.kind == Item::ToggleSwitch) {
+                Rect rc{ r.left, r.top, r.right, r.bottom };
+                ToggleState st;
+                st.base.hover = it.hover;
+                st.base.pressed = it.pressed;
+                st.base.disabled = it.disabled;
+                st.on = it.toggled;
+                CanvasPainter painter(g);
+                PaintToggleSwitch(painter, rc, st, Pal(), Mx());
                 g.Text({r.left, r.bottom+2, r.right, r.bottom+16}, it.text, FontRole::Meta, p.textSub, DT_SINGLELINE|DT_LEFT|DT_VCENTER);
             }
         }
@@ -194,7 +211,7 @@ private:
         if (w < 200) w = 200;
         const int contentW = w - 24;
 
-        auto sec = [&](const wchar_t* t){ Item it; it.kind=Item::Section; it.text=t; it.rect={x,y,x+contentW,y+22}; m_items.push_back(it); y+=30; };
+        auto sec = [&](const wchar_t* t){ Item it; it.kind=Item::Section; it.text=t; it.rect={x,y,x+contentW,y+22}; m_items.push_back(it); y+=36; };
 
         sec(L"Button");
         {
@@ -244,6 +261,19 @@ private:
                 m_items.push_back(it);
             }
             y += horizontal ? 32 : 56;
+        }
+
+        sec(L"ToggleSwitch");
+        {
+            const wchar_t* labels[] = {L"关闭", L"开启", L"禁用"};
+            for (int i = 0; i < 3; i++) {
+                Item it; it.kind=Item::ToggleSwitch; it.text=labels[i];
+                it.disabled = (i==2);
+                it.toggled = (i==1);
+                it.rect={x, y, x+contentW, y+28};
+                m_items.push_back(it);
+                y += 44;
+            }
         }
 
         sec(L"Slider");

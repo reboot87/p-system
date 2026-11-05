@@ -182,5 +182,33 @@ void PaintSlider(IPainter& g,
     }
 }
 
+void PaintToggleSwitch(IPainter& g,
+                       const Rect& rc,
+                       const ToggleState& st,
+                       const Palette& pal,
+                       const Metrics& mx)
+{
+    const int h = rc.bottom - rc.top;
+    const int w = rc.right - rc.left;
+    const int pad = 2;
+    Rect track{rc.left + pad, rc.top + pad, rc.right - pad, rc.bottom - pad};
+    Color trackCol;
+    if (st.base.disabled) trackCol = pal.border;
+    else if (st.on) trackCol = pal.primary;
+    else trackCol = pal.sunken;
+    g.FillRound(track, h/2, trackCol);
+    g.StrokeRound(track, h/2, pal.border, 1);
+
+    int thumbSize = h - 4;
+    int thumbX;
+    if (st.base.disabled) thumbX = rc.left + 2;
+    else if (st.on) thumbX = rc.right - thumbSize - 2;
+    else thumbX = rc.left + 2;
+    Rect thumb{thumbX, rc.top + 2, thumbX + thumbSize, rc.bottom - 2};
+    Color thumbCol = st.base.disabled ? pal.border : pal.surface;
+    g.FillRound(thumb, thumbSize/2, thumbCol);
+    g.StrokeRound(thumb, thumbSize/2, pal.border, 1);
+}
+
 } // namespace ui
 } // namespace air
