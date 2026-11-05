@@ -10,6 +10,7 @@
 #include "airui/Components.h"
 #include "airui/ShellCore.h"
 #include "airui/ControlsCore.h"
+#include "airui/OverlayCore.h"
 #include "airui/platform/win32/airui/CanvasPainter.h"
 #include "airui/platform/win32/airui/Win32Window.h"
 
@@ -17,11 +18,26 @@ using namespace air::ui;
 
 namespace {
 
+// Page focus ids start at 100; layer ids start at 200 so a pointer
+// result can be recognised as a layer activation at a glance.
+enum { kFocusPageBase = 100, kFocusLayerBase = 200,
+       kDropOptionBase = 200, kModalOk = 301, kModalCancel = 302 };
+
+// Rectangles shared by painting and focus registration, so a tab
+// focus ring can never drift away from the button it belongs to.
+struct LayerItemRects {
+    Rect rows[3]{};
+    Rect ok{};
+    Rect cancel{};
+    int rowCount = 0;
+};
+
 struct Item {
     enum Kind { Section, Button, Checkbox, Radio, Slider, ProgressBar, ToggleSwitch,
                 TextField, Segmented, ComboBox, Tag, Rating, Stepper, ProgressRing,
                 Badge, Alert, Tabs, Avatar, Skeleton,
-                Table, List, Tree, Breadcrumb, Pagination, Toast } kind = Button;
+                Table, List, Tree, Breadcrumb, Pagination, Toast,
+                OverlayTrigger, OverlayHint } kind = Button;
     RECT rect;
     std::wstring text;
     BtnStyle style = BtnStyle::Primary;
@@ -83,6 +99,7 @@ public:
             {L"反馈与布局", L"Breadcrumb",23},
             {L"反馈与布局", L"Pagination",24},
             {L"反馈与布局", L"Toast",     25},
+            {L"反馈与布局", L"Overlay",   26},
         };
         std::vector<ShellNavGroup> groups;
         for (const auto& n : nav) {
@@ -103,6 +120,14 @@ public:
         m_win->OnResized([this](air::ui::Rect rc){ /* 布局更新可接入 ShellCore */ });
         shell.SetMessageHook([this, hwnd](HWND,UINT msg,WPARAM wp,LPARAM lp,LRESULT& res){
             if (m_win) m_win->PumpEvent(msg, wp, lp);
+            if (msg == WM_KEYDOWN) {
+                const int vk = (int)wp;
+                if (vk == VK_TAB || vk == VK_ESCAPE || vk == VK_RETURN || vk == VK_SPACE) {
+                    const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+                    HandleOverlayKey(vk, shift);
+                    res = 0; return true;
+                }
+            }
             if (msg == WM_KEYDOWN && wp == 'T') {
                 m_dark = !m_dark;
                 SetPalette(m_dark ? DarkPalette() : LightPalette());
@@ -116,7 +141,7 @@ public:
                 const int step = d/120*30;
                 Rect navRc = m_shellCore.NavRect();
                 if (navRc.Contains(Point{pt.x, pt.y})) {
-                    // 指针在导航栏：滚动导航项（25 项超出可视高度）
+                    // 指针在导航栏：滚动导航项（26 项超出可视高度）
                     m_shellCore.ScrollNav(-step);
                 } else {
                     m_scroll -= step;
@@ -129,6 +154,38 @@ public:
             if (msg == WM_MOUSEMOVE || msg == WM_LBUTTONDOWN || msg == WM_LBUTTONUP) {
                 POINT pt = {(short)LOWORD(lp),(short)HIWORD(lp)};
                 if (msg == WM_LBUTTONUP && GetCapture()==hwnd) ReleaseCapture();
+
+                // 0) Overlay 层优先于页面：模态拦截、点击外部关闭、层内命中消费。
+                //    坐标与 Click() 一致，均为内容区坐标（不随滚动改变语义）。
+                if (msg == WM_LBUTTONDOWN) {
+                    POINT op = { pt.x - m_content.left, pt.y - (m_content.top - m_scroll) };
+                    const OverlayHit oh = m_overlayCtl.Stack().Hit(Point{op.x, op.y});
+                    const OverlayResult ovr = m_overlayCtl.OnPointer(Point{op.x, op.y});
+                    bool consumed = false;
+                    switch (ovr.action) {
+                    case OverlayAction::Blocked:
+                        SetStatusText(L"模态对话框：点击被拦截，按 Esc 关闭");
+                        consumed = true;
+                        break;
+                    case OverlayAction::Dismiss:
+                        SetStatusText(L"已关闭弹出层");
+                        consumed = true;
+                        break;
+                    case OverlayAction::FocusChanged:
+                        if (ovr.id >= kFocusLayerBase) {
+                            ActivateFocus(ovr.id);
+                            consumed = true;
+                        } else {
+                            StatusFocus();
+                        }
+                        break;
+                    default:
+                        break;
+                    }
+                    if (oh.inside) consumed = true;   // 弹出层吞掉点击，不穿透
+                    if (ovr.redraw || consumed) { if (m_shell) m_shell->Invalidate(); }
+                    if (consumed) { res = 0; return true; }
+                }
 
                 // 1) ShellCore 导航栏：悬停高亮 + 点击跳转
                 const int navId = m_shellCore.HitTestNav(Point{pt.x, pt.y});
@@ -413,6 +470,16 @@ public:
                     PaintToast(painter, Rect{r.left, r.top, r.right, r.bottom},
                                st, Pal(), Mx());
                 }
+            } else if (it.kind == Item::OverlayTrigger) {
+                ControlState st;
+                st.hover = it.hover;
+                st.pressed = it.pressed;
+                CanvasPainter painter(g);
+                PaintButton(painter, Rect{r.left, r.top, r.right, r.bottom},
+                            it.text, ButtonStyle::Secondary, st, Pal(), Mx());
+            } else if (it.kind == Item::OverlayHint) {
+                g.Text(r, it.text, FontRole::Meta, p.textSub,
+                       DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
             }
         }
         for (auto& c : m_cards) {
@@ -420,6 +487,20 @@ public:
             OffsetRect(&r, ox, oy);
             if (r.bottom < region.top || r.top > region.bottom) continue;
             RECT old = c->GetRect(); c->SetRect(r); c->Paint(g); c->SetRect(old);
+        }
+
+        // Overlay 层与焦点圈画在所有内容之上。Translate 让 core 继续
+        // 使用内容坐标，后端负责把 (ox, oy) 偏移加到每一次绘制上。
+        if (m_overlayCtl.Stack().Count() > 0 || m_overlayCtl.FocusedId() >= 0) {
+            CanvasPainter painter(g);
+            painter.Translate(Point{ox, oy});
+            const OverlayItem* top = m_overlayCtl.Stack().Top();
+            if (top && top->scrim)
+                PaintOverlayScrim(painter, OverlayClientRect(), p.bg);
+            for (const auto& layer : m_overlayCtl.Stack().Layers())
+                PaintOverlayLayer(painter, layer);
+            const Rect fr = m_overlayCtl.FocusRect();
+            if (!fr.Empty()) PaintFocusRing(painter, fr, p, Mx());
         }
         if (dc && s) RestoreDC(dc,s);
 
@@ -502,6 +583,210 @@ private:
 
     void SetStatusText(const std::wstring& s) {
         m_shellCore.SetStatus({s, true, L""});
+    }
+
+    // --------------------------------------------------------
+    // Overlay / focus plumbing. All rectangles are in content
+    // space (same as Item::rect); CanvasPainter::Translate maps
+    // them to the window when drawing.
+    // --------------------------------------------------------
+    Rect OverlayClientRect() const {
+        return Rect{0, m_scroll, m_content.right - m_content.left,
+                    m_scroll + (m_content.bottom - m_content.top)};
+    }
+
+    LayerItemRects LayerRectsFor(const OverlayItem& layer) const {
+        const auto& mx = Mx();
+        LayerItemRects out;
+        const Rect c = OverlayContentRect(layer, mx);
+        if (c.Empty()) return out;
+        if (layer.kind == OverlayKind::Dropdown) {
+            out.rowCount = 3;
+            for (int i = 0; i < 3; ++i)
+                out.rows[i] = Rect(c.left, c.top + i * mx.rowH,
+                                  c.right, c.top + (i + 1) * mx.rowH);
+        } else if (layer.kind == OverlayKind::Modal) {
+            const int bw = 96, bh = 30;
+            out.ok = Rect(c.right - bw * 2 - mx.unit, c.bottom - bh,
+                          c.right - bw - mx.unit, c.bottom);
+            out.cancel = Rect(c.right - bw, c.bottom - bh, c.right, c.bottom);
+        }
+        return out;
+    }
+
+    void PaintOverlayLayer(IPainter& g, const OverlayItem& layer) {
+        const auto& p = Pal();
+        const auto& mx = Mx();
+        PaintOverlayFrame(g, layer, p, mx);
+        const Rect c = OverlayContentRect(layer, mx);
+        if (c.Empty()) return;
+        constexpr TextFormat kText = dt::SingleLine | dt::Left | dt::VCenter |
+                                     dt::NoPrefix | dt::EndEllipsis;
+        switch (layer.kind) {
+        case OverlayKind::Popover:
+        case OverlayKind::Tooltip:
+            g.TextBlock(c, L"由 OverlayStack 按 z 序绘制；点击外部或按 Esc 关闭。",
+                        FontRole::Body, p.textSub, 3);
+            break;
+        case OverlayKind::Dropdown: {
+            const wchar_t* opts[] = {L"复制到剪贴板", L"导出为 CSV", L"查看详情"};
+            const LayerItemRects lr = LayerRectsFor(layer);
+            for (int i = 0; i < lr.rowCount; ++i) {
+                const int fid = kDropOptionBase + i;
+                if (i == m_overlayHoverOption ||
+                    (m_overlayCtl.ActiveGroup() > 0 && m_overlayCtl.FocusedId() == fid))
+                    g.FillRound(lr.rows[i], mx.radiusSm, p.hover);
+                g.Text(lr.rows[i], opts[i], FontRole::Body, p.text, kText);
+            }
+            break;
+        }
+        case OverlayKind::Modal: {
+            Rect msg = c;
+            msg.bottom = c.top + mx.rowH * 2;
+            g.TextBlock(msg,
+                L"模态层拦截所有外部点击；Tab 只在层内循环，关闭后焦点回到打开前的控件。",
+                FontRole::Body, p.textSub, 3);
+            const LayerItemRects lr = LayerRectsFor(layer);
+            ControlState stOk, stCancel;
+            stOk.hover = (m_overlayCtl.FocusedId() == kModalOk);
+            stCancel.hover = (m_overlayCtl.FocusedId() == kModalCancel);
+            PaintButton(g, lr.ok, L"确定", ButtonStyle::Primary, stOk, p, mx);
+            PaintButton(g, lr.cancel, L"取消", ButtonStyle::Secondary, stCancel, p, mx);
+            break;
+        }
+        }
+    }
+
+    void OpenOverlay(int which, const Rect& anchor) {
+        const auto& mx = Mx();
+        const Rect client = OverlayClientRect();
+        OverlayItem item;
+        std::vector<FocusEntry> entries;
+        std::wstring label;
+
+        if (which == 0) {
+            item.kind = OverlayKind::Popover;
+            item.title = L"Tooltip / Popover";
+            item.bounds = PlaceOverlay(anchor, Size{260, 110}, client,
+                                       OverlayPlacement::Below);
+            label = L"Popover";
+        } else if (which == 1) {
+            item.kind = OverlayKind::Dropdown;
+            item.title = L"选择一个操作";
+            item.bounds = PlaceOverlay(anchor, Size{240, mx.rowH * 4 + mx.unit * 3},
+                                       client, OverlayPlacement::Below);
+            item.focusGroup = 1;
+            const LayerItemRects lr = LayerRectsFor(item);
+            const wchar_t* names[] = {L"复制到剪贴板", L"导出为 CSV", L"查看详情"};
+            for (int i = 0; i < lr.rowCount; ++i) {
+                FocusEntry e;
+                e.id = kDropOptionBase + i;
+                e.bounds = lr.rows[i];
+                e.tabIndex = i * 10;
+                e.name = names[i];
+                entries.push_back(e);
+            }
+            label = L"Dropdown";
+        } else {
+            item.kind = OverlayKind::Modal;
+            item.title = L"模态对话框";
+            item.bounds = PlaceOverlay(anchor, Size{360, 210}, client,
+                                       OverlayPlacement::Center);
+            item.modal = true;
+            item.scrim = true;
+            item.closeOnOutside = false;
+            item.focusGroup = 2;
+            const LayerItemRects lr = LayerRectsFor(item);
+            FocusEntry ok;
+            ok.id = kModalOk; ok.bounds = lr.ok; ok.tabIndex = 10; ok.name = L"确定";
+            FocusEntry cancel;
+            cancel.id = kModalCancel; cancel.bounds = lr.cancel;
+            cancel.tabIndex = 20; cancel.name = L"取消";
+            entries.push_back(ok);
+            entries.push_back(cancel);
+            label = L"Modal";
+        }
+
+        item.anchor = anchor;
+        m_overlayHoverOption = -1;
+        m_overlayCtl.Open(item, std::move(entries));
+        SetStatusText(L"已打开 " + label + L" · Tab 切换焦点，Esc 关闭");
+        if (m_shell) m_shell->Invalidate();
+    }
+
+    void ActivateFocus(int id) {
+        if (id >= kFocusLayerBase) {
+            const FocusEntry* e = m_overlayCtl.FocusedEntry();
+            const std::wstring name = (e && e->id == id) ? e->name : L"选项";
+            m_overlayCtl.CloseTop();
+            m_overlayHoverOption = -1;
+            if (id == kModalCancel) SetStatusText(L"已取消模态对话框");
+            else SetStatusText(L"已激活：" + name);
+            if (m_shell) m_shell->Invalidate();
+            return;
+        }
+        const auto fit = m_focusToItem.find(id);
+        if (fit == m_focusToItem.end() || fit->second >= m_items.size()) return;
+        const Item& it = m_items[fit->second];
+        if (it.kind == Item::OverlayTrigger) {
+            OpenOverlay(it.value, Rect{it.rect.left, it.rect.top,
+                                       it.rect.right, it.rect.bottom});
+            return;
+        }
+        // 其它控件复用既有鼠标交互：把矩形中心转成客户区坐标再转发。
+        POINT pt = { m_content.left + (it.rect.left + it.rect.right) / 2,
+                     m_content.top - m_scroll + (it.rect.top + it.rect.bottom) / 2 };
+        Click(pt, WM_LBUTTONDOWN);
+    }
+
+    void HandleOverlayKey(int vk, bool shift) {
+        const OverlayResult r = m_overlayCtl.OnKey(vk, shift);
+        switch (r.action) {
+        case OverlayAction::Activate:
+            ActivateFocus(r.id);
+            break;
+        case OverlayAction::FocusChanged:
+            EnsureFocusVisible();
+            StatusFocus();
+            break;
+        case OverlayAction::Dismiss:
+            m_overlayHoverOption = -1;
+            SetStatusText(L"已关闭弹出层");
+            break;
+        default:
+            break;
+        }
+        if (r.redraw && m_shell) m_shell->Invalidate();
+    }
+
+    void EnsureFocusVisible() {
+        // 焦点在弹出层内时不要滚动页面，否则弹出层会被带走。
+        if (m_overlayCtl.ActiveGroup() != 0) return;
+        const Rect fr = m_overlayCtl.FocusRect();
+        const int viewH = m_content.bottom - m_content.top;
+        if (fr.Empty() || viewH <= 0) return;
+        if (fr.top < m_scroll + 8) m_scroll = fr.top - 8;
+        else if (fr.bottom > m_scroll + viewH - 8) m_scroll = fr.bottom - viewH + 8;
+        ClampScroll();
+        UpdateActiveNav();
+    }
+
+    void StatusFocus() {
+        const FocusEntry* e = m_overlayCtl.FocusedEntry();
+        if (e) SetStatusText(L"焦点：" + e->name);
+    }
+
+    bool UpdateOverlayHover(const POINT& p) {
+        int hov = -1;
+        for (const auto& layer : m_overlayCtl.Stack().Layers()) {
+            if (layer.kind != OverlayKind::Dropdown) continue;
+            const LayerItemRects lr = LayerRectsFor(layer);
+            for (int i = 0; i < lr.rowCount; ++i)
+                if (lr.rows[i].Contains(Point{p.x, p.y})) hov = i;
+        }
+        if (hov == m_overlayHoverOption) return false;
+        m_overlayHoverOption = hov;
+        return true;
     }
 
     // 计算数据控件的 hover；返回是否有变化（需要重绘）。
@@ -901,6 +1186,44 @@ private:
             }
         }
 
+        sec(L"Overlay");
+        {
+            const wchar_t* labels[] = {L"Tooltip", L"Dropdown", L"Modal"};
+            for (int i = 0; i < 3; ++i) {
+                Item it; it.kind = Item::OverlayTrigger; it.value = i;
+                it.text = labels[i];
+                it.rect = {x + i * 150, y, x + i * 150 + 140, y + 32};
+                m_items.push_back(it);
+            }
+            y += 44;
+            Item hint; hint.kind = Item::OverlayHint;
+            hint.text = L"Tab / Shift+Tab 遍历焦点 · Enter / Space 激活 · Esc 关闭 · 点击外部关闭非模态层";
+            hint.rect = {x, y, x + contentW, y + 24};
+            m_items.push_back(hint);
+            y += 220;                     // 给弹出层留出展示空间
+        }
+
+        // 页面焦点域：按 Item 出现顺序注册 Tab 序。id 用 100 + 序号，
+        // resize 重建 Item 列表后依然稳定，焦点不会被重置到第一项。
+        std::vector<FocusEntry> pageEntries;
+        m_focusToItem.clear();
+        for (size_t i = 0; i < m_items.size(); ++i) {
+            const Item& it = m_items[i];
+            const bool focusable =
+                it.kind == Item::OverlayTrigger || it.kind == Item::Button ||
+                it.kind == Item::Checkbox || it.kind == Item::ToggleSwitch;
+            if (!focusable || it.disabled) continue;
+            FocusEntry e;
+            e.id = kFocusPageBase + (int)pageEntries.size();
+            e.bounds = Rect{it.rect.left, it.rect.top, it.rect.right, it.rect.bottom};
+            e.tabIndex = (int)pageEntries.size() * 10;
+            e.group = 0;
+            e.name = it.text;
+            pageEntries.push_back(e);
+            m_focusToItem[e.id] = i;
+        }
+        m_overlayCtl.SetPageEntries(std::move(pageEntries));
+
         int viewH = m_content.bottom - m_content.top;
         int contentH = y;                         // 标题/状态栏由 ShellCore 承担
         m_max = contentH - viewH;
@@ -914,6 +1237,7 @@ private:
         // 数据/导航控件的 hover 保存在成员里（而非 Item），这样
         // 窗口 resize 重建布局后状态不会丢。先算出目标值再比较标脏。
         bool d = UpdateDataHover(p);
+        if (msg == WM_MOUSEMOVE) d = UpdateOverlayHover(p) || d;
 
         for (auto& it : m_items) {
             bool h = PtInRect(&it.rect,p)!=FALSE;
@@ -923,6 +1247,14 @@ private:
             }
             if (it.kind==Item::Button) {
                 if (msg==WM_LBUTTONDOWN && h){it.pressed=true;d=true;}
+                if (msg==WM_LBUTTONUP){it.pressed=false;d=true;}
+            } else if (it.kind==Item::OverlayTrigger) {
+                if (msg==WM_LBUTTONDOWN && h) {
+                    it.pressed=true;
+                    OpenOverlay(it.value, Rect{it.rect.left,it.rect.top,
+                                              it.rect.right,it.rect.bottom});
+                    d=true;
+                }
                 if (msg==WM_LBUTTONUP){it.pressed=false;d=true;}
             } else if (it.kind==Item::Checkbox || it.kind==Item::Radio) {
                 if (msg==WM_LBUTTONDOWN && h) {
@@ -1161,6 +1493,11 @@ private:
     int  m_toastHoverIndex = -1;
     bool m_toastHoverClose = false;
     bool m_needRebuild = false;
+
+    // Overlay 层与键盘焦点（core 状态机，resize 后保留）
+    OverlayController m_overlayCtl;
+    std::map<int, size_t> m_focusToItem;   // focus id -> m_items 下标
+    int m_overlayHoverOption = -1;
 };
 }
 

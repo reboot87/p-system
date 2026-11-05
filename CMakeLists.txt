@@ -31,6 +31,7 @@ set(AIRUI_CORE_SOURCES
     src/airui/core/src/Animation.cpp
     src/airui/core/src/ControlsCore.cpp
     src/airui/core/src/ControlsData.cpp
+    src/airui/core/src/OverlayCore.cpp
     src/airui/core/src/ShellCore.cpp
 )
 add_library(airui-core STATIC ${AIRUI_CORE_SOURCES})
@@ -63,7 +64,7 @@ if(WIN32)
     target_include_directories(airui-win32 PUBLIC
         ${CMAKE_SOURCE_DIR}/src/airui/platform/win32)
     target_link_libraries(airui-win32 PUBLIC airui-core
-        user32 gdi32 shell32 comctl32 shlwapi advapi32 ole32 uxtheme imm32)
+        user32 gdi32 msimg32 shell32 comctl32 shlwapi advapi32 ole32 uxtheme imm32)
 else()
     # Phase 0: the Win32 backend is simply not built on non-Windows
     # targets; airui-core must still configure and compile.
@@ -225,6 +226,17 @@ set_target_properties(test_data_controls PROPERTIES
     LINK_FLAGS "/SUBSYSTEM:CONSOLE"
 )
 
+# Overlay + focus test (layers, modal blocking, tab order, focus trap)
+add_executable(test_overlay_core
+    tests/test_overlay_core.cpp
+)
+target_link_libraries(test_overlay_core airui-core)
+set_target_properties(test_overlay_core PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/Release
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
+    LINK_FLAGS "/SUBSYSTEM:CONSOLE"
+)
+
 # Core layout test - links airui-core only (no Win32 backend)
 add_executable(test_core_layout
     tests/test_core_layout.cpp
@@ -277,7 +289,7 @@ endif()
 # test_ui is an end-to-end script that drives a *running* airecord.exe
 # (window lookup + IPC), so it is not registered as a ctest case.
 enable_testing()
-foreach(_t test_core_layout test_controls_core test_data_controls test_theme_manager test_draw_calls test_locale test_component_gallery)
+foreach(_t test_core_layout test_controls_core test_data_controls test_overlay_core test_theme_manager test_draw_calls test_locale test_component_gallery)
     if(TARGET ${_t})
         add_test(NAME ${_t} COMMAND ${_t})
     endif()

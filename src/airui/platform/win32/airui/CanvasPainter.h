@@ -41,6 +41,53 @@ public:
         m_canvas.Fill(rect(r), c);
     }
 
+    // Modal scrims need real blending: an opaque fill would erase the
+    // page behind the dialog. AlphaBlend from a 1x1 32bpp source is
+    // the cheapest GDI path that works on every modern Windows.
+    void FillRectAlpha(const Rect& r, Color c, uint8_t alpha) override
+    {
+        if (alpha == 0) return;
+        if (alpha == 255) { FillRect(r, c); return; }
+        HDC dc = m_canvas.Native();
+        if (!dc) { FillRect(r, c); return; }
+        const RECT rc = rect(r);
+        const int w = rc.right - rc.left;
+        const int h = rc.bottom - rc.top;
+        if (w <= 0 || h <= 0) return;
+
+        HDC mem = CreateCompatibleDC(dc);
+        BITMAPINFO bmi{};
+        bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+        bmi.bmiHeader.biWidth = 1;
+        bmi.bmiHeader.biHeight = 1;
+        bmi.bmiHeader.biPlanes = 1;
+        bmi.bmiHeader.biBitCount = 32;
+        bmi.bmiHeader.biCompression = BI_RGB;
+        void* bits = nullptr;
+        HBITMAP bmp = CreateDIBSection(dc, &bmi, DIB_RGB_COLORS, &bits, nullptr, 0);
+        if (bmp && bits) {
+            // 32bpp DIB is BGRA in memory; AC_SRC_ALPHA needs
+            // premultiplied colour channels.
+            const uint32_t a = alpha;
+            const uint32_t b = ColorB(c) * a / 255u;
+            const uint32_t g = ColorG(c) * a / 255u;
+            const uint32_t rr = ColorR(c) * a / 255u;
+            *static_cast<uint32_t*>(bits) = (a << 24) | (rr << 16) | (g << 8) | b;
+            HGDIOBJ old = SelectObject(mem, bmp);
+            BLENDFUNCTION bf{};
+            bf.BlendOp = AC_SRC_OVER;
+            bf.BlendFlags = 0;
+            bf.SourceConstantAlpha = 255;
+            bf.AlphaFormat = AC_SRC_ALPHA;
+            AlphaBlend(dc, rc.left, rc.top, w, h, mem, 0, 0, 1, 1, bf);
+            SelectObject(mem, old);
+        } else {
+            FillRect(r, c);
+        }
+        if (bmp) DeleteObject(bmp);
+        DeleteDC(mem);
+    }
+
     void FillRound(const Rect& r, int radius, Color c) override
     {
         m_canvas.FillRound(rect(r), c, radius);

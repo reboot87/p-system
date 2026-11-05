@@ -73,6 +73,16 @@ public:
     virtual ~IPainter() = default;
 
     virtual void FillRect(const Rect& r, Color c) = 0;
+
+    // Optional alpha fill, used by overlay scrims. Backends without
+    // blending fall back to an opaque FillRect, so a scrim still
+    // renders on every target. alpha is 0..255.
+    virtual void FillRectAlpha(const Rect& r, Color c, uint8_t alpha)
+    {
+        (void)alpha;
+        FillRect(r, c);
+    }
+
     virtual void FillRound(const Rect& r, int radius, Color c) = 0;
     virtual void StrokeRect(const Rect& r, Color c, int width) = 0;
     virtual void StrokeRound(const Rect& r, int radius, Color c, int width) = 0;
