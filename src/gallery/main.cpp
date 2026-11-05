@@ -130,6 +130,15 @@ public:
             RECT r = it.rect;
             OffsetRect(&r, ox, oy);
             if (r.bottom < content.top || r.top > content.bottom) continue;
+            // Hover highlight for all interactive items
+            if (it.kind != Item::Section && it.hover && !it.disabled) {
+                RECT hl = r;
+                hl.top -= 4;
+                hl.bottom += 4;
+                hl.left -= 4;
+                hl.right += 4;
+                g.FillRound(hl, Pal().active, 6);
+            }
             if (it.kind == Item::Section) {
                 // Section header with card background
                 RECT bg = r;
