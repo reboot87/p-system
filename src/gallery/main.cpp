@@ -9,7 +9,8 @@
 #include "airui/AirUi.h"
 #include "airui/Components.h"
 #include "airui/ShellCore.h"
-#include "airui/platform/win32/airui/GdiPainter.h"
+#include "airui/ControlsCore.h"
+#include "airui/platform/win32/airui/CanvasPainter.h"
 #include "airui/platform/win32/airui/Win32Window.h"
 
 using namespace air::ui;
@@ -17,7 +18,7 @@ using namespace air::ui;
 namespace {
 
 struct Item {
-    enum Kind { Section, Button, Checkbox, Radio } kind = Button;
+    enum Kind { Section, Button, Checkbox, Radio, Slider, ProgressBar } kind = Button;
     RECT rect;
     std::wstring text;
     BtnStyle style = BtnStyle::Primary;
@@ -25,6 +26,8 @@ struct Item {
     bool disabled = false;
     bool hover = false;
     bool pressed = false;
+    int value = 50; // for Slider
+    float progress = 0.5f; // for ProgressBar
 };
 
 class GalleryPage : public Page {
@@ -99,11 +102,10 @@ public:
         int s = dc ? SaveDC(dc) : 0;
         if (dc) IntersectClipRect(dc,content.left,content.top,content.right,content.bottom);
 
-        // ShellCore 集成：通过 GdiPainter 将核心状态机绘制到画廊
+        // ShellCore 集成：通过 CanvasPainter 将核心状态机绘制到画廊
         {
             Rect rc{content.left, content.top, content.right, content.bottom};
-            HDC hdc = g.Native();
-            GdiPainter painter(hdc);
+            CanvasPainter painter(g);
             m_shellCore.Paint(painter, p, Mx());
         }
 
@@ -131,6 +133,24 @@ public:
                 g.Checkbox(r,it.text,it.checked,it.hover,it.disabled);
             } else if (it.kind == Item::Radio) {
                 g.Radio(r,it.text,it.checked,it.hover,it.disabled);
+            } else if (it.kind == Item::Slider) {
+                Rect rc{ r.left, r.top, r.right, r.bottom };
+                SliderState st;
+                st.base.hover = it.hover;
+                st.base.pressed = it.pressed;
+                st.base.disabled = it.disabled;
+                st.value = it.value;
+                st.min = 0; st.max = 100;
+                CanvasPainter painter(g);
+                PaintSlider(painter, rc, st, Pal(), Mx());
+                g.Text({r.left, r.bottom+2, r.right, r.bottom+16}, it.text, FontRole::Meta, p.textSub, DT_SINGLELINE|DT_LEFT|DT_VCENTER);
+            } else if (it.kind == Item::ProgressBar) {
+                Rect rc{ r.left, r.top, r.right, r.bottom };
+                ControlState st;
+                st.disabled = it.disabled;
+                CanvasPainter painter(g);
+                PaintProgressBar(painter, rc, it.progress, st, Pal(), Mx());
+                g.Text({r.left, r.bottom+2, r.right, r.bottom+16}, it.text, FontRole::Meta, p.textSub, DT_SINGLELINE|DT_LEFT|DT_VCENTER);
             }
         }
         for (auto& c : m_cards) {
@@ -224,6 +244,32 @@ private:
                 m_items.push_back(it);
             }
             y += horizontal ? 32 : 56;
+        }
+
+        sec(L"Slider");
+        {
+            const wchar_t* labels[] = {L"正常", L"禁用"};
+            for (int i = 0; i < 2; i++) {
+                Item it; it.kind=Item::Slider; it.text=labels[i];
+                it.disabled = (i==1);
+                it.value = 60;
+                it.rect={x, y, x+contentW, y+36};
+                m_items.push_back(it);
+                y += 46;
+            }
+        }
+
+        sec(L"ProgressBar");
+        {
+            const wchar_t* labels[] = {L"25%", L"60%", L"禁用"};
+            for (int i = 0; i < 3; i++) {
+                Item it; it.kind=Item::ProgressBar; it.text=labels[i];
+                it.disabled = (i==2);
+                it.progress = (i==0)?0.25f:(i==1)?0.6f:0.6f;
+                it.rect={x, y, x+contentW, y+28};
+                m_items.push_back(it);
+                y += 44;
+            }
         }
 
         sec(L"Card");

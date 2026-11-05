@@ -76,5 +76,32 @@ void PaintRadio(IPainter& g,
                 const ControlState& st,
                 const Palette& pal);
 
+// ------------------------------------------------------------
+// PaintProgressBar - horizontal bar with normal/disabled states.
+// ------------------------------------------------------------
+void PaintProgressBar(IPainter& g,
+                      const Rect& rc,
+                      float progress,
+                      const ControlState& st,
+                      const Palette& pal,
+                      const Metrics& mx);
+
+// ------------------------------------------------------------
+// PaintSlider - horizontal slider with thumb, hover/press/disabled.
+// ------------------------------------------------------------
+struct SliderState
+{
+    ControlState base = {};
+    int value = 50;
+    int min = 0;
+    int max = 100;
+};
+
+void PaintSlider(IPainter& g,
+                 const Rect& rc,
+                 const SliderState& st,
+                 const Palette& pal,
+                 const Metrics& mx);
+
 } // namespace ui
 } // namespace air

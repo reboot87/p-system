@@ -125,5 +125,62 @@ void PaintRadio(IPainter& g,
            st.disabled ? pal.textDisabled : pal.text, kLabelText);
 }
 
+void PaintProgressBar(IPainter& g,
+                      const Rect& rc,
+                      float progress,
+                      const ControlState& st,
+                      const Palette& pal,
+                      const Metrics& mx)
+{
+    if (progress < 0.f) progress = 0.f;
+    if (progress > 1.f) progress = 1.f;
+
+    Color bg = st.disabled ? pal.surface : pal.sunken;
+    g.FillRound(rc, mx.radiusMd, bg);
+
+    int w = static_cast<int>((rc.right - rc.left) * progress);
+    if (w > 0) {
+        Rect fill{rc.left, rc.top, rc.left + w, rc.bottom};
+        Color fillCol = st.disabled ? pal.border : pal.primary;
+        g.FillRound(fill, mx.radiusMd, fillCol);
+    }
+    g.StrokeRound(rc, mx.radiusMd, pal.border, 1);
+}
+
+void PaintSlider(IPainter& g,
+                 const Rect& rc,
+                 const SliderState& st,
+                 const Palette& pal,
+                 const Metrics& mx)
+{
+    const int h = rc.bottom - rc.top;
+    const int trackH = 4;
+    const int trackY = rc.top + (h - trackH) / 2;
+    Rect track{rc.left, trackY, rc.right, trackY + trackH};
+
+    Color trackCol = st.base.disabled ? pal.border : pal.sunken;
+    g.FillRound(track, trackH/2, trackCol);
+
+    int range = st.max - st.min;
+    float t = 0.f;
+    if (range > 0) {
+        t = static_cast<float>(st.value - st.min) / static_cast<float>(range);
+        if (t < 0.f) t = 0.f;
+        if (t > 1.f) t = 1.f;
+    }
+    int thumbX = rc.left + static_cast<int>((rc.right - rc.left) * t);
+    Rect thumb{thumbX - 6, rc.top, thumbX + 6, rc.bottom};
+    if (thumb.left < rc.left) thumb.left = rc.left;
+    if (thumb.right > rc.right) thumb.right = rc.right;
+
+    Color thumbCol = st.base.disabled ? pal.border : pal.surface;
+    g.FillRound(thumb, 6, thumbCol);
+    g.StrokeRound(thumb, 6, pal.border, 1);
+
+    if (st.base.hover || st.base.pressed) {
+        g.StrokeRound(track, trackH/2, pal.primary, 1);
+    }
+}
+
 } // namespace ui
 } // namespace air
