@@ -9,7 +9,8 @@
 #include "airui/AirUi.h"
 #include "airui/Components.h"
 #include "airui/ShellCore.h"
-#include "airui/platform/win32/airui/CanvasPainter.h"
+#include "airui/platform/win32/airui/GdiPainter.h"
+#include "airui/platform/win32/airui/Win32Window.h"
 
 using namespace air::ui;
 
@@ -93,10 +94,11 @@ public:
         int s = dc ? SaveDC(dc) : 0;
         if (dc) IntersectClipRect(dc,content.left,content.top,content.right,content.bottom);
 
-        // ShellCore 集成：通过 CanvasPainter 将核心状态机绘制到画廊
+        // ShellCore 集成：通过 GdiPainter 将核心状态机绘制到画廊
         {
             Rect rc{content.left, content.top, content.right, content.bottom};
-            CanvasPainter painter(g);
+            HDC hdc = g.Native();
+            GdiPainter painter(hdc);
             m_shellCore.Paint(painter, p, Mx());
         }
 

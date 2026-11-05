@@ -20,7 +20,7 @@ public:
         if (!m_dc) return;
         RECT rc = {r.left, r.top, r.right, r.bottom};
         HBRUSH br = CreateSolidBrush(c);
-        FillRect(m_dc, &rc, br);
+        ::FillRect(m_dc, &rc, br);
         DeleteObject(br);
     }
 
@@ -36,7 +36,7 @@ public:
         HPEN pen = CreatePen(PS_SOLID, width, c);
         HGDIOBJ oldPen = SelectObject(m_dc, pen);
         HGDIOBJ oldBrush = SelectObject(m_dc, GetStockObject(NULL_BRUSH));
-        Rectangle(m_dc, rc.left, rc.top, rc.right, rc.bottom);
+        ::Rectangle(m_dc, rc.left, rc.top, rc.right, rc.bottom);
         SelectObject(m_dc, oldPen);
         SelectObject(m_dc, oldBrush);
         DeleteObject(pen);
