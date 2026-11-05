@@ -18,7 +18,7 @@ using namespace air::ui;
 namespace {
 
 struct Item {
-    enum Kind { Section, Button, Checkbox, Radio, Slider, ProgressBar, ToggleSwitch, TextField, Segmented, ComboBox, Tag, Rating } kind = Button;
+    enum Kind { Section, Button, Checkbox, Radio, Slider, ProgressBar, ToggleSwitch, TextField, Segmented, ComboBox, Tag, Rating, Stepper, ProgressRing, Badge } kind = Button;
     RECT rect;
     std::wstring text;
     BtnStyle style = BtnStyle::Primary;
@@ -33,6 +33,7 @@ struct Item {
     int segmentedSelected = 0; // for Segmented
     bool tagSelected = false; // for Tag
     int rating = 3; // for Rating
+    int stepperValue = 5; // for Stepper
 };
 
 class GalleryPage : public Page {
@@ -221,6 +222,31 @@ public:
                 CanvasPainter painter(g);
                 PaintRating(painter, rc, st, Pal(), Mx());
                 g.Text({r.left, r.bottom+2, r.right, r.bottom+16}, it.text, FontRole::Meta, p.textSub, DT_SINGLELINE|DT_LEFT|DT_VCENTER);
+            } else if (it.kind == Item::Stepper) {
+                Rect rc{ r.left, r.top, r.right, r.bottom };
+                StepperState st;
+                st.base.disabled = it.disabled;
+                st.base.hover = it.hover;
+                st.value = it.stepperValue;
+                CanvasPainter painter(g);
+                PaintStepper(painter, rc, st, Pal(), Mx());
+                g.Text({r.left, r.bottom+2, r.right, r.bottom+16}, it.text, FontRole::Meta, p.textSub, DT_SINGLELINE|DT_LEFT|DT_VCENTER);
+            } else if (it.kind == Item::ProgressRing) {
+                Rect rc{ r.left, r.top, r.right, r.bottom };
+                ProgressRingState st;
+                st.base.disabled = it.disabled;
+                st.progress = it.progress;
+                CanvasPainter painter(g);
+                PaintProgressRing(painter, rc, st, Pal(), Mx());
+                g.Text({r.left, r.bottom+2, r.right, r.bottom+16}, it.text, FontRole::Meta, p.textSub, DT_SINGLELINE|DT_LEFT|DT_VCENTER);
+            } else if (it.kind == Item::Badge) {
+                Rect rc{ r.left, r.top, r.right, r.bottom };
+                BadgeState st;
+                st.base.disabled = it.disabled;
+                st.text = it.text.empty() ? L"99+" : it.text;
+                CanvasPainter painter(g);
+                PaintBadge(painter, rc, st, Pal(), Mx());
+                g.Text({r.left, r.bottom+2, r.right, r.bottom+16}, L"Badge", FontRole::Meta, p.textSub, DT_SINGLELINE|DT_LEFT|DT_VCENTER);
             }
         }
         for (auto& c : m_cards) {
@@ -393,6 +419,40 @@ private:
             }
         }
 
+        sec(L"Stepper");
+        {
+            const wchar_t* labels[] = {L"正常", L"禁用"};
+            for (int i = 0; i < 2; i++) {
+                Item it; it.kind=Item::Stepper; it.text=labels[i];
+                it.disabled = (i==1);
+                it.stepperValue = 5;
+                it.rect={x, y, x+contentW, y+36};
+                m_items.push_back(it);
+                y += 52;
+            }
+        }
+
+        sec(L"ProgressRing");
+        {
+            const wchar_t* labels[] = {L"50%", L"禁用"};
+            for (int i = 0; i < 2; i++) {
+                Item it; it.kind=Item::ProgressRing; it.text=labels[i];
+                it.disabled = (i==1);
+                it.progress = 0.5f;
+                it.rect={x, y, x+contentW, y+28};
+                m_items.push_back(it);
+                y += 44;
+            }
+        }
+
+        sec(L"Badge");
+        {
+            Item it; it.kind=Item::Badge; it.text=L"9";
+            it.rect={x, y, x+80, y+28};
+            m_items.push_back(it);
+            y += 44;
+        }
+
         sec(L"Slider");
         {
             const wchar_t* labels[] = {L"正常", L"禁用"};
@@ -521,6 +581,19 @@ private:
                         if (newRating < 1) newRating = 1;
                         if (newRating > 5) newRating = 5;
                         it.rating = newRating;
+                        d=true;
+                    }
+                }
+            } else if (it.kind==Item::Stepper) {
+                if (msg==WM_LBUTTONDOWN && h && !it.disabled) {
+                    int btnW = it.rect.bottom - it.rect.top;
+                    int leftEdge = it.rect.left;
+                    int rightEdge = it.rect.right - btnW;
+                    if (p.x < leftEdge + btnW) {
+                        it.stepperValue = it.stepperValue > 0 ? it.stepperValue - 1 : 0;
+                        d=true;
+                    } else if (p.x > rightEdge) {
+                        it.stepperValue = it.stepperValue < 100 ? it.stepperValue + 1 : 100;
                         d=true;
                     }
                 }

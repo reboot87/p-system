@@ -304,5 +304,68 @@ void PaintRating(IPainter& g,
     }
 }
 
+void PaintStepper(IPainter& g,
+                  const Rect& rc,
+                  const StepperState& st,
+                  const Palette& pal,
+                  const Metrics& mx)
+{
+    int w = rc.right - rc.left;
+    int h = rc.bottom - rc.top;
+    int btnW = h;
+    Rect leftBtn{rc.left, rc.top, rc.left + btnW, rc.bottom};
+    Rect mid{rc.left + btnW, rc.top, rc.right - btnW, rc.bottom};
+    Rect rightBtn{rc.right - btnW, rc.top, rc.right, rc.bottom};
+
+    Color bg = st.base.disabled ? pal.sunken : pal.surface;
+    g.FillRound(rc, mx.radiusMd, bg);
+    g.StrokeRound(rc, mx.radiusMd, pal.border, 1);
+
+    // left button
+    g.FillRound(leftBtn, mx.radiusMd, st.minusHover ? pal.active : pal.surface);
+    g.StrokeRound(leftBtn, mx.radiusMd, pal.border, 1);
+    g.Text(leftBtn, L"\u2212", FontRole::Body, st.base.disabled ? pal.textDisabled : pal.text, dt::SingleLine | dt::Center | dt::VCenter);
+
+    // right button
+    g.FillRound(rightBtn, mx.radiusMd, st.plusHover ? pal.active : pal.surface);
+    g.StrokeRound(rightBtn, mx.radiusMd, pal.border, 1);
+    g.Text(rightBtn, L"+", FontRole::Body, st.base.disabled ? pal.textDisabled : pal.text, dt::SingleLine | dt::Center | dt::VCenter);
+
+    // value
+    std::wstring val = std::to_wstring(st.value);
+    Color txtCol = st.base.disabled ? pal.textDisabled : pal.text;
+    g.Text(mid, val, FontRole::Body, txtCol, dt::SingleLine | dt::Center | dt::VCenter);
+}
+
+void PaintProgressRing(IPainter& g,
+                       const Rect& rc,
+                       const ProgressRingState& st,
+                       const Palette& pal,
+                       const Metrics& mx)
+{
+    // Simple representation: filled arc via rect progress for now
+    Color bg = st.base.disabled ? pal.sunken : pal.sunken;
+    g.FillRound(rc, mx.radiusMd, bg);
+    int w = static_cast<int>((rc.right - rc.left) * st.progress);
+    if (w > 0) {
+        Rect fill{rc.left, rc.top, rc.left + w, rc.bottom};
+        Color fillCol = st.base.disabled ? pal.border : pal.primary;
+        g.FillRound(fill, mx.radiusMd, fillCol);
+    }
+    g.StrokeRound(rc, mx.radiusMd, pal.border, 1);
+}
+
+void PaintBadge(IPainter& g,
+                const Rect& rc,
+                const BadgeState& st,
+                const Palette& pal,
+                const Metrics& mx)
+{
+    Color bg = st.base.disabled ? pal.border : pal.errorText;
+    g.FillRound(rc, mx.radiusPill, bg);
+    Color txtCol = pal.textInverse;
+    g.Text(rc, st.text, FontRole::Meta, txtCol, dt::SingleLine | dt::Center | dt::VCenter);
+}
+
 } // namespace ui
 } // namespace air

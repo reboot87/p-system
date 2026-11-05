@@ -199,5 +199,54 @@ void PaintRating(IPainter& g,
                  const Palette& pal,
                  const Metrics& mx);
 
+// ------------------------------------------------------------
+// PaintStepper - numeric stepper with +/- buttons.
+// ------------------------------------------------------------
+struct StepperState
+{
+    ControlState base = {};
+    int value = 0;
+    int min = 0;
+    int max = 100;
+    bool minusHover = false;
+    bool plusHover = false;
+};
+
+void PaintStepper(IPainter& g,
+                  const Rect& rc,
+                  const StepperState& st,
+                  const Palette& pal,
+                  const Metrics& mx);
+
+// ------------------------------------------------------------
+// PaintProgressRing - circular progress.
+// ------------------------------------------------------------
+struct ProgressRingState
+{
+    ControlState base = {};
+    float progress = 0.5f; // 0-1
+};
+
+void PaintProgressRing(IPainter& g,
+                       const Rect& rc,
+                       const ProgressRingState& st,
+                       const Palette& pal,
+                       const Metrics& mx);
+
+// ------------------------------------------------------------
+// PaintBadge - small badge with count.
+// ------------------------------------------------------------
+struct BadgeState
+{
+    ControlState base = {};
+    std::wstring text = L"99+";
+};
+
+void PaintBadge(IPainter& g,
+                const Rect& rc,
+                const BadgeState& st,
+                const Palette& pal,
+                const Metrics& mx);
+
 } // namespace ui
 } // namespace air
