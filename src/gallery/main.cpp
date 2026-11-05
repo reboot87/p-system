@@ -140,14 +140,16 @@ public:
                 g.FillRound(hl, Pal().active, 6);
             }
             if (it.kind == Item::Section) {
-                // Section header with card background
+                // Section header with card background and accent
                 RECT bg = r;
-                bg.top -= 8;
-                bg.bottom += 10;
-                bg.left -= 12;
-                bg.right += 12;
-                g.FillRound(bg, Pal().surface, 8);
-                // g.StrokeRound(bg, Pal().split, 1);
+                bg.top -= 10;
+                bg.bottom += 14;
+                bg.left -= 16;
+                bg.right += 16;
+                g.FillRound(bg, Pal().surface, 10);
+                // accent bar
+                RECT accent = {bg.left + 4, bg.top + 8, bg.left + 8, bg.bottom - 8};
+                g.FillRound(accent, Pal().primary, 2);
                 g.Text(r,it.text,FontRole::Section,p.text,DT_SINGLELINE|DT_LEFT|DT_VCENTER);
             } else if (it.kind == Item::Button) {
                 g.Button(r,it.text,it.style,it.hover,it.pressed,it.disabled);
@@ -299,7 +301,7 @@ private:
         if (w < 200) w = 200;
         const int contentW = w - 24;
 
-        auto sec = [&](const wchar_t* t){ Item it; it.kind=Item::Section; it.text=t; it.rect={x,y,x+contentW,y+22}; m_items.push_back(it); y+=44; };
+        auto sec = [&](const wchar_t* t){ Item it; it.kind=Item::Section; it.text=t; it.rect={x,y,x+contentW,y+22}; m_items.push_back(it); y+=60; };
 
         sec(L"Button");
         {
