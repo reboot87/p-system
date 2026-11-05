@@ -18,7 +18,7 @@ using namespace air::ui;
 namespace {
 
 struct Item {
-    enum Kind { Section, Button, Checkbox, Radio, Slider, ProgressBar, ToggleSwitch } kind = Button;
+    enum Kind { Section, Button, Checkbox, Radio, Slider, ProgressBar, ToggleSwitch, TextField, Segmented } kind = Button;
     RECT rect;
     std::wstring text;
     BtnStyle style = BtnStyle::Primary;
@@ -29,6 +29,8 @@ struct Item {
     int value = 50; // for Slider
     float progress = 0.5f; // for ProgressBar
     bool toggled = false; // for ToggleSwitch
+    std::wstring placeholder; // for TextField
+    int segmentedSelected = 0; // for Segmented
 };
 
 class GalleryPage : public Page {
@@ -126,13 +128,14 @@ public:
             OffsetRect(&r, ox, oy);
             if (r.bottom < content.top || r.top > content.bottom) continue;
             if (it.kind == Item::Section) {
-                // Section header with subtle background
+                // Section header with card background
                 RECT bg = r;
-                bg.top -= 4;
-                bg.bottom += 8;
-                bg.left -= 8;
-                bg.right += 8;
-                g.FillRound(bg, Pal().surface, 4);
+                bg.top -= 8;
+                bg.bottom += 10;
+                bg.left -= 12;
+                bg.right += 12;
+                g.FillRound(bg, Pal().surface, 8);
+                // g.StrokeRound(bg, Pal().split, 1);
                 g.Text(r,it.text,FontRole::Section,p.text,DT_SINGLELINE|DT_LEFT|DT_VCENTER);
             } else if (it.kind == Item::Button) {
                 g.Button(r,it.text,it.style,it.hover,it.pressed,it.disabled);
@@ -167,6 +170,26 @@ public:
                 st.on = it.toggled;
                 CanvasPainter painter(g);
                 PaintToggleSwitch(painter, rc, st, Pal(), Mx());
+                g.Text({r.left, r.bottom+2, r.right, r.bottom+16}, it.text, FontRole::Meta, p.textSub, DT_SINGLELINE|DT_LEFT|DT_VCENTER);
+            } else if (it.kind == Item::TextField) {
+                Rect rc{ r.left, r.top, r.right, r.bottom };
+                TextFieldState st;
+                st.base.disabled = it.disabled;
+                st.base.hover = it.hover;
+                st.text = L"";
+                st.placeholder = it.placeholder.empty() ? L"输入内容..." : it.placeholder;
+                CanvasPainter painter(g);
+                PaintTextField(painter, rc, st, Pal(), Mx());
+                g.Text({r.left, r.bottom+2, r.right, r.bottom+16}, it.text, FontRole::Meta, p.textSub, DT_SINGLELINE|DT_LEFT|DT_VCENTER);
+            } else if (it.kind == Item::Segmented) {
+                Rect rc{ r.left, r.top, r.right, r.bottom };
+                SegmentedState st;
+                st.base.disabled = it.disabled;
+                st.base.hover = it.hover;
+                st.items = {L"选项A", L"选项B", L"选项C"};
+                st.selected = it.segmentedSelected;
+                CanvasPainter painter(g);
+                PaintSegmented(painter, rc, st, Pal(), Mx());
                 g.Text({r.left, r.bottom+2, r.right, r.bottom+16}, it.text, FontRole::Meta, p.textSub, DT_SINGLELINE|DT_LEFT|DT_VCENTER);
             }
         }
@@ -211,7 +234,7 @@ private:
         if (w < 200) w = 200;
         const int contentW = w - 24;
 
-        auto sec = [&](const wchar_t* t){ Item it; it.kind=Item::Section; it.text=t; it.rect={x,y,x+contentW,y+22}; m_items.push_back(it); y+=36; };
+        auto sec = [&](const wchar_t* t){ Item it; it.kind=Item::Section; it.text=t; it.rect={x,y,x+contentW,y+22}; m_items.push_back(it); y+=44; };
 
         sec(L"Button");
         {
@@ -273,6 +296,32 @@ private:
                 it.rect={x, y, x+contentW, y+28};
                 m_items.push_back(it);
                 y += 44;
+            }
+        }
+
+        sec(L"TextField");
+        {
+            const wchar_t* labels[] = {L"正常", L"禁用"};
+            for (int i = 0; i < 2; i++) {
+                Item it; it.kind=Item::TextField; it.text=labels[i];
+                it.disabled = (i==1);
+                it.placeholder = L"请输入内容";
+                it.rect={x, y, x+contentW, y+32};
+                m_items.push_back(it);
+                y += 48;
+            }
+        }
+
+        sec(L"Segmented");
+        {
+            const wchar_t* labels[] = {L"正常", L"禁用"};
+            for (int i = 0; i < 2; i++) {
+                Item it; it.kind=Item::Segmented; it.text=labels[i];
+                it.disabled = (i==1);
+                it.segmentedSelected = 1;
+                it.rect={x, y, x+contentW, y+32};
+                m_items.push_back(it);
+                y += 48;
             }
         }
 

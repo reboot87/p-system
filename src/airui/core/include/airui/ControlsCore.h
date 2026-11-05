@@ -118,5 +118,38 @@ void PaintToggleSwitch(IPainter& g,
                        const Palette& pal,
                        const Metrics& mx);
 
+// ------------------------------------------------------------
+// PaintTextField - visual text input with placeholder, focus/disabled.
+// ------------------------------------------------------------
+struct TextFieldState
+{
+    ControlState base = {};
+    std::wstring text;
+    std::wstring placeholder = L"Placeholder";
+    bool hasFocus = false;
+};
+
+void PaintTextField(IPainter& g,
+                    const Rect& rc,
+                    const TextFieldState& st,
+                    const Palette& pal,
+                    const Metrics& mx);
+
+// ------------------------------------------------------------
+// PaintSegmentedControl - segmented choice control.
+// ------------------------------------------------------------
+struct SegmentedState
+{
+    ControlState base = {};
+    std::vector<std::wstring> items;
+    int selected = 0;
+};
+
+void PaintSegmented(IPainter& g,
+                    const Rect& rc,
+                    const SegmentedState& st,
+                    const Palette& pal,
+                    const Metrics& mx);
+
 } // namespace ui
 } // namespace air

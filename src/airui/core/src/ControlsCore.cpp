@@ -210,5 +210,48 @@ void PaintToggleSwitch(IPainter& g,
     g.StrokeRound(thumb, thumbSize/2, pal.border, 1);
 }
 
+void PaintTextField(IPainter& g,
+                    const Rect& rc,
+                    const TextFieldState& st,
+                    const Palette& pal,
+                    const Metrics& mx)
+{
+    Color bg = st.base.disabled ? pal.sunken : pal.surface;
+    g.FillRound(rc, mx.radiusMd, bg);
+    Color border = st.base.disabled ? pal.border : (st.hasFocus ? pal.primary : pal.border);
+    g.StrokeRound(rc, mx.radiusMd, border, 1);
+
+    Rect inner{rc.left + 8, rc.top + 2, rc.right - 8, rc.bottom - 2};
+    const std::wstring& txt = st.text.empty() ? st.placeholder : st.text;
+    Color txtCol = st.base.disabled ? pal.textDisabled :
+                   st.text.empty() ? pal.textDisabled : pal.text;
+    g.Text(inner, txt, FontRole::Body, txtCol, dt::SingleLine | dt::Left | dt::VCenter);
+}
+
+void PaintSegmented(IPainter& g,
+                    const Rect& rc,
+                    const SegmentedState& st,
+                    const Palette& pal,
+                    const Metrics& mx)
+{
+    if (st.items.empty()) return;
+    int count = static_cast<int>(st.items.size());
+    int w = (rc.right - rc.left) / count;
+    for (int i = 0; i < count; ++i) {
+        Rect seg{rc.left + i * w, rc.top, rc.left + (i + 1) * w, rc.bottom};
+        if (i == count - 1) seg.right = rc.right;
+        bool selected = (i == st.selected);
+        Color bg = st.base.disabled ? pal.sunken :
+                   selected ? pal.primary : pal.surface;
+        Color br = st.base.disabled ? pal.border : pal.border;
+        g.FillRound(seg, mx.radiusMd, bg);
+        g.StrokeRound(seg, mx.radiusMd, br, 1);
+        Color txtCol = st.base.disabled ? pal.textDisabled :
+                       selected ? pal.textInverse : pal.text;
+        g.Text(seg, st.items[i], FontRole::Body, txtCol,
+               dt::SingleLine | dt::Center | dt::VCenter);
+    }
+}
+
 } // namespace ui
 } // namespace air
