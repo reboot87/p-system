@@ -7,7 +7,7 @@
 namespace air {
 namespace ui {
 
-void ShellCore::SetNavGroups(std::vector<NavGroup> groups)
+void ShellCore::SetNavGroups(std::vector<ShellNavGroup> groups)
 {
     m_groups = std::move(groups);
 }

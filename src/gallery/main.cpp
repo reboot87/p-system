@@ -8,6 +8,8 @@
 
 #include "airui/AirUi.h"
 #include "airui/Components.h"
+#include "airui/ShellCore.h"
+#include "airui/platform/win32/airui/CanvasPainter.h"
 
 using namespace air::ui;
 
@@ -31,6 +33,18 @@ public:
     void OnAttach(Shell& shell) override {
         m_shell = &shell;
         shell.SetCaptionSubtitle(L"简洁示例");
+        // 初始化 ShellCore，展示核心状态机与 IPainter 集成
+        m_shellCore.SetCaption({L"AirUI Gallery", L"简洁示例", L"", true});
+        m_shellCore.SetStatus({L"就绪", true, L""});
+        std::vector<ShellNavGroup> groups;
+        ShellNavGroup g;
+        g.title = L"组件";
+        g.items.push_back({1, L"Button", false, L"", true});
+        g.items.push_back({2, L"Checkbox", false, L"", true});
+        g.items.push_back({3, L"Radio", false, L"", true});
+        groups.push_back(std::move(g));
+        m_shellCore.SetNavGroups(std::move(groups));
+        m_shellCore.SetActiveNav(1);
         HWND hwnd = shell.Hwnd();
         shell.SetMessageHook([this, hwnd](HWND,UINT msg,WPARAM wp,LPARAM lp,LRESULT& res){
             if (msg == WM_KEYDOWN && wp == 'T') {
@@ -65,6 +79,9 @@ public:
     void OnLayout(const RECT& content) override {
         m_content = content;
         Build();
+        // 布局 ShellCore 到内容区
+        Rect rc{content.left, content.top, content.right, content.bottom};
+        m_shellCore.Layout(rc);
         if (m_scroll > m_max) m_scroll = m_max;
         if (m_shell) m_shell->Invalidate();
     }
@@ -76,15 +93,23 @@ public:
         int s = dc ? SaveDC(dc) : 0;
         if (dc) IntersectClipRect(dc,content.left,content.top,content.right,content.bottom);
 
+        // ShellCore 集成：通过 CanvasPainter 将核心状态机绘制到画廊
+        {
+            Rect rc{content.left, content.top, content.right, content.bottom};
+            CanvasPainter painter(g);
+            m_shellCore.Paint(painter, p, Mx());
+        }
+
         const int scroll = m_scroll;
         const int titleH = 52;                       // 标题占位高度
         const int ox = content.left;                 // 内容区原点
         const int oy = content.top + titleH - scroll; // 条目 y 原点
 
-        g.Text({content.left + 12, content.top + 12,
-                content.left + 400, content.top + 40},
-               L"AirUI Gallery", FontRole::Display, p.text,
-               DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
+        // 原标题文本由 ShellCore.Caption 绘制，去掉重复绘制
+        // g.Text({content.left + 12, content.top + 12,
+        //         content.left + 400, content.top + 40},
+        //        L"AirUI Gallery", FontRole::Display, p.text,
+        //        DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
 
         for (auto& it : m_items) {
             RECT r = it.rect;
@@ -265,6 +290,7 @@ private:
     std::map<std::wstring, bool> m_checked;   // resize 后保留选中状态
     int m_scroll=0, m_max=0;
     bool m_dark=false;
+    ShellCore m_shellCore;
 };
 }
 

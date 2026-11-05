@@ -14,7 +14,7 @@
 namespace air {
 namespace ui {
 
-struct NavItem
+struct ShellNavItem
 {
     int id = -1;
     std::wstring label;
@@ -23,10 +23,10 @@ struct NavItem
     bool badgeOk = true;
 };
 
-struct NavGroup
+struct ShellNavGroup
 {
     std::wstring title;
-    std::vector<NavItem> items;
+    std::vector<ShellNavItem> items;
 };
 
 struct CaptionState
@@ -50,7 +50,7 @@ public:
     ShellCore() = default;
 
     // --- Nav ---
-    void SetNavGroups(std::vector<NavGroup> groups);
+    void SetNavGroups(std::vector<ShellNavGroup> groups);
     void SetActiveNav(int id);
     void SetNavBadge(int id, const std::wstring& text, bool ok);
     int  ActiveNav() const { return m_activeNav; }
@@ -74,7 +74,7 @@ private:
     void PaintStatus(IPainter& painter, const Palette& pal, const Metrics& mx);
     void PaintNav(IPainter& painter, const Palette& pal, const Metrics& mx);
 
-    std::vector<NavGroup> m_groups;
+    std::vector<ShellNavGroup> m_groups;
     int m_activeNav = -1;
     int m_hoverNav  = -1;
 
