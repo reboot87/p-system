@@ -151,5 +151,21 @@ void PaintSegmented(IPainter& g,
                     const Palette& pal,
                     const Metrics& mx);
 
+// ------------------------------------------------------------
+// PaintComboBox - visual combobox with arrow.
+// ------------------------------------------------------------
+struct ComboBoxState
+{
+    ControlState base = {};
+    std::wstring text;
+    bool open = false;
+};
+
+void PaintComboBox(IPainter& g,
+                   const Rect& rc,
+                   const ComboBoxState& st,
+                   const Palette& pal,
+                   const Metrics& mx);
+
 } // namespace ui
 } // namespace air

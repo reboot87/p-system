@@ -253,5 +253,24 @@ void PaintSegmented(IPainter& g,
     }
 }
 
+void PaintComboBox(IPainter& g,
+                   const Rect& rc,
+                   const ComboBoxState& st,
+                   const Palette& pal,
+                   const Metrics& mx)
+{
+    Color bg = st.base.disabled ? pal.sunken : pal.surface;
+    g.FillRound(rc, mx.radiusMd, bg);
+    Color border = st.base.disabled ? pal.border : (st.base.hover || st.open ? pal.primary : pal.border);
+    g.StrokeRound(rc, mx.radiusMd, border, 1);
+
+    Rect textR{rc.left + 8, rc.top, rc.right - 20, rc.bottom};
+    Color txtCol = st.base.disabled ? pal.textDisabled : pal.text;
+    g.Text(textR, st.text, FontRole::Body, txtCol, dt::SingleLine | dt::Left | dt::VCenter);
+
+    Rect arrowR{rc.right - 18, rc.top + 4, rc.right - 4, rc.bottom - 4};
+    g.Text(arrowR, L"\u25BE", FontRole::Body, txtCol, dt::SingleLine | dt::Center | dt::VCenter);
+}
+
 } // namespace ui
 } // namespace air

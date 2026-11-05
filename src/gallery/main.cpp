@@ -18,7 +18,7 @@ using namespace air::ui;
 namespace {
 
 struct Item {
-    enum Kind { Section, Button, Checkbox, Radio, Slider, ProgressBar, ToggleSwitch, TextField, Segmented } kind = Button;
+    enum Kind { Section, Button, Checkbox, Radio, Slider, ProgressBar, ToggleSwitch, TextField, Segmented, ComboBox } kind = Button;
     RECT rect;
     std::wstring text;
     BtnStyle style = BtnStyle::Primary;
@@ -191,6 +191,15 @@ public:
                 CanvasPainter painter(g);
                 PaintSegmented(painter, rc, st, Pal(), Mx());
                 g.Text({r.left, r.bottom+2, r.right, r.bottom+16}, it.text, FontRole::Meta, p.textSub, DT_SINGLELINE|DT_LEFT|DT_VCENTER);
+            } else if (it.kind == Item::ComboBox) {
+                Rect rc{ r.left, r.top, r.right, r.bottom };
+                ComboBoxState st;
+                st.base.disabled = it.disabled;
+                st.base.hover = it.hover;
+                st.text = L"请选择";
+                CanvasPainter painter(g);
+                PaintComboBox(painter, rc, st, Pal(), Mx());
+                g.Text({r.left, r.bottom+2, r.right, r.bottom+16}, it.text, FontRole::Meta, p.textSub, DT_SINGLELINE|DT_LEFT|DT_VCENTER);
             }
         }
         for (auto& c : m_cards) {
@@ -319,6 +328,18 @@ private:
                 Item it; it.kind=Item::Segmented; it.text=labels[i];
                 it.disabled = (i==1);
                 it.segmentedSelected = 1;
+                it.rect={x, y, x+contentW, y+32};
+                m_items.push_back(it);
+                y += 48;
+            }
+        }
+
+        sec(L"ComboBox");
+        {
+            const wchar_t* labels[] = {L"正常", L"禁用"};
+            for (int i = 0; i < 2; i++) {
+                Item it; it.kind=Item::ComboBox; it.text=labels[i];
+                it.disabled = (i==1);
                 it.rect={x, y, x+contentW, y+32};
                 m_items.push_back(it);
                 y += 48;
