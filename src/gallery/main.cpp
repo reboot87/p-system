@@ -18,7 +18,9 @@ using namespace air::ui;
 namespace {
 
 struct Item {
-    enum Kind { Section, Button, Checkbox, Radio, Slider, ProgressBar, ToggleSwitch, TextField, Segmented, ComboBox, Tag, Rating, Stepper, ProgressRing, Badge } kind = Button;
+    enum Kind { Section, Button, Checkbox, Radio, Slider, ProgressBar, ToggleSwitch,
+                TextField, Segmented, ComboBox, Tag, Rating, Stepper, ProgressRing,
+                Badge, Alert, Tabs, Avatar, Skeleton } kind = Button;
     RECT rect;
     std::wstring text;
     BtnStyle style = BtnStyle::Primary;
@@ -34,6 +36,10 @@ struct Item {
     bool tagSelected = false; // for Tag
     int rating = 3; // for Rating
     int stepperValue = 5; // for Stepper
+    AlertKind alertKind = AlertKind::Info; // for Alert
+    std::wstring message;                 // for Alert
+    int tabsSelected = 0;                 // for Tabs
+    int lines = 3;                        // for Skeleton
 };
 
 class GalleryPage : public Page {
@@ -65,6 +71,10 @@ public:
             {L"数值反馈", L"ProgressRing",11},
             {L"数值反馈", L"Slider",      13},
             {L"数值反馈", L"ProgressBar", 14},
+            {L"反馈与布局", L"Alert",     16},
+            {L"反馈与布局", L"Tabs",      17},
+            {L"反馈与布局", L"Avatar",    18},
+            {L"反馈与布局", L"Skeleton",  19},
         };
         std::vector<ShellNavGroup> groups;
         for (const auto& n : nav) {
@@ -95,9 +105,16 @@ public:
                 POINT pt = {(short)LOWORD(lp),(short)HIWORD(lp)};
                 ScreenToClient(hwnd,&pt);
                 int d = GET_WHEEL_DELTA_WPARAM(wp);
-                m_scroll -= d/120*30;
-                ClampScroll();
-                UpdateActiveNav();
+                const int step = d/120*30;
+                Rect navRc = m_shellCore.NavRect();
+                if (navRc.Contains(Point{pt.x, pt.y})) {
+                    // 指针在导航栏：滚动导航项（19 项超出可视高度）
+                    m_shellCore.ScrollNav(-step);
+                } else {
+                    m_scroll -= step;
+                    ClampScroll();
+                    UpdateActiveNav();
+                }
                 if (m_shell) m_shell->Invalidate();
                 res = 0; return true;
             }
@@ -319,6 +336,39 @@ public:
                 st.text = it.text.empty() ? L"99+" : it.text;
                 CanvasPainter painter(g);
                 PaintBadge(painter, rc, st, Pal(), Mx());
+            } else if (it.kind == Item::Alert) {
+                Rect rc{ r.left, r.top, r.right, r.bottom };
+                AlertState st;
+                st.base.disabled = it.disabled;
+                st.kind = it.alertKind;
+                st.title = it.text;
+                st.message = it.message;
+                CanvasPainter painter(g);
+                PaintAlert(painter, rc, st, Pal(), Mx());
+            } else if (it.kind == Item::Tabs) {
+                Rect rc{ r.left, r.top, r.right, r.bottom };
+                TabsState st;
+                st.base.disabled = it.disabled;
+                st.tabs = {L"概览", L"详情", L"日志", L"设置"};
+                st.selected = it.tabsSelected;
+                st.hovered = it.hover ? (it.tabsSelected + 1) % 4 : -1;
+                CanvasPainter painter(g);
+                PaintTabs(painter, rc, st, Pal(), Mx());
+            } else if (it.kind == Item::Avatar) {
+                Rect rc{ r.left, r.top, r.right, r.bottom };
+                AvatarState st;
+                st.base.disabled = it.disabled;
+                st.base.hover = it.hover;
+                st.text = it.text.empty() ? L"A" : it.text;
+                CanvasPainter painter(g);
+                PaintAvatar(painter, rc, st, Pal(), Mx());
+            } else if (it.kind == Item::Skeleton) {
+                Rect rc{ r.left, r.top, r.right, r.bottom };
+                SkeletonState st;
+                st.base.disabled = it.disabled;
+                st.lines = it.lines;
+                CanvasPainter painter(g);
+                PaintSkeleton(painter, rc, st, Pal(), Mx());
             }
         }
         for (auto& c : m_cards) {
@@ -582,6 +632,59 @@ private:
             y = cy + rows * 162 + 10;
         }
 
+        sec(L"Alert");
+        {
+            struct A { AlertKind k; const wchar_t* t; const wchar_t* m; bool dis; };
+            const A arr[] = {
+                {AlertKind::Info,    L"提示",  L"这是一条信息提示",   false},
+                {AlertKind::Success, L"成功",  L"操作已成功完成",     false},
+                {AlertKind::Warning, L"警告",  L"磁盘空间不足 10%",  false},
+                {AlertKind::Error,   L"错误",  L"网络连接已断开",     false},
+                {AlertKind::Info,    L"禁用",  L"不可用状态",         true},
+            };
+            for (const auto& a : arr) {
+                Item it; it.kind = Item::Alert;
+                it.alertKind = a.k; it.text = a.t; it.message = a.m;
+                it.disabled = a.dis;
+                it.rect = {x, y, x + contentW, y + 48};
+                m_items.push_back(it);
+                y += 60;
+            }
+        }
+
+        sec(L"Tabs");
+        {
+            const wchar_t* labels[] = {L"正常", L"禁用"};
+            for (int i = 0; i < 2; i++) {
+                Item it; it.kind = Item::Tabs; it.text = labels[i];
+                it.disabled = (i == 1);
+                it.tabsSelected = 1;
+                it.rect = {x, y, x + contentW, y + 36};
+                m_items.push_back(it);
+                y += 52;
+            }
+        }
+
+        sec(L"Avatar");
+        {
+            const wchar_t* labels[] = {L"A", L"UI", L"禁"};
+            for (int i = 0; i < 3; i++) {
+                Item it; it.kind = Item::Avatar; it.text = labels[i];
+                it.disabled = (i == 2);
+                it.rect = {x + i * 60, y, x + i * 60 + 40, y + 40};
+                m_items.push_back(it);
+            }
+            y += 64;
+        }
+
+        sec(L"Skeleton");
+        {
+            Item it; it.kind = Item::Skeleton; it.lines = 3;
+            it.rect = {x, y, x + contentW, y + 72};
+            m_items.push_back(it);
+            y += 88;
+        }
+
         int viewH = m_content.bottom - m_content.top;
         int contentH = y;                         // 标题/状态栏由 ShellCore 承担
         m_max = contentH - viewH;
@@ -671,6 +774,18 @@ private:
                         d=true;
                     } else if (p.x > rightEdge) {
                         it.stepperValue = it.stepperValue < 100 ? it.stepperValue + 1 : 100;
+                        d=true;
+                    }
+                }
+            } else if (it.kind==Item::Tabs) {
+                if (msg==WM_LBUTTONDOWN && h && !it.disabled) {
+                    int w = it.rect.right - it.rect.left;
+                    if (w > 0) {
+                        float t = float(p.x - it.rect.left) / float(w);
+                        int seg = int(t * 4);
+                        if (seg < 0) seg = 0;
+                        if (seg > 3) seg = 3;
+                        it.tabsSelected = seg;
                         d=true;
                     }
                 }

@@ -53,27 +53,55 @@ void ShellCore::LayoutNav(const Metrics& mx)
 {
     m_navItemRects.clear();
     m_navItemIds.clear();
+    m_navContentH = 0;
     if (m_navRect.Empty()) return;
 
     const int pad   = mx.unit * 2;
     const int itemH = mx.rowH;
-    int y = m_navRect.top + pad;
+    int y = pad;                            // 相对导航区顶部的内容坐标
     for (const auto& g : m_groups)
     {
         if (!g.title.empty()) y += 18 + mx.unit;
         for (const auto& it : g.items)
         {
             m_navItemRects.push_back(
-                Rect{ m_navRect.left + pad, y, m_navRect.right - mx.unit, y + itemH });
+                Rect{ pad, y, (m_navRect.right - m_navRect.left) - mx.unit, y + itemH });
             m_navItemIds.push_back(it.id);
             y += itemH + mx.unit;
         }
         y += mx.unit * 2;
     }
+    m_navContentH = y + pad;
+
+    // 可视高度 = 导航区高度，超出部分通过滚动查看
+    const int viewH = (m_navRect.bottom - m_navRect.top);
+    m_navScrollMax = m_navContentH - viewH;
+    if (m_navScrollMax < 0) m_navScrollMax = 0;
+    if (m_navScroll > m_navScrollMax) m_navScroll = m_navScrollMax;
+    if (m_navScroll < 0) m_navScroll = 0;
+
+    // 转成屏幕坐标（减去滚动偏移）
+    for (auto& r : m_navItemRects)
+    {
+        r.left   += m_navRect.left;
+        r.right  += m_navRect.left;
+        r.top    += m_navRect.top - m_navScroll;
+        r.bottom += m_navRect.top - m_navScroll;
+    }
+}
+
+void ShellCore::ScrollNav(int delta)
+{
+    if (m_navScrollMax <= 0) return;
+    m_navScroll += delta;
+    if (m_navScroll < 0) m_navScroll = 0;
+    if (m_navScroll > m_navScrollMax) m_navScroll = m_navScrollMax;
+    LayoutNav(Mx());                        // 重新生成命中矩形
 }
 
 int ShellCore::HitTestNav(const Point& p) const
 {
+    if (!m_navRect.Contains(p)) return -1;  // 裁剪：滚出导航区的项不可命中
     for (size_t i = 0; i < m_navItemRects.size(); ++i)
         if (m_navItemRects[i].Contains(p)) return m_navItemIds[i];
     return -1;
@@ -139,12 +167,13 @@ void ShellCore::PaintNav(IPainter& painter, const Palette& pal, const Metrics& m
     if (m_navRect.Empty()) return;
     if (m_navItemRects.empty() && !m_groups.empty()) LayoutNav(mx);
 
+    painter.PushClip(m_navRect);
     painter.FillRect(m_navRect, pal.sidebar);
     painter.StrokeRect(m_navRect, pal.border, 1);
 
     const int pad = mx.unit * 2;
     const int itemH = mx.rowH;
-    int y = m_navRect.top + pad;
+    int y = m_navRect.top + pad - m_navScroll;   // 组标题跟随滚动
     size_t idx = 0;
     for (const auto& g : m_groups)
     {
@@ -160,6 +189,9 @@ void ShellCore::PaintNav(IPainter& painter, const Palette& pal, const Metrics& m
                      ? m_navItemRects[idx]
                      : Rect{ m_navRect.left + pad, y, m_navRect.right - mx.unit, y + itemH };
             ++idx;
+            y += itemH + mx.unit;
+
+            if (irc.bottom < m_navRect.top || irc.top > m_navRect.bottom) continue;
 
             const bool active = (it.id == m_activeNav);
             const bool hover  = (it.id == m_hoverNav && !active);
@@ -186,10 +218,10 @@ void ShellCore::PaintNav(IPainter& painter, const Palette& pal, const Metrics& m
                 brc.left = brc.right - 80;
                 painter.Text(brc, it.badge, FontRole::Meta, it.badgeOk ? pal.ok : pal.error, 0);
             }
-            y += itemH + mx.unit;
         }
         y += mx.unit * 2;
     }
+    painter.PopClip();
 }
 
 } // namespace ui

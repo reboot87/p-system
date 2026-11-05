@@ -20,6 +20,7 @@
 #include "airui/Theme.h"
 
 #include <string>
+#include <vector>
 
 namespace air {
 namespace ui {
@@ -247,6 +248,72 @@ void PaintBadge(IPainter& g,
                 const BadgeState& st,
                 const Palette& pal,
                 const Metrics& mx);
+
+// ------------------------------------------------------------
+// PaintAlert - callout banner: left accent bar + icon + text.
+// ------------------------------------------------------------
+enum class AlertKind { Info, Success, Warning, Error };
+
+struct AlertState
+{
+    ControlState base = {};
+    AlertKind kind = AlertKind::Info;
+    std::wstring title;
+    std::wstring message;
+};
+
+void PaintAlert(IPainter& g,
+                const Rect& rc,
+                const AlertState& st,
+                const Palette& pal,
+                const Metrics& mx);
+
+// ------------------------------------------------------------
+// PaintTabs - tab strip with active underline.
+// ------------------------------------------------------------
+struct TabsState
+{
+    ControlState base = {};
+    std::vector<std::wstring> tabs;
+    int selected = 0;
+    int hovered  = -1;
+};
+
+void PaintTabs(IPainter& g,
+               const Rect& rc,
+               const TabsState& st,
+               const Palette& pal,
+               const Metrics& mx);
+
+// ------------------------------------------------------------
+// PaintAvatar - circular avatar with initials.
+// ------------------------------------------------------------
+struct AvatarState
+{
+    ControlState base = {};
+    std::wstring text = L"A";
+};
+
+void PaintAvatar(IPainter& g,
+                 const Rect& rc,
+                 const AvatarState& st,
+                 const Palette& pal,
+                 const Metrics& mx);
+
+// ------------------------------------------------------------
+// PaintSkeleton - loading placeholder bars.
+// ------------------------------------------------------------
+struct SkeletonState
+{
+    ControlState base = {};
+    int lines = 3;
+};
+
+void PaintSkeleton(IPainter& g,
+                   const Rect& rc,
+                   const SkeletonState& st,
+                   const Palette& pal,
+                   const Metrics& mx);
 
 } // namespace ui
 } // namespace air

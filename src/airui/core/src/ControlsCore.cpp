@@ -367,5 +367,132 @@ void PaintBadge(IPainter& g,
     g.Text(rc, st.text, FontRole::Meta, txtCol, dt::SingleLine | dt::Center | dt::VCenter);
 }
 
+void PaintAlert(IPainter& g,
+                const Rect& rc,
+                const AlertState& st,
+                const Palette& pal,
+                const Metrics& mx)
+{
+    Color bg, accent, txt;
+    const wchar_t* icon;
+    switch (st.kind) {
+    case AlertKind::Success:
+        bg = pal.okSoft; accent = pal.ok; txt = pal.okText; icon = L"\u2713"; break;
+    case AlertKind::Warning:
+        bg = pal.warnSoft; accent = pal.warn; txt = pal.warnText; icon = L"\u26A0"; break;
+    case AlertKind::Error:
+        bg = pal.errorSoft; accent = pal.error; txt = pal.errorText; icon = L"\u2717"; break;
+    default:
+        bg = pal.primarySoft; accent = pal.primary; txt = pal.primaryText; icon = L"\u2139"; break;
+    }
+    if (st.base.disabled) { bg = pal.sunken; accent = pal.border; txt = pal.textDisabled; }
+
+    g.FillRound(rc, mx.radiusMd, bg);
+    g.StrokeRound(rc, mx.radiusMd, accent, 1);
+
+    // 左侧强调条
+    Rect bar{rc.left, rc.top + 6, rc.left + 4, rc.bottom - 6};
+    g.FillRound(bar, 2, accent);
+
+    // 图标
+    Rect iconRc{rc.left + 12, rc.top, rc.left + 36, rc.bottom};
+    g.Text(iconRc, icon, FontRole::Icon, txt, dt::SingleLine | dt::Center | dt::VCenter);
+
+    // 文本区
+    const bool twoLine = !st.message.empty();
+    Rect textRc{rc.left + 40, rc.top + 2, rc.right - 10, rc.bottom - 2};
+    if (twoLine)
+    {
+        int half = (textRc.bottom - textRc.top) / 2;
+        Rect t{textRc.left, textRc.top, textRc.right, textRc.top + half};
+        Rect m{textRc.left, textRc.top + half, textRc.right, textRc.bottom};
+        g.Text(t, st.title, FontRole::Body, txt, dt::SingleLine | dt::Left | dt::VCenter);
+        g.Text(m, st.message, FontRole::Meta, st.base.disabled ? pal.textDisabled : pal.textSub,
+               dt::SingleLine | dt::Left | dt::VCenter);
+    }
+    else
+    {
+        g.Text(textRc, st.title, FontRole::Body, txt, dt::SingleLine | dt::Left | dt::VCenter);
+    }
+}
+
+void PaintTabs(IPainter& g,
+               const Rect& rc,
+               const TabsState& st,
+               const Palette& pal,
+               const Metrics& mx)
+{
+    if (st.tabs.empty()) return;
+    const int n = static_cast<int>(st.tabs.size());
+    const int w = (rc.right - rc.left) / n;
+
+    // 底部基线
+    g.FillRect(Rect{rc.left, rc.bottom - 1, rc.right, rc.bottom}, pal.split);
+
+    for (int i = 0; i < n; ++i)
+    {
+        Rect tab{rc.left + i * w, rc.top, rc.left + (i + 1) * w, rc.bottom};
+        if (i == n - 1) tab.right = rc.right;
+
+        const bool sel = (i == st.selected);
+        const bool hov = (i == st.hovered && !sel && !st.base.disabled);
+        if (hov) g.FillRound(tab, mx.radiusSm, pal.hover);
+
+        Color txt = st.base.disabled ? pal.textDisabled
+                  : sel ? pal.primaryText : pal.textSub;
+        g.Text(tab, st.tabs[i], FontRole::Body, txt,
+               dt::SingleLine | dt::Center | dt::VCenter);
+
+        if (sel)
+        {
+            Rect ul{tab.left + 10, rc.bottom - 3, tab.right - 10, rc.bottom};
+            g.FillRound(ul, 2, pal.primary);
+        }
+    }
+}
+
+void PaintAvatar(IPainter& g,
+                 const Rect& rc,
+                 const AvatarState& st,
+                 const Palette& pal,
+                 const Metrics& mx)
+{
+    const int w = rc.right - rc.left;
+    const int h = rc.bottom - rc.top;
+    const int d = (w < h ? w : h);
+    Rect box{rc.left, rc.top, rc.left + d, rc.top + d};
+
+    const Color bg = st.base.disabled ? pal.sunken : pal.primarySoft;
+    g.FillRound(box, d / 2, bg);
+    if (!st.base.disabled) g.StrokeRound(box, d / 2, pal.primary, 1);
+
+    const Color txt = st.base.disabled ? pal.textDisabled : pal.primaryText;
+    g.Text(box, st.text, FontRole::Body, txt,
+           dt::SingleLine | dt::Center | dt::VCenter);
+}
+
+void PaintSkeleton(IPainter& g,
+                   const Rect& rc,
+                   const SkeletonState& st,
+                   const Palette& pal,
+                   const Metrics& mx)
+{
+    int lines = st.lines < 1 ? 1 : st.lines;
+    const int gap = 8;
+    int lineH = (rc.bottom - rc.top - gap * (lines - 1)) / lines;
+    if (lineH < 6) lineH = 6;
+
+    const int widths[] = {100, 84, 66};
+    const Color fill = st.base.disabled ? pal.split : pal.sunken;
+    for (int i = 0; i < lines; ++i)
+    {
+        const int top = rc.top + i * (lineH + gap);
+        if (top + lineH > rc.bottom) break;
+        const int lw = (rc.right - rc.left) * widths[i % 3] / 100;
+        Rect bar{rc.left, top, rc.left + lw, top + lineH};
+        g.FillRound(bar, lineH / 2, fill);
+    }
+}
+
 } // namespace ui
 } // namespace air

@@ -71,6 +71,11 @@ public:
     void SetNavHover(int id) { m_hoverNav = id; }
     int  NavHover() const { return m_hoverNav; }
 
+    // --- Nav scroll (items may not fit the nav height) ---
+    void ScrollNav(int delta);               // + scrolls content down
+    int  NavScroll() const    { return m_navScroll; }
+    int  NavScrollMax() const { return m_navScrollMax; }
+
     // --- Paint ---
     void Paint(IPainter& painter, const Palette& pal, const Metrics& mx);
 
@@ -94,6 +99,9 @@ private:
 
     std::vector<Rect> m_navItemRects;   // parallel to flattened nav items
     std::vector<int>  m_navItemIds;
+    int m_navScroll    = 0;
+    int m_navScrollMax = 0;
+    int m_navContentH  = 0;
 };
 
 } // namespace ui
