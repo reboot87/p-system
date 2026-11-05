@@ -20,7 +20,8 @@ namespace {
 struct Item {
     enum Kind { Section, Button, Checkbox, Radio, Slider, ProgressBar, ToggleSwitch,
                 TextField, Segmented, ComboBox, Tag, Rating, Stepper, ProgressRing,
-                Badge, Alert, Tabs, Avatar, Skeleton } kind = Button;
+                Badge, Alert, Tabs, Avatar, Skeleton,
+                Table, List, Tree, Breadcrumb, Pagination, Toast } kind = Button;
     RECT rect;
     std::wstring text;
     BtnStyle style = BtnStyle::Primary;
@@ -47,6 +48,7 @@ public:
     const wchar_t* Title() const override { return L"组件画廊"; }
 
     void OnAttach(Shell& shell) override {
+        InitData();
         m_shell = &shell;
         shell.SetCaptionSubtitle(L"简洁示例");
         // 初始化 ShellCore，展示核心状态机与 IPainter 集成
@@ -67,6 +69,9 @@ public:
             {L"数据展示", L"Rating",       9},
             {L"数据展示", L"Badge",       12},
             {L"数据展示", L"Card",        15},
+            {L"数据展示", L"Table",       20},
+            {L"数据展示", L"List",        21},
+            {L"数据展示", L"Tree",        22},
             {L"数值反馈", L"Stepper",     10},
             {L"数值反馈", L"ProgressRing",11},
             {L"数值反馈", L"Slider",      13},
@@ -75,6 +80,9 @@ public:
             {L"反馈与布局", L"Tabs",      17},
             {L"反馈与布局", L"Avatar",    18},
             {L"反馈与布局", L"Skeleton",  19},
+            {L"反馈与布局", L"Breadcrumb",23},
+            {L"反馈与布局", L"Pagination",24},
+            {L"反馈与布局", L"Toast",     25},
         };
         std::vector<ShellNavGroup> groups;
         for (const auto& n : nav) {
@@ -108,7 +116,7 @@ public:
                 const int step = d/120*30;
                 Rect navRc = m_shellCore.NavRect();
                 if (navRc.Contains(Point{pt.x, pt.y})) {
-                    // 指针在导航栏：滚动导航项（19 项超出可视高度）
+                    // 指针在导航栏：滚动导航项（25 项超出可视高度）
                     m_shellCore.ScrollNav(-step);
                 } else {
                     m_scroll -= step;
@@ -369,6 +377,42 @@ public:
                 st.lines = it.lines;
                 CanvasPainter painter(g);
                 PaintSkeleton(painter, rc, st, Pal(), Mx());
+            } else if (it.kind == Item::Table) {
+                CanvasPainter painter(g);
+                PaintTable(painter, Rect{r.left, r.top, r.right, r.bottom},
+                           m_table, Pal(), Mx());
+            } else if (it.kind == Item::List) {
+                CanvasPainter painter(g);
+                PaintList(painter, Rect{r.left, r.top, r.right, r.bottom},
+                          m_list, Pal(), Mx());
+            } else if (it.kind == Item::Tree) {
+                CanvasPainter painter(g);
+                PaintTree(painter, Rect{r.left, r.top, r.right, r.bottom},
+                          m_tree, Pal(), Mx());
+            } else if (it.kind == Item::Breadcrumb) {
+                CanvasPainter painter(g);
+                PaintBreadcrumb(painter, Rect{r.left, r.top, r.right, r.bottom},
+                                m_crumb, Pal(), Mx());
+            } else if (it.kind == Item::Pagination) {
+                CanvasPainter painter(g);
+                PaintPagination(painter, Rect{r.left, r.top, r.right, r.bottom},
+                                m_pager, Pal(), Mx());
+            } else if (it.kind == Item::Toast) {
+                const int idx = it.value;
+                const bool hidden = idx < 0 || idx >= (int)m_toastHidden.size()
+                                 || m_toastHidden[idx];
+                if (hidden) {
+                    g.StrokeDashed(r, p.border, 6);
+                    g.Text(r, L"Toast 已关闭 · 点击重新显示", FontRole::Meta,
+                           p.textFaint,
+                           DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
+                } else {
+                    ToastState st = m_toasts[idx];
+                    st.hoveredClose = (m_toastHoverIndex == idx && m_toastHoverClose);
+                    CanvasPainter painter(g);
+                    PaintToast(painter, Rect{r.left, r.top, r.right, r.bottom},
+                               st, Pal(), Mx());
+                }
             }
         }
         for (auto& c : m_cards) {
@@ -398,7 +442,122 @@ public:
     }
 
 private:
+    // --------------------------------------------------------
+    // 新控件的数据与交互状态。全部是 GalleryPage 的成员，
+    // 因此 OnLayout -> Build() 重建 Item 列表时不会丢失。
+    // --------------------------------------------------------
+    void InitData() {
+        if (m_dataReady) return;
+        m_dataReady = true;
+
+        m_table.title = L"最近记录 / Table · 点击表头排序，点击行选中";
+        m_table.columns = { L"名称", L"类型", L"状态", L"更新时间" };
+        m_table.widths  = { 3, 2, 2, 3 };
+        m_table.rows = {
+            { L"季度报告.docx",     L"文档", L"已完成", L"2026-11-05 21:14" },
+            { L"设计稿_v3.png",     L"图片", L"处理中", L"2026-11-05 20:02" },
+            { L"会议纪要.md",       L"文本", L"已完成", L"2026-11-05 18:47" },
+            { L"client_setup.exe",  L"文件", L"失败",   L"2026-11-05 17:30" },
+            { L"接口说明.pdf",      L"文档", L"已完成", L"2026-11-05 16:08" },
+        };
+        m_table.selectedRow = 1;
+
+        m_list.items = {
+            { L"剪贴板监控", L"自动记录剪贴板内容，支持搜索与备注", L"运行中", L"\xE8C8", false },
+            { L"文件监控",   L"监控指定目录的新增 / 修改 / 删除",   L"规划中", L"\xE8B7", false },
+            { L"打印监控",   L"记录本机打印任务与文档信息",         L"规划中", L"\xE749", false },
+            { L"插件中心",   L"该模块暂不可用",                     L"已停用", L"\xE713", true },
+        };
+        m_list.selected = 0;
+
+        m_tree.nodes = {
+            { L"全部记录", 0, true,  true,  false },
+            { L"剪贴板",   1, true,  true,  false },
+            { L"文本片段", 2, false, false, false },
+            { L"图片",     2, false, false, false },
+            { L"文件监控", 1, true,  false, false },
+            { L"下载目录", 2, false, false, false },
+            { L"系统设置", 0, false, false, false },
+            { L"关于",     0, false, false, true  },
+        };
+        m_tree.selected = 2;
+
+        m_crumb.items = { L"首页", L"数据中心", L"记录管理", L"详情" };
+
+        m_pager.page = 3;
+        m_pager.pageCount = 12;
+
+        auto toast = [](AlertKind k, const wchar_t* title, const wchar_t* msg) {
+            ToastState s;
+            s.kind = k; s.title = title; s.message = msg;
+            return s;
+        };
+        m_toasts = {
+            toast(AlertKind::Info,    L"提示",   L"点击卡片切换类型，点击 × 关闭"),
+            toast(AlertKind::Success, L"保存成功", L"记录已写入本地数据库"),
+            toast(AlertKind::Error,   L"同步失败", L"网络连接已断开，请稍后重试"),
+        };
+        m_toastHidden.assign(m_toasts.size(), false);
+    }
+
+    void SetStatusText(const std::wstring& s) {
+        m_shellCore.SetStatus({s, true, L""});
+    }
+
+    // 计算数据控件的 hover；返回是否有变化（需要重绘）。
+    bool UpdateDataHover(const POINT& p) {
+        int tableHover = -1, listHover = -1, treeHover = -1, crumbHover = -1;
+        int pagerHover = 0, toastHover = -1;
+        bool toastClose = false;
+
+        for (const auto& it : m_items) {
+            if (PtInRect(&it.rect, p) == FALSE) continue;
+            Rect rc{it.rect.left, it.rect.top, it.rect.right, it.rect.bottom};
+            Point hit{p.x, p.y};
+            switch (it.kind) {
+            case Item::Table: {
+                const int row = TableRowAt(rc, m_table, Mx(), hit);
+                tableHover = row < 0 ? -1 : row;
+                break;
+            }
+            case Item::List:
+                listHover = ListRowAt(rc, m_list, Mx(), hit);
+                break;
+            case Item::Tree:
+                treeHover = TreeRowAt(rc, m_tree, Mx(), hit);
+                break;
+            case Item::Breadcrumb:
+                crumbHover = BreadcrumbHit(rc, m_crumb, Mx(), hit);
+                break;
+            case Item::Pagination:
+                pagerHover = PaginationHit(rc, m_pager, Mx(), hit);
+                break;
+            case Item::Toast:
+                toastHover = it.value;
+                if (it.value >= 0 && it.value < (int)m_toastHidden.size() &&
+                    !m_toastHidden[it.value]) {
+                    toastClose = ToastCloseHit(rc, m_toasts[it.value], Mx(), hit);
+                }
+                break;
+            default:
+                break;
+            }
+            break;   // 各控件区域不重叠，命中第一个即可
+        }
+
+        bool changed = false;
+        if (m_table.hoveredRow != tableHover) { m_table.hoveredRow = tableHover; changed = true; }
+        if (m_list.hovered   != listHover)   { m_list.hovered = listHover;     changed = true; }
+        if (m_tree.hovered   != treeHover)   { m_tree.hovered = treeHover;     changed = true; }
+        if (m_crumb.hovered  != crumbHover)  { m_crumb.hovered = crumbHover;   changed = true; }
+        if (m_pager.hovered  != pagerHover)  { m_pager.hovered = pagerHover;   changed = true; }
+        if (m_toastHoverIndex != toastHover) { m_toastHoverIndex = toastHover; changed = true; }
+        if (m_toastHoverClose != toastClose) { m_toastHoverClose = toastClose; changed = true; }
+        return changed;
+    }
+
     void Build() {
+        InitData();
         // 保留交互状态：resize 重建布局时，复选/单选的选中状态不丢失
         for (auto& it : m_items) {
             if (it.kind == Item::Checkbox || it.kind == Item::Radio)
@@ -685,6 +844,63 @@ private:
             y += 88;
         }
 
+        sec(L"Table");
+        {
+            const int titleH = (m_table.showTitle && !m_table.title.empty())
+                               ? Mx().rowH : 0;
+            const int h = titleH + Mx().rowH
+                        + (int)m_table.rows.size() * Mx().rowH + 2;
+            Item it; it.kind = Item::Table;
+            it.rect = {x, y, x + contentW, y + h};
+            m_items.push_back(it);
+            y += h + 24;
+        }
+
+        sec(L"List");
+        {
+            const int h = (int)m_list.items.size() * ListRowHeight(m_list, Mx()) + 2;
+            Item it; it.kind = Item::List;
+            it.rect = {x, y, x + contentW, y + h};
+            m_items.push_back(it);
+            y += h + 24;
+        }
+
+        sec(L"Tree");
+        {
+            const int rows = (int)TreeVisibleNodes(m_tree).size();
+            const int h = rows * TreeRowHeight(Mx()) + 2;
+            Item it; it.kind = Item::Tree;
+            it.rect = {x, y, x + contentW, y + h};
+            m_items.push_back(it);
+            y += h + 24;
+        }
+
+        sec(L"Breadcrumb");
+        {
+            Item it; it.kind = Item::Breadcrumb;
+            it.rect = {x, y, x + contentW, y + 36};
+            m_items.push_back(it);
+            y += 52;
+        }
+
+        sec(L"Pagination");
+        {
+            Item it; it.kind = Item::Pagination;
+            it.rect = {x, y, x + contentW, y + 40};
+            m_items.push_back(it);
+            y += 56;
+        }
+
+        sec(L"Toast");
+        {
+            for (int i = 0; i < (int)m_toasts.size(); ++i) {
+                Item it; it.kind = Item::Toast; it.value = i;
+                it.rect = {x, y, x + contentW, y + 52};
+                m_items.push_back(it);
+                y += 62;
+            }
+        }
+
         int viewH = m_content.bottom - m_content.top;
         int contentH = y;                         // 标题/状态栏由 ShellCore 承担
         m_max = contentH - viewH;
@@ -694,7 +910,11 @@ private:
     void Click(POINT pt, UINT msg) {
         // 与 OnPaint 相同的坐标映射：内容区原点 - 滚动量
         POINT p = { pt.x - m_content.left, pt.y - (m_content.top - m_scroll) };
-        bool d=false;
+
+        // 数据/导航控件的 hover 保存在成员里（而非 Item），这样
+        // 窗口 resize 重建布局后状态不会丢。先算出目标值再比较标脏。
+        bool d = UpdateDataHover(p);
+
         for (auto& it : m_items) {
             bool h = PtInRect(&it.rect,p)!=FALSE;
             // hover for all interactive items
@@ -789,9 +1009,129 @@ private:
                         d=true;
                     }
                 }
+            } else if (it.kind==Item::Table) {
+                if (msg==WM_LBUTTONDOWN && h) {
+                    Rect rc{it.rect.left,it.rect.top,it.rect.right,it.rect.bottom};
+                    const int row = TableRowAt(rc, m_table, Mx(), Point{p.x,p.y});
+                    if (row == -1) {
+                        const int col = TableColumnAt(rc, m_table, Mx(), Point{p.x,p.y});
+                        if (col >= 0) {
+                            if (m_table.sortColumn == col) {
+                                m_table.sortAscending = !m_table.sortAscending;
+                            } else {
+                                m_table.sortColumn = col;
+                                m_table.sortAscending = true;
+                            }
+                            auto cell = [](const std::vector<std::wstring>& r, int c) {
+                                return c < (int)r.size() ? r[c] : std::wstring();
+                            };
+                            std::sort(m_table.rows.begin(), m_table.rows.end(),
+                                [&](const std::vector<std::wstring>& a,
+                                    const std::vector<std::wstring>& b) {
+                                    const std::wstring x = cell(a, col);
+                                    const std::wstring y = cell(b, col);
+                                    return m_table.sortAscending ? x < y : x > y;
+                                });
+                            SetStatusText(L"Table：按「" + m_table.columns[col] +
+                                          (m_table.sortAscending ? L"」升序" : L"」降序"));
+                            d=true;
+                        }
+                    } else if (row >= 0) {
+                        m_table.selectedRow = row;
+                        SetStatusText(L"Table：已选中第 " + std::to_wstring(row+1) + L" 行");
+                        d=true;
+                    }
+                }
+            } else if (it.kind==Item::List) {
+                if (msg==WM_LBUTTONDOWN && h) {
+                    Rect rc{it.rect.left,it.rect.top,it.rect.right,it.rect.bottom};
+                    const int row = ListRowAt(rc, m_list, Mx(), Point{p.x,p.y});
+                    if (row >= 0 && !m_list.items[row].disabled) {
+                        m_list.selected = row;
+                        SetStatusText(L"List：已选中「" + m_list.items[row].title + L"」");
+                        d=true;
+                    }
+                }
+            } else if (it.kind==Item::Tree) {
+                if (msg==WM_LBUTTONDOWN && h) {
+                    Rect rc{it.rect.left,it.rect.top,it.rect.right,it.rect.bottom};
+                    Point hit{p.x,p.y};
+                    const int toggle = TreeToggleAt(rc, m_tree, Mx(), hit);
+                    if (toggle >= 0) {
+                        TreeNode& node = m_tree.nodes[toggle];
+                        node.expanded = !node.expanded;
+                        SetStatusText(std::wstring(L"Tree：") +
+                                      (node.expanded ? L"展开「" : L"折叠「") +
+                                      node.text + L"」");
+                        m_needRebuild = true;   // 可见行数变化，循环结束后重排
+                        d=true;
+                    } else {
+                        const int row = TreeRowAt(rc, m_tree, Mx(), hit);
+                        if (row >= 0 && !m_tree.nodes[row].disabled) {
+                            m_tree.selected = row;
+                            SetStatusText(L"Tree：已选中「" + m_tree.nodes[row].text + L"」");
+                            d=true;
+                        }
+                    }
+                }
+            } else if (it.kind==Item::Breadcrumb) {
+                if (msg==WM_LBUTTONDOWN && h) {
+                    Rect rc{it.rect.left,it.rect.top,it.rect.right,it.rect.bottom};
+                    const int idx = BreadcrumbHit(rc, m_crumb, Mx(), Point{p.x,p.y});
+                    if (idx >= 0) {
+                        m_crumb.active = idx;
+                        SetStatusText(L"Breadcrumb：跳转到「" + m_crumb.items[idx] + L"」");
+                        d=true;
+                    }
+                }
+            } else if (it.kind==Item::Pagination) {
+                if (msg==WM_LBUTTONDOWN && h) {
+                    Rect rc{it.rect.left,it.rect.top,it.rect.right,it.rect.bottom};
+                    const int code = PaginationHit(rc, m_pager, Mx(), Point{p.x,p.y});
+                    // 不用 std::max/min：windows.h 的 min/max 宏会与之冲突
+                    if (code == -2)      m_pager.page = m_pager.page > 1 ? m_pager.page - 1 : 1;
+                    else if (code == -1) m_pager.page = m_pager.page < m_pager.pageCount
+                                                        ? m_pager.page + 1 : m_pager.pageCount;
+                    else if (code > 0)   m_pager.page = code;
+                    if (code != 0) {
+                        SetStatusText(L"Pagination：第 " + std::to_wstring(m_pager.page) +
+                                      L" / " + std::to_wstring(m_pager.pageCount) + L" 页");
+                        d=true;
+                    }
+                }
+            } else if (it.kind==Item::Toast) {
+                if (msg==WM_LBUTTONDOWN && h) {
+                    const int idx = it.value;
+                    if (idx >= 0 && idx < (int)m_toasts.size()) {
+                        if (m_toastHidden[idx]) {
+                            m_toastHidden[idx] = false;
+                            SetStatusText(L"Toast：重新显示");
+                        } else {
+                            Rect rc{it.rect.left,it.rect.top,it.rect.right,it.rect.bottom};
+                            if (ToastCloseHit(rc, m_toasts[idx], Mx(), Point{p.x,p.y})) {
+                                m_toastHidden[idx] = true;
+                                SetStatusText(L"Toast：已关闭");
+                            } else {
+                                int k = (int)m_toasts[idx].kind + 1;
+                                if (k > (int)AlertKind::Error) k = (int)AlertKind::Info;
+                                m_toasts[idx].kind = (AlertKind)k;
+                                SetStatusText(L"Toast：切换状态类型");
+                            }
+                        }
+                        d=true;
+                    }
+                }
             }
         }
         for (auto& c : m_cards) { c->SetHover(PtInRect(&c->GetRect(),p)!=FALSE); d=true; }
+        // Build() 会清空 m_items，不能在上面的遍历过程中调用
+        if (m_needRebuild) {
+            m_needRebuild = false;
+            Build();
+            ClampScroll();
+            UpdateActiveNav();
+            d=true;
+        }
         if (d && m_shell) m_shell->Invalidate();
     }
 
@@ -808,6 +1148,19 @@ private:
     bool m_dark=false;
     ShellCore m_shellCore;
     std::unique_ptr<Win32Window> m_win;
+
+    // Table / List / Tree / Breadcrumb / Pagination / Toast 状态
+    bool m_dataReady = false;
+    TableState       m_table;
+    ListState        m_list;
+    TreeState        m_tree;
+    BreadcrumbState  m_crumb;
+    PaginationState  m_pager;
+    std::vector<ToastState> m_toasts;
+    std::vector<bool>       m_toastHidden;
+    int  m_toastHoverIndex = -1;
+    bool m_toastHoverClose = false;
+    bool m_needRebuild = false;
 };
 }
 

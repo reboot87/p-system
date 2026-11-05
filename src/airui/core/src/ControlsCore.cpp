@@ -153,6 +153,7 @@ void PaintSlider(IPainter& g,
                  const Palette& pal,
                  const Metrics& mx)
 {
+    (void)mx;
     const int h = rc.bottom - rc.top;
     const int trackH = 4;
     const int trackY = rc.top + (h - trackH) / 2;
@@ -188,8 +189,10 @@ void PaintToggleSwitch(IPainter& g,
                        const Palette& pal,
                        const Metrics& mx)
 {
+    (void)mx;
     const int h = rc.bottom - rc.top;
     const int w = rc.right - rc.left;
+    (void)w;
     const int pad = 2;
     Rect track{rc.left + pad, rc.top + pad, rc.right - pad, rc.bottom - pad};
     Color trackCol;
@@ -294,6 +297,7 @@ void PaintRating(IPainter& g,
                  const Palette& pal,
                  const Metrics& mx)
 {
+    (void)mx;
     int starCount = st.max;
     int w = (rc.right - rc.left) / starCount;
     for (int i = 0; i < starCount; ++i) {
@@ -310,7 +314,6 @@ void PaintStepper(IPainter& g,
                   const Palette& pal,
                   const Metrics& mx)
 {
-    int w = rc.right - rc.left;
     int h = rc.bottom - rc.top;
     int btnW = h;
     Rect leftBtn{rc.left, rc.top, rc.left + btnW, rc.bottom};
@@ -457,6 +460,7 @@ void PaintAvatar(IPainter& g,
                  const Palette& pal,
                  const Metrics& mx)
 {
+    (void)mx;
     const int w = rc.right - rc.left;
     const int h = rc.bottom - rc.top;
     const int d = (w < h ? w : h);
@@ -477,6 +481,7 @@ void PaintSkeleton(IPainter& g,
                    const Palette& pal,
                    const Metrics& mx)
 {
+    (void)mx;
     int lines = st.lines < 1 ? 1 : st.lines;
     const int gap = 8;
     int lineH = (rc.bottom - rc.top - gap * (lines - 1)) / lines;

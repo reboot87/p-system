@@ -30,6 +30,7 @@ set(AIRUI_CORE_SOURCES
     src/airui/core/src/Layout.cpp
     src/airui/core/src/Animation.cpp
     src/airui/core/src/ControlsCore.cpp
+    src/airui/core/src/ControlsData.cpp
     src/airui/core/src/ShellCore.cpp
 )
 add_library(airui-core STATIC ${AIRUI_CORE_SOURCES})
@@ -212,6 +213,18 @@ set_target_properties(test_component_gallery PROPERTIES
     LINK_FLAGS "/SUBSYSTEM:CONSOLE"
 )
 
+# Data & navigation controls test (Table / List / Tree / Breadcrumb /
+# Pagination / Toast) - core-only, no Win32 backend
+add_executable(test_data_controls
+    tests/test_data_controls.cpp
+)
+target_link_libraries(test_data_controls airui-core)
+set_target_properties(test_data_controls PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/Release
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
+    LINK_FLAGS "/SUBSYSTEM:CONSOLE"
+)
+
 # Core layout test - links airui-core only (no Win32 backend)
 add_executable(test_core_layout
     tests/test_core_layout.cpp
@@ -264,7 +277,7 @@ endif()
 # test_ui is an end-to-end script that drives a *running* airecord.exe
 # (window lookup + IPC), so it is not registered as a ctest case.
 enable_testing()
-foreach(_t test_core_layout test_controls_core test_theme_manager test_draw_calls test_locale test_component_gallery)
+foreach(_t test_core_layout test_controls_core test_data_controls test_theme_manager test_draw_calls test_locale test_component_gallery)
     if(TARGET ${_t})
         add_test(NAME ${_t} COMMAND ${_t})
     endif()

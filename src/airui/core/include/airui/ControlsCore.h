@@ -315,5 +315,205 @@ void PaintSkeleton(IPainter& g,
                    const Palette& pal,
                    const Metrics& mx);
 
+// ============================================================
+// Data & navigation controls (Phase 1)
+//
+// Table / List / Tree / Breadcrumb / Pagination / Toast all keep
+// their geometry in the core, so a backend only has to forward
+// pointer events and call the matching Paint* function.  The
+// Measure* / *Hit helpers are pure geometry: no platform API,
+// no hidden state, identical results on every backend.
+// ============================================================
+
+// ------------------------------------------------------------
+// PaintTable - titled, column-based data grid.
+//
+// Columns are evenly spaced unless st.widths supplies relative
+// weights. Rows are clipped to rc; the header, zebra striping,
+// hover / selection and the sort indicator all come from state.
+// ------------------------------------------------------------
+struct TableState
+{
+    ControlState base = {};
+    std::wstring title = L"Table";
+    bool showTitle = true;
+    std::vector<std::wstring> columns;
+    std::vector<int> widths;                       // optional relative weights
+    std::vector<std::vector<std::wstring>> rows;
+    int  selectedRow = -1;
+    int  hoveredRow  = -1;
+    int  sortColumn  = -1;
+    bool sortAscending = true;
+    bool striped = true;
+};
+
+struct TableLayout
+{
+    int titleH      = 0;
+    int headerTop   = 0;   // absolute y
+    int headerH     = 0;
+    int rowTop      = 0;   // absolute y of the first data row
+    int rowH        = 0;
+    int visibleRows = 0;
+    std::vector<Rect> columns;                    // x-ranges of each column
+};
+
+TableLayout MeasureTable(const Rect& rc, const TableState& st, const Metrics& mx);
+
+// >= 0: data row index, -1: header, -2: outside the table body.
+int TableRowAt(const Rect& rc, const TableState& st, const Metrics& mx, Point pt);
+
+// >= 0: column index, -1: outside the column band.
+int TableColumnAt(const Rect& rc, const TableState& st, const Metrics& mx, Point pt);
+
+void PaintTable(IPainter& g,
+                const Rect& rc,
+                const TableState& st,
+                const Palette& pal,
+                const Metrics& mx);
+
+// ------------------------------------------------------------
+// PaintList - icon / title / subtitle / badge rows.
+// ------------------------------------------------------------
+struct ListItem
+{
+    std::wstring title;
+    std::wstring subtitle;
+    std::wstring badge;
+    std::wstring glyph;
+    bool disabled = false;
+};
+
+struct ListState
+{
+    ControlState base = {};
+    std::vector<ListItem> items;
+    int selected = -1;
+    int hovered  = -1;
+    bool dividers = true;
+    std::wstring emptyText = L"暂无数据";
+};
+
+// Uniform row height: taller when any item carries a subtitle.
+int ListRowHeight(const ListState& st, const Metrics& mx);
+
+// >= 0: item index under the point, -1: nothing.
+int ListRowAt(const Rect& rc, const ListState& st, const Metrics& mx, Point pt);
+
+void PaintList(IPainter& g,
+               const Rect& rc,
+               const ListState& st,
+               const Palette& pal,
+               const Metrics& mx);
+
+// ------------------------------------------------------------
+// PaintTree - hierarchical list with disclosure triangles.
+// Nodes are stored in display order; a child is only visible
+// while all of its ancestors are expanded.
+// ------------------------------------------------------------
+struct TreeNode
+{
+    std::wstring text;
+    int  depth = 0;
+    bool hasChildren = false;
+    bool expanded = false;
+    bool disabled = false;
+};
+
+struct TreeState
+{
+    ControlState base = {};
+    std::vector<TreeNode> nodes;
+    int selected = -1;   // index into nodes
+    int hovered  = -1;
+};
+
+std::vector<int> TreeVisibleNodes(const TreeState& st);
+
+int TreeRowHeight(const Metrics& mx);
+
+// Both return an index into st.nodes, or -1 when nothing is hit.
+int TreeRowAt(const Rect& rc, const TreeState& st, const Metrics& mx, Point pt);
+int TreeToggleAt(const Rect& rc, const TreeState& st, const Metrics& mx, Point pt);
+
+void PaintTree(IPainter& g,
+               const Rect& rc,
+               const TreeState& st,
+               const Palette& pal,
+               const Metrics& mx);
+
+// ------------------------------------------------------------
+// PaintBreadcrumb - equally spaced navigation trail.
+// ------------------------------------------------------------
+struct BreadcrumbState
+{
+    ControlState base = {};
+    std::vector<std::wstring> items;
+    int active  = -1;   // -1 = last item
+    int hovered = -1;
+};
+
+// >= 0: item index, -1: outside.
+int BreadcrumbHit(const Rect& rc, const BreadcrumbState& st,
+                  const Metrics& mx, Point pt);
+
+void PaintBreadcrumb(IPainter& g,
+                     const Rect& rc,
+                     const BreadcrumbState& st,
+                     const Palette& pal,
+                     const Metrics& mx);
+
+// ------------------------------------------------------------
+// PaintPagination - windowed pager.
+// Hit codes: -2 previous, -1 next, 0 none, > 0 page number.
+// ------------------------------------------------------------
+struct PaginationSlot
+{
+    Rect rect;
+    int  page = 0;      // -2 prev, -1 next, 0 ellipsis, > 0 page
+};
+
+struct PaginationState
+{
+    ControlState base = {};
+    int page = 1;
+    int pageCount = 10;
+    int hovered = 0;    // hit code of the hovered slot
+};
+
+std::vector<PaginationSlot> MeasurePagination(const Rect& rc,
+                                             const PaginationState& st,
+                                             const Metrics& mx);
+int PaginationHit(const Rect& rc, const PaginationState& st,
+                  const Metrics& mx, Point pt);
+
+void PaintPagination(IPainter& g,
+                     const Rect& rc,
+                     const PaginationState& st,
+                     const Palette& pal,
+                     const Metrics& mx);
+
+// ------------------------------------------------------------
+// PaintToast - floating status card with an optional close box.
+// ------------------------------------------------------------
+struct ToastState
+{
+    ControlState base = {};
+    AlertKind kind = AlertKind::Info;
+    std::wstring title;
+    std::wstring message;
+    bool closable = true;
+    bool hoveredClose = false;
+};
+
+bool ToastCloseHit(const Rect& rc, const ToastState& st,
+                   const Metrics& mx, Point pt);
+
+void PaintToast(IPainter& g,
+                const Rect& rc,
+                const ToastState& st,
+                const Palette& pal,
+                const Metrics& mx);
+
 } // namespace ui
 } // namespace air
