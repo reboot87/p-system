@@ -167,14 +167,12 @@ public:
                 st.min = 0; st.max = 100;
                 CanvasPainter painter(g);
                 PaintSlider(painter, rc, st, Pal(), Mx());
-                g.Text({r.left, r.bottom+2, r.right, r.bottom+16}, it.text, FontRole::Meta, p.textSub, DT_SINGLELINE|DT_LEFT|DT_VCENTER);
             } else if (it.kind == Item::ProgressBar) {
                 Rect rc{ r.left, r.top, r.right, r.bottom };
                 ControlState st;
                 st.disabled = it.disabled;
                 CanvasPainter painter(g);
                 PaintProgressBar(painter, rc, it.progress, st, Pal(), Mx());
-                g.Text({r.left, r.bottom+2, r.right, r.bottom+16}, it.text, FontRole::Meta, p.textSub, DT_SINGLELINE|DT_LEFT|DT_VCENTER);
             } else if (it.kind == Item::ToggleSwitch) {
                 Rect rc{ r.left, r.top, r.right, r.bottom };
                 ToggleState st;
@@ -184,7 +182,6 @@ public:
                 st.on = it.toggled;
                 CanvasPainter painter(g);
                 PaintToggleSwitch(painter, rc, st, Pal(), Mx());
-                g.Text({r.left, r.bottom+2, r.right, r.bottom+16}, it.text, FontRole::Meta, p.textSub, DT_SINGLELINE|DT_LEFT|DT_VCENTER);
             } else if (it.kind == Item::TextField) {
                 Rect rc{ r.left, r.top, r.right, r.bottom };
                 TextFieldState st;
@@ -194,7 +191,6 @@ public:
                 st.placeholder = it.placeholder.empty() ? L"输入内容..." : it.placeholder;
                 CanvasPainter painter(g);
                 PaintTextField(painter, rc, st, Pal(), Mx());
-                g.Text({r.left, r.bottom+2, r.right, r.bottom+16}, it.text, FontRole::Meta, p.textSub, DT_SINGLELINE|DT_LEFT|DT_VCENTER);
             } else if (it.kind == Item::Segmented) {
                 Rect rc{ r.left, r.top, r.right, r.bottom };
                 SegmentedState st;
@@ -204,7 +200,6 @@ public:
                 st.selected = it.segmentedSelected;
                 CanvasPainter painter(g);
                 PaintSegmented(painter, rc, st, Pal(), Mx());
-                g.Text({r.left, r.bottom+2, r.right, r.bottom+16}, it.text, FontRole::Meta, p.textSub, DT_SINGLELINE|DT_LEFT|DT_VCENTER);
             } else if (it.kind == Item::ComboBox) {
                 Rect rc{ r.left, r.top, r.right, r.bottom };
                 ComboBoxState st;
@@ -213,7 +208,6 @@ public:
                 st.text = L"请选择";
                 CanvasPainter painter(g);
                 PaintComboBox(painter, rc, st, Pal(), Mx());
-                g.Text({r.left, r.bottom+2, r.right, r.bottom+16}, it.text, FontRole::Meta, p.textSub, DT_SINGLELINE|DT_LEFT|DT_VCENTER);
             } else if (it.kind == Item::Tag) {
                 Rect rc{ r.left, r.top, r.right, r.bottom };
                 TagState st;
@@ -223,7 +217,6 @@ public:
                 st.selected = it.tagSelected;
                 CanvasPainter painter(g);
                 PaintTag(painter, rc, st, Pal(), Mx());
-                g.Text({r.left, r.bottom+2, r.right, r.bottom+16}, L"Tag", FontRole::Meta, p.textSub, DT_SINGLELINE|DT_LEFT|DT_VCENTER);
             } else if (it.kind == Item::Rating) {
                 Rect rc{ r.left, r.top, r.right, r.bottom };
                 RatingState st;
@@ -232,7 +225,6 @@ public:
                 st.rating = it.rating;
                 CanvasPainter painter(g);
                 PaintRating(painter, rc, st, Pal(), Mx());
-                g.Text({r.left, r.bottom+2, r.right, r.bottom+16}, it.text, FontRole::Meta, p.textSub, DT_SINGLELINE|DT_LEFT|DT_VCENTER);
             } else if (it.kind == Item::Stepper) {
                 Rect rc{ r.left, r.top, r.right, r.bottom };
                 StepperState st;
@@ -241,7 +233,6 @@ public:
                 st.value = it.stepperValue;
                 CanvasPainter painter(g);
                 PaintStepper(painter, rc, st, Pal(), Mx());
-                g.Text({r.left, r.bottom+2, r.right, r.bottom+16}, it.text, FontRole::Meta, p.textSub, DT_SINGLELINE|DT_LEFT|DT_VCENTER);
             } else if (it.kind == Item::ProgressRing) {
                 Rect rc{ r.left, r.top, r.right, r.bottom };
                 ProgressRingState st;
@@ -249,7 +240,6 @@ public:
                 st.progress = it.progress;
                 CanvasPainter painter(g);
                 PaintProgressRing(painter, rc, st, Pal(), Mx());
-                g.Text({r.left, r.bottom+2, r.right, r.bottom+16}, it.text, FontRole::Meta, p.textSub, DT_SINGLELINE|DT_LEFT|DT_VCENTER);
             } else if (it.kind == Item::Badge) {
                 Rect rc{ r.left, r.top, r.right, r.bottom };
                 BadgeState st;
@@ -257,7 +247,6 @@ public:
                 st.text = it.text.empty() ? L"99+" : it.text;
                 CanvasPainter painter(g);
                 PaintBadge(painter, rc, st, Pal(), Mx());
-                g.Text({r.left, r.bottom+2, r.right, r.bottom+16}, L"Badge", FontRole::Meta, p.textSub, DT_SINGLELINE|DT_LEFT|DT_VCENTER);
             }
         }
         for (auto& c : m_cards) {
