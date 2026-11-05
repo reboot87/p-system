@@ -20,6 +20,7 @@ test_locale.json
 test_theme.json
 component_gallery.*
 gallery_gui_*.png
+gallery_*.png
 *.log
 
 

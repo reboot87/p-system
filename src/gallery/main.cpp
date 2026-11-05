@@ -46,18 +46,41 @@ public:
         // 初始化 ShellCore，展示核心状态机与 IPainter 集成
         m_shellCore.SetCaption({L"AirUI Gallery", L"简洁示例", L"", true});
         m_shellCore.SetStatus({L"就绪", true, L""});
+
+        // 导航项与 Build() 中的 section 一一对应，点击可跳转
+        struct NavDef { const wchar_t* group; const wchar_t* label; int id; };
+        const NavDef nav[] = {
+            {L"表单输入", L"Button",       1},
+            {L"表单输入", L"Checkbox",     2},
+            {L"表单输入", L"Radio",        3},
+            {L"表单输入", L"ToggleSwitch", 4},
+            {L"表单输入", L"TextField",    5},
+            {L"表单输入", L"Segmented",    6},
+            {L"表单输入", L"ComboBox",     7},
+            {L"数据展示", L"Tag",          8},
+            {L"数据展示", L"Rating",       9},
+            {L"数据展示", L"Badge",       12},
+            {L"数据展示", L"Card",        15},
+            {L"数值反馈", L"Stepper",     10},
+            {L"数值反馈", L"ProgressRing",11},
+            {L"数值反馈", L"Slider",      13},
+            {L"数值反馈", L"ProgressBar", 14},
+        };
         std::vector<ShellNavGroup> groups;
-        ShellNavGroup g;
-        g.title = L"组件";
-        g.items.push_back({1, L"Button", false, L"", true});
-        g.items.push_back({2, L"Checkbox", false, L"", true});
-        g.items.push_back({3, L"Radio", false, L"", true});
-        groups.push_back(std::move(g));
+        for (const auto& n : nav) {
+            if (groups.empty() || groups.back().title != n.group) {
+                groups.push_back(ShellNavGroup{});
+                groups.back().title = n.group;
+            }
+            groups.back().items.push_back({n.id, n.label, false, L"", true});
+            m_navLabelById[n.id] = n.label;
+            m_navIdByLabel[n.label] = n.id;
+        }
         m_shellCore.SetNavGroups(std::move(groups));
         m_shellCore.SetActiveNav(1);
+
         HWND hwnd = shell.Hwnd();
         m_win = std::make_unique<Win32Window>(hwnd);
-        // Win32Window 事件回调可扩展到 ShellCore 状态更新
         m_win->OnMouseMove([this](air::ui::Point pt){ /* 命中测试可接入 ShellCore */ });
         m_win->OnResized([this](air::ui::Rect rc){ /* 布局更新可接入 ShellCore */ });
         shell.SetMessageHook([this, hwnd](HWND,UINT msg,WPARAM wp,LPARAM lp,LRESULT& res){
@@ -71,17 +94,29 @@ public:
             if (msg == WM_MOUSEWHEEL) {
                 POINT pt = {(short)LOWORD(lp),(short)HIWORD(lp)};
                 ScreenToClient(hwnd,&pt);
-                if (!PtInRect(&m_content, pt)) return false;
                 int d = GET_WHEEL_DELTA_WPARAM(wp);
                 m_scroll -= d/120*30;
-                if (m_scroll < 0) m_scroll = 0;
-                if (m_scroll > m_max) m_scroll = m_max;
+                ClampScroll();
+                UpdateActiveNav();
                 if (m_shell) m_shell->Invalidate();
                 res = 0; return true;
             }
             if (msg == WM_MOUSEMOVE || msg == WM_LBUTTONDOWN || msg == WM_LBUTTONUP) {
                 POINT pt = {(short)LOWORD(lp),(short)HIWORD(lp)};
                 if (msg == WM_LBUTTONUP && GetCapture()==hwnd) ReleaseCapture();
+
+                // 1) ShellCore 导航栏：悬停高亮 + 点击跳转
+                const int navId = m_shellCore.HitTestNav(Point{pt.x, pt.y});
+                if (msg == WM_MOUSEMOVE && navId != m_shellCore.NavHover()) {
+                    m_shellCore.SetNavHover(navId);
+                    if (m_shell) m_shell->Invalidate();
+                }
+                if (msg == WM_LBUTTONDOWN && navId >= 0) {
+                    GotoSection(navId);
+                    res = 0; return true;
+                }
+
+                // 2) 内容区控件交互
                 if (!PtInRect(&m_content, pt)) return false;
                 if (msg == WM_LBUTTONDOWN) SetCapture(hwnd);
                 Click(pt,msg);
@@ -91,45 +126,85 @@ public:
         });
     }
 
-    void OnLayout(const RECT& content) override {
-        m_content = content;
-        Build();
-        // 布局 ShellCore 到内容区
-        Rect rc{content.left, content.top, content.right, content.bottom};
-        m_shellCore.Layout(rc);
+    void ClampScroll() {
+        if (m_scroll < 0) m_scroll = 0;
         if (m_scroll > m_max) m_scroll = m_max;
+    }
+
+    // 按导航 id 滚动到对应 section
+    void GotoSection(int id) {
+        auto itId = m_navLabelById.find(id);
+        if (itId == m_navLabelById.end()) return;
+        auto itTop = m_sectionTop.find(itId->second);
+        if (itTop == m_sectionTop.end()) return;
+        m_scroll = itTop->second;
+        ClampScroll();
+        UpdateActiveNav();
         if (m_shell) m_shell->Invalidate();
     }
 
-    void OnPaint(Canvas& g, const RECT& content) override {
+    // 依据当前滚动位置高亮当前 section 对应的导航项
+    void UpdateActiveNav() {
+        int active = -1;
+        for (const auto& s : m_sections) {          // m_sections 按 y 升序
+            if (s.second <= m_scroll + 8) {
+                auto it = m_navIdByLabel.find(s.first);
+                if (it != m_navIdByLabel.end()) active = it->second;
+            }
+        }
+        if (active < 0 && !m_sections.empty()) {
+            auto it = m_navIdByLabel.find(m_sections.front().first);
+            if (it != m_navIdByLabel.end()) active = it->second;
+        }
+        if (active != m_shellCore.ActiveNav()) m_shellCore.SetActiveNav(active);
+    }
+
+    void OnLayout(const RECT& client) override {
+        // ShellCore 负责画 Caption / NavBar / StatusBar，
+        // 画廊内容只使用它剩下的 ContentRect，避免互相重叠。
+        Rect rc{client.left, client.top, client.right, client.bottom};
+        m_shellCore.Layout(rc);
+        Rect c = m_shellCore.ContentRect();
+        m_content = {c.left, c.top, c.right, c.bottom};
+        Build();
+        ClampScroll();
+        UpdateActiveNav();
+        if (m_shell) m_shell->Invalidate();
+    }
+
+    void OnPaint(Canvas& g, const RECT& client) override {
         const auto& p = Pal();
-        g.Fill(content,p.bg);
+        g.Fill(client,p.bg);
         HDC dc = g.Native();
         int s = dc ? SaveDC(dc) : 0;
-        if (dc) IntersectClipRect(dc,content.left,content.top,content.right,content.bottom);
+        if (dc) IntersectClipRect(dc,client.left,client.top,client.right,client.bottom);
 
-        // ShellCore 集成：通过 CanvasPainter 将核心状态机绘制到画廊
+        // ShellCore 集成：通过 CanvasPainter 绘制 Caption / NavBar / StatusBar
         {
-            Rect rc{content.left, content.top, content.right, content.bottom};
+            Rect rc{client.left, client.top, client.right, client.bottom};
             CanvasPainter painter(g);
             m_shellCore.Paint(painter, p, Mx());
         }
 
-        const int scroll = m_scroll;
-        const int titleH = 52;                       // 标题占位高度
-        const int ox = content.left;                 // 内容区原点
-        const int oy = content.top + titleH - scroll; // 条目 y 原点
+        // 画廊条目只在 ContentRect（导航右侧、标题下方、状态栏上方）内绘制
+        const RECT region = m_content;
+        if (region.right <= region.left || region.bottom <= region.top) {
+            if (dc && s) RestoreDC(dc,s);
+            return;
+        }
+        if (dc) IntersectClipRect(dc,region.left,region.top,region.right,region.bottom);
 
-        // 原标题文本由 ShellCore.Caption 绘制，去掉重复绘制
-        // g.Text({content.left + 12, content.top + 12,
-        //         content.left + 400, content.top + 40},
-        //        L"AirUI Gallery", FontRole::Display, p.text,
-        //        DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
+        // 内容区整块白底，与灰底页面、侧边导航形成三层结构
+        g.Fill(region, p.surface);
+
+        const int scroll = m_scroll;
+        const int ox = region.left;              // 内容区原点
+        const int oy = region.top - scroll;      // 条目 y 原点（标题由 ShellCore 承担）
 
         for (auto& it : m_items) {
             RECT r = it.rect;
             OffsetRect(&r, ox, oy);
-            if (r.bottom < content.top || r.top > content.bottom) continue;
+            if (r.bottom < region.top || r.top > region.bottom) continue;
             // Hover highlight for all interactive items
             if (it.kind != Item::Section && it.hover && !it.disabled) {
                 RECT hl = r;
@@ -140,17 +215,14 @@ public:
                 g.FillRound(hl, Pal().active, 6);
             }
             if (it.kind == Item::Section) {
-                // Section header with card background and accent
-                RECT bg = r;
-                bg.top -= 10;
-                bg.bottom += 14;
-                bg.left -= 16;
-                bg.right += 16;
-                g.FillRound(bg, Pal().surface, 10);
-                // accent bar
-                RECT accent = {bg.left + 4, bg.top + 8, bg.left + 8, bg.bottom - 8};
-                g.FillRound(accent, Pal().primary, 2);
-                g.Text(r,it.text,FontRole::Section,p.text,DT_SINGLELINE|DT_LEFT|DT_VCENTER);
+                // 分组标题：左侧主色强调条 + 标题 + 底部分隔线
+                RECT accent = { r.left, r.top + 3, r.left + 4, r.bottom - 3 };
+                g.FillRound(accent, p.primary, 2);
+                RECT tr = r;
+                tr.left += 14;
+                g.Text(tr, it.text, FontRole::Section, p.text,
+                       DT_SINGLELINE | DT_LEFT | DT_VCENTER);
+                g.HLine(r.left, r.right, r.bottom + 8, p.split);
             } else if (it.kind == Item::Button) {
                 g.Button(r,it.text,it.style,it.hover,it.pressed,it.disabled);
             } else if (it.kind == Item::Checkbox) {
@@ -252,18 +324,18 @@ public:
         for (auto& c : m_cards) {
             RECT r = c->GetRect();
             OffsetRect(&r, ox, oy);
-            if (r.bottom < content.top || r.top > content.bottom) continue;
+            if (r.bottom < region.top || r.top > region.bottom) continue;
             RECT old = c->GetRect(); c->SetRect(r); c->Paint(g); c->SetRect(old);
         }
         if (dc && s) RestoreDC(dc,s);
 
         if (m_max > 0) {
-            const int h = content.bottom - content.top;
-            const int barX = content.right - 6;
-            const int top = content.top + titleH;
-            const int trackH = content.bottom - top;
+            const int h = region.bottom - region.top;
+            const int barX = region.right - 6;
+            const int top = region.top;
+            const int trackH = region.bottom - top;
             if (trackH > 0) {
-                RECT track = { barX, top, barX + 4, content.bottom };
+                RECT track = { barX, top, barX + 4, region.bottom };
                 g.FillRound(track, p.split, 2);
                 int thumbH = h * h / (h + m_max);
                 if (thumbH < 24) thumbH = 24;
@@ -284,13 +356,20 @@ private:
         }
 
         m_items.clear(); m_cards.clear();
-        int y = 0;
-        const int x = 12;
+        m_sections.clear(); m_sectionTop.clear();
+        int y = 16;                              // 顶部留白，避免首张卡片贴住标题栏
+        const int x = 20;                        // 左右留白，卡片不压住导航栏
         int w = m_content.right - m_content.left;
-        if (w < 200) w = 200;
-        const int contentW = w - 24;
+        if (w < 240) w = 240;
+        const int contentW = w - 40;
 
-        auto sec = [&](const wchar_t* t){ Item it; it.kind=Item::Section; it.text=t; it.rect={x,y,x+contentW,y+22}; m_items.push_back(it); y+=60; };
+        auto sec = [&](const wchar_t* t){
+            Item it; it.kind=Item::Section; it.text=t; it.rect={x,y,x+contentW,y+22};
+            m_items.push_back(it);
+            m_sectionTop[t] = y;                 // 供导航跳转
+            m_sections.push_back({t, y});        // 供滚动高亮
+            y+=60;
+        };
 
         sec(L"Button");
         {
@@ -503,17 +582,15 @@ private:
             y = cy + rows * 162 + 10;
         }
 
-        const int titleH = 52;
         int viewH = m_content.bottom - m_content.top;
-        int contentH = y + titleH;
+        int contentH = y;                         // 标题/状态栏由 ShellCore 承担
         m_max = contentH - viewH;
         if (m_max < 0) m_max = 0;
     }
 
     void Click(POINT pt, UINT msg) {
-        // 与 OnPaint 相同的坐标映射：内容区原点 + 标题占位 - 滚动量
-        const int titleH = 52;
-        POINT p = { pt.x - m_content.left, pt.y - (m_content.top + titleH - m_scroll) };
+        // 与 OnPaint 相同的坐标映射：内容区原点 - 滚动量
+        POINT p = { pt.x - m_content.left, pt.y - (m_content.top - m_scroll) };
         bool d=false;
         for (auto& it : m_items) {
             bool h = PtInRect(&it.rect,p)!=FALSE;
@@ -608,6 +685,10 @@ private:
     std::vector<Item> m_items;
     std::vector<std::unique_ptr<Card>> m_cards;
     std::map<std::wstring, bool> m_checked;   // resize 后保留选中状态
+    std::map<std::wstring, int>  m_sectionTop;   // section 标题 -> y
+    std::vector<std::pair<std::wstring,int>> m_sections; // 构建顺序 (标题, y)
+    std::map<int, std::wstring>      m_navLabelById;   // 导航 id -> 标题
+    std::map<std::wstring, int>      m_navIdByLabel;   // 标题 -> 导航 id
     int m_scroll=0, m_max=0;
     bool m_dark=false;
     ShellCore m_shellCore;

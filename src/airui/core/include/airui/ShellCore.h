@@ -66,6 +66,11 @@ public:
     Rect StatusRect() const  { return m_statusRect; }
     Rect ContentRect() const { return m_contentRect; }
 
+    // --- Hit test / hover (platform free, for backends to forward events) ---
+    int  HitTestNav(const Point& p) const;   // nav item id, or -1
+    void SetNavHover(int id) { m_hoverNav = id; }
+    int  NavHover() const { return m_hoverNav; }
+
     // --- Paint ---
     void Paint(IPainter& painter, const Palette& pal, const Metrics& mx);
 
@@ -73,6 +78,7 @@ private:
     void PaintCaption(IPainter& painter, const Palette& pal, const Metrics& mx);
     void PaintStatus(IPainter& painter, const Palette& pal, const Metrics& mx);
     void PaintNav(IPainter& painter, const Palette& pal, const Metrics& mx);
+    void LayoutNav(const Metrics& mx);
 
     std::vector<ShellNavGroup> m_groups;
     int m_activeNav = -1;
@@ -85,6 +91,9 @@ private:
     Rect m_captionRect;
     Rect m_statusRect;
     Rect m_contentRect;
+
+    std::vector<Rect> m_navItemRects;   // parallel to flattened nav items
+    std::vector<int>  m_navItemIds;
 };
 
 } // namespace ui
