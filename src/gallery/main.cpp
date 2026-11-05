@@ -410,12 +410,14 @@ private:
         bool d=false;
         for (auto& it : m_items) {
             bool h = PtInRect(&it.rect,p)!=FALSE;
+            // hover for all interactive items
+            if (msg==WM_MOUSEMOVE) {
+                if (it.hover!=h){it.hover=h;d=true;}
+            }
             if (it.kind==Item::Button) {
-                if (msg==WM_MOUSEMOVE && it.hover!=h){it.hover=h;d=true;}
                 if (msg==WM_LBUTTONDOWN && h){it.pressed=true;d=true;}
                 if (msg==WM_LBUTTONUP){it.pressed=false;d=true;}
             } else if (it.kind==Item::Checkbox || it.kind==Item::Radio) {
-                if (msg==WM_MOUSEMOVE && it.hover!=h){it.hover=h;d=true;}
                 if (msg==WM_LBUTTONDOWN && h) {
                     if (it.kind==Item::Checkbox) {
                         it.checked=!it.checked;
@@ -429,6 +431,34 @@ private:
                             if (x.kind == Item::Radio) m_checked[x.text] = x.checked;
                     }
                     d=true;
+                }
+            } else if (it.kind==Item::ToggleSwitch) {
+                if (msg==WM_LBUTTONDOWN && h && !it.disabled) {
+                    it.toggled = !it.toggled;
+                    d=true;
+                }
+            } else if (it.kind==Item::Slider) {
+                if (msg==WM_LBUTTONDOWN && h && !it.disabled) {
+                    int w = it.rect.right - it.rect.left;
+                    if (w > 0) {
+                        float t = float(p.x - it.rect.left) / float(w);
+                        if (t < 0.f) t = 0.f;
+                        if (t > 1.f) t = 1.f;
+                        it.value = int(t * 100);
+                        d=true;
+                    }
+                }
+            } else if (it.kind==Item::Segmented) {
+                if (msg==WM_LBUTTONDOWN && h && !it.disabled) {
+                    int w = it.rect.right - it.rect.left;
+                    if (w > 0) {
+                        float t = float(p.x - it.rect.left) / float(w);
+                        int seg = int(t * 3);
+                        if (seg < 0) seg = 0;
+                        if (seg > 2) seg = 2;
+                        it.segmentedSelected = seg;
+                        d=true;
+                    }
                 }
             }
         }
