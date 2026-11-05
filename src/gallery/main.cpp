@@ -47,7 +47,12 @@ public:
         m_shellCore.SetNavGroups(std::move(groups));
         m_shellCore.SetActiveNav(1);
         HWND hwnd = shell.Hwnd();
+        m_win = std::make_unique<Win32Window>(hwnd);
+        // Win32Window 事件回调可扩展到 ShellCore 状态更新
+        m_win->OnMouseMove([this](air::ui::Point pt){ /* 命中测试可接入 ShellCore */ });
+        m_win->OnResized([this](air::ui::Rect rc){ /* 布局更新可接入 ShellCore */ });
         shell.SetMessageHook([this, hwnd](HWND,UINT msg,WPARAM wp,LPARAM lp,LRESULT& res){
+            if (m_win) m_win->PumpEvent(msg, wp, lp);
             if (msg == WM_KEYDOWN && wp == 'T') {
                 m_dark = !m_dark;
                 SetPalette(m_dark ? DarkPalette() : LightPalette());
@@ -293,6 +298,7 @@ private:
     int m_scroll=0, m_max=0;
     bool m_dark=false;
     ShellCore m_shellCore;
+    std::unique_ptr<Win32Window> m_win;
 };
 }
 
