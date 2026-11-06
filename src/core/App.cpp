@@ -49,10 +49,17 @@ int App::Run(HINSTANCE hInstance)
             // 延迟显示：窗口已隐藏建好，到点再显示（规避启动期的可见窗口检查）
             if (msg == WM_TIMER && wParam == TIMER_PROBE_HIDDEN) {
                 KillTimer(hwnd, TIMER_PROBE_HIDDEN);
-                ShowWindow(hwnd, SW_SHOWNORMAL);
-                SetForegroundWindow(hwnd);
-                diag::Log(L"[show] deferred %d ms, visible=%d",
-                          m_showDelayMs, (int)IsWindowVisible(hwnd));
+                if (m_showNoActivate) {
+                    // 不抢前台：只让窗口出现，由用户点击激活
+                    ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+                } else {
+                    ShowWindow(hwnd, SW_SHOWNORMAL);
+                    SetForegroundWindow(hwnd);
+                }
+                diag::Log(L"[show] deferred %d ms noact=%d visible=%d fg=%d",
+                          m_showDelayMs, (int)m_showNoActivate,
+                          (int)IsWindowVisible(hwnd),
+                          (int)(GetForegroundWindow() == hwnd));
                 result = 0;
                 return true;
             }
@@ -271,6 +278,6 @@ void App::SyncServiceUi()
           false },
     });
 
-    m_shell.SetFooterText(ok ? L"AireRecord v1.3 · 服务已连接"
-                             : L"AireRecord v1.3 · 服务未连接");
+    m_shell.SetFooterText(ok ? L"AireRecord v1.3.1 · 服务已连接"
+                             : L"AireRecord v1.3.1 · 服务未连接");
 }

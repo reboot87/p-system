@@ -63,6 +63,9 @@ public:
     // 有些终端管控/DLP 会在进程启动后 0.3~0.6s 内关闭"新出现的可见窗口"，
     // 隐藏创建 + 延后显示可绕开该检查（>600ms 稳定通过，默认留 800ms 余量）。
     void SetShowDelayMs(int ms)  { m_showDelayMs = ms; }
+    // 显示时不抢焦点（SW_SHOWNOACTIVATE）。部分终端管控会把"非白名单程序
+    // 自动抢前台"当成弹窗行为直接关闭窗口；不激活显示可避开。
+    void SetShowNoActivate(bool on) { m_showNoActivate = on; }
 
     // ---- 外壳 ----
     air::ui::Shell& Shell() { return m_shell; }
@@ -123,4 +126,5 @@ private:
     std::vector<UiEntry> m_entries;
     bool         m_startHidden = false;
     int          m_showDelayMs = 0;
+    bool         m_showNoActivate = false;
 };

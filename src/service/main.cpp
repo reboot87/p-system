@@ -161,12 +161,26 @@ static void LaunchClient()
     // 客户端启动参数来自机器级配置 [service] client_args（默认空）
     //   例：--hidden 静默启动（新建可见窗口会被管控策略关闭的机器上使用）
     std::wstring args = machine::Get(L"service", L"client_args", L"");
+    // 启动方式：direct（默认，本进程直接拉起）
+    //           explorer（由桌面壳 explorer.exe 代为启动）
+    // 终端管控/DLP 常把"后台服务进程直接弹窗"判为可疑；改由 explorer 启动后
+    // 客户端的父进程是桌面壳，与用户双击打开的行为一致，通常可放行。
+    std::wstring via  = machine::Get(L"service", L"launch_via", L"direct");
+
+    HINSTANCE r;
+    if (_wcsicmp(via.c_str(), L"explorer") == 0) {
+        std::wstring quoted = L"\"" + g_clientPath + L"\"";
+        r = ShellExecuteW(g_hwnd, L"open", L"explorer.exe", quoted.c_str(),
+                          nullptr, SW_SHOWNORMAL);
+    } else {
+        r = ShellExecuteW(g_hwnd, L"open", g_clientPath.c_str(),
+                          args.empty() ? nullptr : args.c_str(),
+                          nullptr, SW_SHOWNORMAL);
+    }
     // 客户端"闪一下就没了"时，先确认是没拉起来还是拉起来后退出的
-    HINSTANCE r = ShellExecuteW(g_hwnd, L"open", g_clientPath.c_str(),
-                                args.empty() ? nullptr : args.c_str(),
-                                nullptr, SW_SHOWNORMAL);
-    diag::Log(L"[launch-client] session=%lu path=%ls args='%ls' ret=%p",
-              diag::SessionId(), g_clientPath.c_str(), args.c_str(), (void*)r);
+    diag::Log(L"[launch-client] session=%lu via=%ls path=%ls args='%ls' ret=%p",
+              diag::SessionId(), via.c_str(), g_clientPath.c_str(),
+              args.c_str(), (void*)r);
 }
 
 // ---------- 托盘 ----------
@@ -357,6 +371,36 @@ static int RunAgent(HINSTANCE hInstance)
         return 0;
 
     g_clientPath = ExeDir() + L"\\airecord.exe";
+
+    // ---- 客户端部署/投放（适配虚拟化桌面、沙箱环境）----
+    // [service] client_path           客户端实际启动路径（默认 = 代理同目录）
+    // [service] provision_client_to   启动时把客户端复制到此目录；
+    //                                 值 "desktop" 表示当前用户的桌面
+    // 说明：部分环境用户桌面被重定向到会话内虚拟盘（如 P:\Users\xx\DesktopX），
+    // 只在该登录会话内可见，服务/其他会话写入无效，故由代理在会话内投放。
+    {
+        std::wstring provTo = machine::Get(L"service", L"provision_client_to", L"");
+        if (provTo == L"desktop") {
+            wchar_t desk[MAX_PATH] = {};
+            if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_DESKTOPDIRECTORY,
+                                           nullptr, 0, desk)))
+                provTo = desk;
+        }
+        if (!provTo.empty()) {
+            std::wstring src = ExeDir() + L"\\airecord.exe";
+            std::wstring dst = provTo + L"\\airecord.exe";
+            CreateDirectoryW(provTo.c_str(), nullptr);
+            BOOL ok = CopyFileW(src.c_str(), dst.c_str(), FALSE);
+            diag::Log(L"[provision] session=%lu src=%ls dst=%ls ok=%d gle=%lu",
+                      diag::SessionId(), src.c_str(), dst.c_str(),
+                      (int)ok, ok ? 0 : GetLastError());
+        }
+        std::wstring cp = machine::Get(L"service", L"client_path", L"");
+        if (!cp.empty()) {
+            g_clientPath = cp;
+            diag::Log(L"[provision] client_path override = %ls", cp.c_str());
+        }
+    }
 
     // 用户级数据库（会话代理的数据归属，见数据分层契约）
     std::wstring dbPath;

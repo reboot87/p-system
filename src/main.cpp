@@ -49,6 +49,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int)
     // "新出现的可见窗口"并投递 WM_CLOSE 后强杀；隐藏建窗、>600ms 再显示
     // 可稳定通过（实测 300ms 被杀、600ms 起存活）。
     bool startHidden = false;
+    bool noActivate  = false;
     int  showAfterMs = -1;
     {
         int argc = 0;
@@ -56,6 +57,8 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int)
         for (int i = 1; argv && i < argc; ++i) {
             if (_wcsicmp(argv[i], L"--hidden") == 0)
                 startHidden = true;
+            else if (_wcsicmp(argv[i], L"--no-activate") == 0)
+                noActivate = true;
             else if (_wcsnicmp(argv[i], L"--show-after=", 13) == 0)
                 showAfterMs = _wtoi(argv[i] + 13);
         }
@@ -63,6 +66,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int)
     }
     if (showAfterMs < 0)   // 机器级配置兜底（同一台机器所有会话统一）
         showAfterMs = _wtoi(machine::Get(L"service", L"defer_show_ms", L"0").c_str());
+    if (startHidden) showAfterMs = 0;   // 静默启动：不自动显示，等热键/托盘唤出
 
     diag::Log(L"[start] session=%lu hidden=%d delay=%d exe-dir=%ls",
               diag::SessionId(), (int)startHidden, showAfterMs,
@@ -94,6 +98,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int)
     app.SetServicePath(ExeDir() + L"\\airecordd.exe");
     app.SetStartHidden(startHidden);
     app.SetShowDelayMs(showAfterMs);
+    app.SetShowNoActivate(noActivate);
     RegisterClientPlugins(app);
     int rc = app.Run(hInstance);
     diag::Log(L"[exit] rc=%d", rc);
