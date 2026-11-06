@@ -11,6 +11,9 @@
 #include "airui/ShellCore.h"
 #include "airui/ControlsCore.h"
 #include "airui/OverlayCore.h"
+#include "airui/FrameworkCore.h"
+#include "airui/ControlsExtra.h"
+#include "ExtraGallery.h"
 #include "airui/platform/win32/airui/CanvasPainter.h"
 #include "airui/platform/win32/airui/Win32Window.h"
 
@@ -22,6 +25,14 @@ namespace {
 // result can be recognised as a layer activation at a glance.
 enum { kFocusPageBase = 100, kFocusLayerBase = 200,
        kDropOptionBase = 200, kModalOk = 301, kModalCancel = 302 };
+
+// Platform clock injected into the core animation driver. core only
+// sees IClock; the tick source lives entirely in the Win32 backend.
+class DemoClock : public IClock
+{
+public:
+    uint64_t NowMs() override { return static_cast<uint64_t>(GetTickCount64()); }
+};
 
 // Rectangles shared by painting and focus registration, so a tab
 // focus ring can never drift away from the button it belongs to.
@@ -37,7 +48,7 @@ struct Item {
                 TextField, Segmented, ComboBox, Tag, Rating, Stepper, ProgressRing,
                 Badge, Alert, Tabs, Avatar, Skeleton,
                 Table, List, Tree, Breadcrumb, Pagination, Toast,
-                OverlayTrigger, OverlayHint } kind = Button;
+                OverlayTrigger, OverlayHint, Extra } kind = Button;
     RECT rect;
     std::wstring text;
     BtnStyle style = BtnStyle::Primary;
@@ -57,6 +68,7 @@ struct Item {
     std::wstring message;                 // for Alert
     int tabsSelected = 0;                 // for Tabs
     int lines = 3;                        // for Skeleton
+    int ext = -1;                         // index into extragallery::Defs()
 };
 
 class GalleryPage : public Page {
@@ -65,6 +77,8 @@ public:
 
     void OnAttach(Shell& shell) override {
         InitData();
+        extragallery::InitExtraDemo(m_x);
+        m_animClock.SetClock(&m_tickClock);
         m_shell = &shell;
         shell.SetCaptionSubtitle(L"简洁示例");
         // 初始化 ShellCore，展示核心状态机与 IPainter 集成
@@ -73,7 +87,7 @@ public:
 
         // 导航项与 Build() 中的 section 一一对应，点击可跳转
         struct NavDef { const wchar_t* group; const wchar_t* label; int id; };
-        const NavDef nav[] = {
+        std::vector<NavDef> nav = {
             {L"表单输入", L"Button",       1},
             {L"表单输入", L"Checkbox",     2},
             {L"表单输入", L"Radio",        3},
@@ -101,6 +115,12 @@ public:
             {L"反馈与布局", L"Toast",     25},
             {L"反馈与布局", L"Overlay",   26},
         };
+        // P0/P1/P2 demos are appended as their own nav groups so the
+        // ShellCore nav scroller handles the now much longer list.
+        for (int i = 0; i < extragallery::Count(); ++i) {
+            const auto& d = extragallery::Defs()[static_cast<size_t>(i)];
+            nav.push_back({d.group, d.label, 27 + i});
+        }
         std::vector<ShellNavGroup> groups;
         for (const auto& n : nav) {
             if (groups.empty() || groups.back().title != n.group) {
@@ -116,8 +136,8 @@ public:
 
         HWND hwnd = shell.Hwnd();
         m_win = std::make_unique<Win32Window>(hwnd);
-        m_win->OnMouseMove([this](air::ui::Point pt){ /* 命中测试可接入 ShellCore */ });
-        m_win->OnResized([this](air::ui::Rect rc){ /* 布局更新可接入 ShellCore */ });
+        m_win->OnMouseMove([](air::ui::Point){ /* 命中测试可接入 ShellCore */ });
+        m_win->OnResized([](air::ui::Rect){ /* 布局更新可接入 ShellCore */ });
         shell.SetMessageHook([this, hwnd](HWND,UINT msg,WPARAM wp,LPARAM lp,LRESULT& res){
             if (m_win) m_win->PumpEvent(msg, wp, lp);
             if (msg == WM_KEYDOWN) {
@@ -127,6 +147,19 @@ public:
                     HandleOverlayKey(vk, shift);
                     res = 0; return true;
                 }
+                const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+                if (HandleTextEditKey(vk, ctrl)) { res = 0; return true; }
+            }
+            if (msg == WM_CHAR) {
+                const wchar_t ch = static_cast<wchar_t>(wp);
+                // 'T' / 'D' are consumed by the theme / DPI shortcuts.
+                if (m_x.textbox.edit.hasFocus && ch >= 32 &&
+                    ch != L'T' && ch != L'D') {
+                    ApplyEdit(m_x.textbox.edit, EditAction::Insert,
+                              std::wstring(1, ch), &m_x.clipboard);
+                    if (m_shell) m_shell->Invalidate();
+                    res = 0; return true;
+                }
             }
             if (msg == WM_KEYDOWN && wp == 'T') {
                 m_dark = !m_dark;
@@ -134,11 +167,34 @@ public:
                 if (m_shell) m_shell->Invalidate();
                 res = 0; return true;
             }
+            if (msg == WM_KEYDOWN && wp == 'D') {
+                static const int kDpis[] = { 96, 120, 144 };
+                m_dpiIndex = (m_dpiIndex + 1) % 3;
+                m_x.dpi = kDpis[m_dpiIndex];
+                ApplyDpi(m_x.dpiBase, m_x.dpi);
+                OnLayout(m_lastClient);
+                if (m_shell) m_shell->Invalidate();
+                SetStatusText(L"DPI 已切换为 " + std::to_wstring(m_x.dpi));
+                res = 0; return true;
+            }
             if (msg == WM_MOUSEWHEEL) {
                 POINT pt = {(short)LOWORD(lp),(short)HIWORD(lp)};
                 ScreenToClient(hwnd,&pt);
                 int d = GET_WHEEL_DELTA_WPARAM(wp);
                 const int step = d/120*30;
+                // A wheel over a virtual-scroll demo scrolls that list
+                // instead of the page.
+                POINT cp = { pt.x - m_content.left,
+                             pt.y - (m_content.top - m_scroll) };
+                for (const auto& it : m_items) {
+                    if (it.kind != Item::Extra || it.ext < 0) continue;
+                    if (!PtInRect(&it.rect, cp)) continue;
+                    if (extragallery::ExtraWheel(it.ext, -step, m_x, Mx())) {
+                        if (m_shell) m_shell->Invalidate();
+                        res = 0; return true;
+                    }
+                    break;
+                }
                 Rect navRc = m_shellCore.NavRect();
                 if (navRc.Contains(Point{pt.x, pt.y})) {
                     // 指针在导航栏：滚动导航项（26 项超出可视高度）
@@ -242,6 +298,7 @@ public:
     }
 
     void OnLayout(const RECT& client) override {
+        m_lastClient = client;
         // ShellCore 负责画 Caption / NavBar / StatusBar，
         // 画廊内容只使用它剩下的 ContentRect，避免互相重叠。
         Rect rc{client.left, client.top, client.right, client.bottom};
@@ -255,6 +312,8 @@ public:
     }
 
     void OnPaint(Canvas& g, const RECT& client) override {
+        // Drive core animations from the injected platform clock.
+        m_x.animPhase = SpinnerPhase(m_animClock.Tick(), 1200);
         const auto& p = Pal();
         g.Fill(client,p.bg);
         HDC dc = g.Native();
@@ -288,7 +347,8 @@ public:
             OffsetRect(&r, ox, oy);
             if (r.bottom < region.top || r.top > region.bottom) continue;
             // Hover highlight for all interactive items
-            if (it.kind != Item::Section && it.hover && !it.disabled) {
+            if (it.kind != Item::Section && it.kind != Item::Extra &&
+                it.hover && !it.disabled) {
                 RECT hl = r;
                 hl.top -= 4;
                 hl.bottom += 4;
@@ -480,6 +540,11 @@ public:
             } else if (it.kind == Item::OverlayHint) {
                 g.Text(r, it.text, FontRole::Meta, p.textSub,
                        DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
+            } else if (it.kind == Item::Extra && it.ext >= 0) {
+                CanvasPainter painter(g);
+                extragallery::DrawExtraControl(painter,
+                    Rect{r.left, r.top, r.right, r.bottom},
+                    it.ext, m_x, Pal(), Mx());
             }
         }
         for (auto& c : m_cards) {
@@ -579,6 +644,37 @@ private:
             toast(AlertKind::Error,   L"同步失败", L"网络连接已断开，请稍后重试"),
         };
         m_toastHidden.assign(m_toasts.size(), false);
+    }
+
+    // Editable TextBox: translate native key codes into core edit
+    // actions. Clipboard goes through IClipboard, so core never sees a
+    // native clipboard handle.
+    bool HandleTextEditKey(int vk, bool ctrl)
+    {
+        EditAction action = EditAction::None;
+        if (ctrl) {
+            switch (vk) {
+            case 'A': action = EditAction::SelectAll; break;
+            case 'C': action = EditAction::Copy;     break;
+            case 'X': action = EditAction::Cut;      break;
+            case 'V': action = EditAction::Paste;    break;
+            default: return false;
+            }
+        } else {
+            switch (vk) {
+            case VK_BACK:   action = EditAction::Backspace; break;
+            case VK_DELETE: action = EditAction::Delete;    break;
+            case VK_LEFT:   action = EditAction::MoveLeft;  break;
+            case VK_RIGHT:  action = EditAction::MoveRight; break;
+            case VK_HOME:   action = EditAction::Home;      break;
+            case VK_END:    action = EditAction::End;       break;
+            default: return false;
+            }
+        }
+        if (!m_x.textbox.edit.hasFocus) return false;
+        ApplyEdit(m_x.textbox.edit, action, L"", &m_x.clipboard);
+        if (m_shell) m_shell->Invalidate();
+        return true;
     }
 
     void SetStatusText(const std::wstring& s) {
@@ -1203,6 +1299,17 @@ private:
             y += 220;                     // 给弹出层留出展示空间
         }
 
+        // P0 / P1 / P2 演示区：每个控件一个 section + 一个导航项。
+        // 状态全部存在 m_x，resize 重建 Item 不会丢失交互。
+        for (int i = 0; i < extragallery::Count(); ++i) {
+            const auto& d = extragallery::Defs()[static_cast<size_t>(i)];
+            sec(d.label);
+            Item it; it.kind = Item::Extra; it.ext = i;
+            it.rect = {x, y, x + contentW, y + d.height};
+            m_items.push_back(it);
+            y += d.height + 20;
+        }
+
         // 页面焦点域：按 Item 出现顺序注册 Tab 序。id 用 100 + 序号，
         // resize 重建 Item 列表后依然稳定，焦点不会被重置到第一项。
         std::vector<FocusEntry> pageEntries;
@@ -1244,6 +1351,15 @@ private:
             // hover for all interactive items
             if (msg==WM_MOUSEMOVE) {
                 if (it.hover!=h){it.hover=h;d=true;}
+            }
+            if (it.kind==Item::Extra && msg==WM_LBUTTONDOWN && h && it.ext>=0) {
+                std::wstring status;
+                extragallery::ExtraClick(it.ext, Point{p.x,p.y},
+                    Rect{it.rect.left,it.rect.top,it.rect.right,it.rect.bottom},
+                    m_x, Mx(), status);
+                if (!status.empty()) SetStatusText(status);
+                d=true;
+                continue;
             }
             if (it.kind==Item::Button) {
                 if (msg==WM_LBUTTONDOWN && h){it.pressed=true;d=true;}
@@ -1498,6 +1614,14 @@ private:
     OverlayController m_overlayCtl;
     std::map<int, size_t> m_focusToItem;   // focus id -> m_items 下标
     int m_overlayHoverOption = -1;
+
+    // P0 framework / P1 migration / P2 controls demo state. Owned by
+    // the page so Build() never resets it.
+    extragallery::ExtraDemoState m_x;
+    AnimationClock m_animClock;
+    DemoClock      m_tickClock;
+    int            m_dpiIndex = 0;
+    RECT           m_lastClient{};
 };
 }
 

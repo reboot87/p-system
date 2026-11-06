@@ -1,6 +1,7 @@
 #include "airui/Canvas.h"
 #include "airui/CanvasPainter.h"
 #include "airui/ControlsCore.h"
+#include "airui/ControlsExtra.h"
 #include "airui/Gfx.h"
 #include "airui/Controls.h"
 
@@ -191,8 +192,19 @@ void Canvas::StatusTag(int rightX, int centerY, const std::wstring& s,
         DrawCall dc; dc.type = DrawCall::StatusTag; dc.text = s; dc.color = bg; dc.color2 = border; dc.color3 = tx; dc.fontRole = role;
         s_recorder->push_back(dc);
     }
-    gfx::StatusTag(m_dc, rightX, centerY, s.c_str(), m_fonts.Get(role), bg,
-                   border, tx, dot, height);
+    // Drawing lives in core now; suppress the low-level recorder while
+    // forwarding so one high-level StatusTag stays one DrawCall.
+    const int w = MeasureWidth(s, role) + 34;
+    const Rect rc(rightX - w, centerY - height / 2,
+                  rightX, centerY + height / 2);
+    StatusTagColors colors;
+    colors.bg = bg; colors.border = border;
+    colors.text = tx; colors.dot = dot;
+    CanvasPainter painter(*this);
+    std::vector<DrawCall>* saved = s_recorder;
+    s_recorder = nullptr;
+    PaintStatusTagColored(painter, rc, s, true, colors, Mx());
+    s_recorder = saved;
 }
 
 void Canvas::KbdChip(int rightX, int centerY, const std::wstring& key,
@@ -202,8 +214,16 @@ void Canvas::KbdChip(int rightX, int centerY, const std::wstring& key,
         DrawCall dc; dc.type = DrawCall::KbdChip; dc.text = key + L":" + label;
         s_recorder->push_back(dc);
     }
-    gfx::KbdChip(m_dc, rightX, centerY, key.c_str(), label.c_str(),
-                 m_fonts.Get(FontRole::Meta));
+    KbdChipState st;
+    st.key = key;
+    st.label = label;
+    const int w = MeasureKbdChip(st, Mx());
+    const Rect rc(rightX - w, centerY - 9, rightX, centerY + 9);
+    CanvasPainter painter(*this);
+    std::vector<DrawCall>* saved = s_recorder;
+    s_recorder = nullptr;
+    PaintKbdChip(painter, rc, st, Pal(), Mx());
+    s_recorder = saved;
 }
 
 int Canvas::KbdChipWidth(const std::wstring& key, const std::wstring& label)
@@ -228,7 +248,15 @@ void Canvas::EmptyState(const RECT& rc, const air::ui::EmptyState& state)
         DrawCall dc; dc.type = DrawCall::EmptyState; dc.rect = rc;
         s_recorder->push_back(dc);
     }
-    DrawEmptyState(m_dc, rc, m_fonts, state);
+    EmptyViewState st;
+    st.title = state.title;
+    st.steps = state.steps;
+    st.foot  = state.foot;
+    CanvasPainter painter(*this);
+    std::vector<DrawCall>* saved = s_recorder;
+    s_recorder = nullptr;
+    PaintEmptyView(painter, ToRect(rc), st, Pal(), Mx());
+    s_recorder = saved;
 }
 
 void Canvas::Button(const RECT& rc, const std::wstring& text, BtnStyle style,

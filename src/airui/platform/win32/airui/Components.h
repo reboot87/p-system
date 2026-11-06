@@ -11,8 +11,10 @@
 #include <memory>
 #include "airui/Layout.h"
 #include "airui/Canvas.h"
+#include "airui/CanvasPainter.h"
 #include "airui/Widgets.h"
 #include "airui/Theme.h"
+#include "airui/ControlsExtra.h"
 
 namespace air {
 namespace ui {
@@ -183,7 +185,7 @@ private:
         } else if (it.hovered && m_cfg.hoverHighlight) {
             g.FillRound(it.rc, p.hover, 0);
         } else if (m_cfg.striped && (it.index % 2 == 1)) {
-            g.FillRound(it.rc, RGB(248, 249, 250), 0);
+            g.FillRound(it.rc, p.sunken, 0);
         } else {
             g.FillRound(it.rc, p.surface, 0);
         }
@@ -203,6 +205,8 @@ private:
     }
 
     void PaintEmpty(Canvas& g, const RECT& rc) {
+        // Migrated: the platform-level EmptyState view now delegates
+        // to the core PaintEmptyView through IPainter.
         EmptyState st;
         st.title = L"暂无数据";
         st.steps = L"暂无符合条件的记录";
@@ -259,20 +263,26 @@ public:
 
     explicit Form(const Config& cfg) : m_cfg(cfg) {}
 
-    // 重命名为 Arrange 避免与 Layout 类冲突
+    // 重命名为 Arrange 避免与 Layout 类冲突。
+    // 布局几何来自 core 的 MeasureForm，平台层只把结果写回原生 widget。
     void Arrange(const RECT& rc) {
         m_rc = rc;
-        int y = rc.top;
+        FormState st;
+        st.labelWidth = m_cfg.labelWidth;
         for (auto& f : m_cfg.fields) {
-            RECT inputRc = { rc.left + m_cfg.labelWidth + m_cfg.gapH, y,
-                             rc.right, y + 32 };
-            if (f.input) f.input->Move(inputRc);
-            y += 32 + m_cfg.gapV;
+            FormField ff;
+            ff.label = f.label;
+            ff.placeholder = f.placeholder;
+            ff.error = f.errorMsg;
+            ff.required = f.required;
+            st.fields.push_back(ff);
         }
-        if (m_cfg.submitBtn) {
-            RECT btnRc = { rc.right - 120, y, rc.right, y + 36 };
-            m_cfg.submitBtn->Move(btnRc);
+        const FormLayout layout = MeasureForm(ToRect(rc), st, Mx());
+        for (size_t i = 0; i < m_cfg.fields.size() && i < layout.inputs.size(); ++i) {
+            if (m_cfg.fields[i].input)
+                m_cfg.fields[i].input->Move(ToRect(layout.inputs[i]));
         }
+        if (m_cfg.submitBtn) m_cfg.submitBtn->Move(ToRect(layout.submit));
     }
 
     bool Validate() {
@@ -322,7 +332,7 @@ public:
     explicit Toolbar(const Config& cfg) : m_cfg(cfg) {
         if (m_cfg.search) {
             m_cfg.search->SetPlaceholder(m_cfg.searchPlaceholder);
-            m_cfg.search->OnKey([this](UINT vk, bool ctrl, bool shift) {
+            m_cfg.search->OnKey([this](UINT vk, bool, bool) {
                 if (vk == VK_RETURN && m_cfg.onSearch) {
                     m_cfg.onSearch(m_cfg.search->Text());
                     return true;
@@ -333,37 +343,29 @@ public:
     }
 
     void Paint(Canvas& g, const RECT& rc) {
-        const auto& p = Pal();
-        const auto& m = Mx();
-        g.FillRound(rc, p.surface, 0);
-        g.HLine(rc.left, rc.right, rc.bottom, p.split);
-
-        int x = rc.left + m.unit;
-        for (size_t i = 0; i < m_cfg.breadcrumbs.size(); ++i) {
-            if (i > 0) {
-                g.TextRow({x, rc.top, x+20, rc.bottom}, L"›", FontRole::Meta, p.textFaint);
-                x += 24;
-            }
-            auto& bc = m_cfg.breadcrumbs[i];
-            int w = g.MeasureWidth(bc.first, FontRole::Body) + 16;
-            RECT r = {x, rc.top, x+w, rc.bottom};
-            g.TextRowCenter(r, bc.first, FontRole::Body, i+1==m_cfg.breadcrumbs.size()?p.text:p.textSub);
-            x += w + 8;
+        // The whole toolbar visual (crumbs, search field, actions) is
+        // now core geometry + core painting; the platform layer only
+        // maps the legacy Config into ToolbarState and keeps the
+        // native search widget positioned from the same layout.
+        ToolbarState st;
+        st.searchPlaceholder = m_cfg.searchPlaceholder;
+        st.searchText = m_cfg.search ? m_cfg.search->Text() : L"";
+        for (const auto& bc : m_cfg.breadcrumbs) st.crumbs.push_back(bc.first);
+        for (const auto& a : m_cfg.actions) {
+            ToolbarActionState item;
+            item.id = a.id;
+            item.label = a.label;
+            item.glyph = a.glyph;
+            item.primary = a.primary;
+            item.disabled = a.disabled;
+            st.actions.push_back(item);
         }
-        x += m.unit * 2;
-
-        int rightX = rc.right - m.unit;
-        for (auto it = m_cfg.actions.rbegin(); it != m_cfg.actions.rend(); ++it) {
-            int w = g.MeasureWidth(it->label, FontRole::Button) + 24;
-            RECT r = { rightX - w, rc.top + 4, rightX, rc.bottom - 4 };
-            BtnStyle style = it->primary ? BtnStyle::Primary : BtnStyle::Secondary;
-            g.Button(r, it->label, style, false, false, it->disabled);
-            rightX = r.left - 8;
-        }
-
+        const Rect bounds = ToRect(rc);
+        CanvasPainter painter(g);
+        PaintToolbar(painter, bounds, st, Pal(), Mx());
         if (m_cfg.search) {
-            RECT sr = { x, rc.top + 4, rightX - 8, rc.bottom - 4 };
-            m_cfg.search->Move(sr);
+            const ToolbarLayout layout = MeasureToolbar(bounds, st, Mx());
+            if (!layout.search.Empty()) m_cfg.search->Move(ToRect(layout.search));
         }
     }
 
