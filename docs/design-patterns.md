@@ -155,3 +155,28 @@ inline void DrawExtraControl(IPainter& g, const Rect& rc, int idx,
 - 控件清单 → 走 `Demos()` 注册表，单一来源（Registry）。
 - 事件副作用 → 用 `ControlResult.action` 回传意图（Command）。
 - 跨控件共享 → 颜色走 `Palette`、间距走 `Metrics`（Flyweight）。
+
+---
+
+## 5. 仓库内的活示例（可直接照抄）
+本仓库已内置两条扩展路径的真实样例，均按上述模式实现并在画廊 P6 分组演示：
+
+### 5.1 新增控件（从零）：`widgets::RatingBar`
+- 声明：`src/airui/core/include/airui/ControlsCoreClasses.h`（`class RatingBar : public Control`）
+- 绘制：`src/airui/core/src/ControlsCore.cpp`（`RatingBar::Paint`，自己画星 + 点击映射分值）
+- 外置状态：`RatingBarState` 结构 + 自由 shim `PaintRatingBar`
+  （`ControlsCore.h` 声明、`ControlsClasses.cpp` 实现，保持源码兼容）
+- 画廊注册：`ExtraGallery.h` 的 `Demos()` 加一行
+  `{ L"P6 类体系", L"RatingBar (新增)", 60, paintλ, clickλ, nullptr }`
+- 要点：自带 `OnPointer`/`OnKey`，把指针/键盘命中换算成 `value`，零复用既有内核。
+
+### 5.2 继承现有控件：`widgets::IconButton`
+- 声明：`ControlsCoreClasses.h`（`class IconButton : public Button`）
+- 绘制：`ControlsCore.cpp`（`IconButton::Paint` → 先 `Button::Paint(...)` 复用父类外观，再叠加前导图标）
+- 自由 shim：`PaintIconButton`（同上文件）
+- 画廊注册：`Demos()` 加一行
+  `{ L"P6 类体系", L"IconButton (继承)", 60, paintλ, nullptr, nullptr }`
+- 要点：**只 override `Paint` 并先调 `Base::Paint`**，事件/焦点/命中全部继承父类，改动最小。
+
+> 两条路都不是“改 4 处”的旧模式：控件逻辑收敛到类，画廊只要一行注册即可。
+

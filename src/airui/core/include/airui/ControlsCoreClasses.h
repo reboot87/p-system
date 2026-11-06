@@ -52,6 +52,17 @@ public:
     }
 };
 
+// ---- IconButton (inherits Button) ----
+// Demonstrates extending an existing control: reuses Button's full
+// layout / hit / focus behaviour and only adds a leading glyph in Paint.
+class IconButton : public Button
+{
+public:
+    std::wstring icon{};   // leading glyph, e.g. L"\u2605"
+
+    void Paint(IPainter& g, const Palette& pal, const Metrics& mx) override;
+};
+
 // ---- Checkbox ----
 class Checkbox : public Control
 {
@@ -121,6 +132,51 @@ public:
     {
         if (!Name().empty()) return Name();
         return std::wstring(L"Radio");
+    }
+};
+
+// ---- RatingBar (brand new control, built from scratch) ----
+// Owns its Externalized State as members, draws an interactive row of
+// stars and maps a pointer hit back to a score. Registered in the
+// gallery as a single DemoEntry (Command + Registry pattern).
+class RatingBar : public Control
+{
+public:
+    ControlState state{};
+    int value = 0;     // current score, 0..max
+    int max = 5;       // number of stars
+
+    RatingBar() { SetRole(ControlRole::Custom); SetName(L"评分条"); }
+
+    void Paint(IPainter& g, const Palette& pal, const Metrics& mx) override;
+
+    ControlResult OnPointer(const PointerEvent& ev) override
+    {
+        ControlResult r = Control::OnPointer(ev);
+        state.hover   = Hovered() || (ev.move && Hit(ev.pos));
+        state.pressed = ev.down && Hit(ev.pos);
+        if (ev.down && Hit(ev.pos) && max > 0) {
+            const int cell = Bounds().Width() / max;
+            value = (ev.pos.x - Bounds().left) / cell + 1;
+            r.action = 3;        // value changed
+            r.redraw = true;
+        }
+        return r;
+    }
+
+    ControlResult OnKey(const KeyEvent& ev) override
+    {
+        ControlResult r = Control::OnKey(ev);
+        state.focused = Focused();
+        if (ev.vk == 39 /* VK_RIGHT */ && value < max) { ++value; r.action = 3; r.redraw = true; }
+        if (ev.vk == 37 /* VK_LEFT  */ && value > 0)   { --value; r.action = 3; r.redraw = true; }
+        return r;
+    }
+
+    std::wstring AccessibleText() const override
+    {
+        if (!Name().empty()) return Name();
+        return std::wstring(L"RatingBar");
     }
 };
 

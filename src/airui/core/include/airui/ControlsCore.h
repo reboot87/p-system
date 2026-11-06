@@ -58,6 +58,20 @@ void PaintButton(IPainter& g,
                  const Metrics& mx);
 
 // ------------------------------------------------------------
+// PaintIconButton - Button with a leading glyph. Demonstrates the
+// "inherit an existing control" path: the draw kernel just forwards
+// to the widgets::IconButton class, which derives from widgets::Button.
+// ------------------------------------------------------------
+void PaintIconButton(IPainter& g,
+                     const Rect& rc,
+                     const std::wstring& text,
+                     const std::wstring& icon,
+                     ButtonStyle style,
+                     const ControlState& st,
+                     const Palette& pal,
+                     const Metrics& mx);
+
+// ------------------------------------------------------------
 // PaintCheckbox - 16x16 rounded box at rc.top + 4, label at
 // rc.left + 24. Geometry intentionally matches the gallery so the
 // migration is pixel-for-pixel.
@@ -199,6 +213,25 @@ void PaintRating(IPainter& g,
                  const RatingState& st,
                  const Palette& pal,
                  const Metrics& mx);
+
+// ------------------------------------------------------------
+// PaintRatingBar - a brand new control built from scratch in the
+// object layer (widgets::RatingBar). This is the "add a new control"
+// demonstration: its own state, its own interactive Paint, registered
+// in the gallery as a single DemoEntry. Externalized state below.
+// ------------------------------------------------------------
+struct RatingBarState
+{
+    ControlState base = {};
+    int value = 0;     // current score, 0..max
+    int max = 5;       // number of stars
+};
+
+void PaintRatingBar(IPainter& g,
+                    const Rect& rc,
+                    const RatingBarState& st,
+                    const Palette& pal,
+                    const Metrics& mx);
 
 // ------------------------------------------------------------
 // PaintStepper - numeric stepper with +/- buttons.

@@ -600,6 +600,40 @@ void Skeleton::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     }
 }
 
+// ------------------------------------------------------------
+// RatingBar - brand new control (built from scratch).
+// ------------------------------------------------------------
+void RatingBar::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
+{
+    (void)mx;
+    if (Hovered()) state.hover = true;     // overlay only, never overwrite
+    if (Focused()) state.focused = true;
+    const Rect& rc = Bounds();
+    if (max <= 0) return;
+    const int cell = rc.Width() / max;
+    for (int i = 0; i < max; ++i) {
+        Rect star(rc.left + i * cell, rc.top, rc.left + (i + 1) * cell, rc.bottom);
+        const bool on = i < value;
+        g.Text(star, on ? L"\u2605" : L"\u2606", FontRole::Body,
+               on ? pal.primary : pal.textSub,
+               dt::Center | dt::VCenter | dt::NoPrefix);
+    }
+}
+
+// ------------------------------------------------------------
+// IconButton - derives from Button; reuses Button::Paint and only
+// overlays a leading glyph (inheritance demonstration).
+// ------------------------------------------------------------
+void IconButton::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
+{
+    Button::Paint(g, pal, mx);                 // reuse Button's full look
+    if (icon.empty()) return;
+    const Rect& rc = Bounds();
+    g.Text(Rect(rc.left + 4, rc.top, rc.left + 28, rc.bottom),
+           icon, FontRole::Button, pal.textInverse,
+           dt::Center | dt::VCenter | dt::NoPrefix);
+}
+
 } // namespace widgets
 } // namespace ui
 } // namespace air

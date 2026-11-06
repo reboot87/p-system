@@ -21,6 +21,19 @@ void PaintButton(IPainter& g, const Rect& rc, const std::wstring& text, ButtonSt
     w.Paint(g, pal, mx);
 }
 
+void PaintIconButton(IPainter& g, const Rect& rc, const std::wstring& text,
+                     const std::wstring& icon, ButtonStyle style,
+                     const ControlState& st, const Palette& pal, const Metrics& mx)
+{
+    widgets::IconButton w;
+    w.SetBounds(rc);
+    w.state = st;
+    w.text = text;
+    w.icon = icon;
+    w.style = style;
+    w.Paint(g, pal, mx);
+}
+
 void PaintCheckbox(IPainter& g, const Rect& rc, const std::wstring& text, const ControlState& st, const Palette& pal)
 {
     widgets::Checkbox w;
@@ -101,6 +114,16 @@ void PaintRating(IPainter& g, const Rect& rc, const RatingState& st, const Palet
     widgets::Rating w;
     w.SetBounds(rc);
     w.state = st;
+    w.Paint(g, pal, mx);
+}
+
+void PaintRatingBar(IPainter& g, const Rect& rc, const RatingBarState& st, const Palette& pal, const Metrics& mx)
+{
+    widgets::RatingBar w;
+    w.SetBounds(rc);
+    w.state = st.base;
+    w.value = st.value;
+    w.max = st.max;
     w.Paint(g, pal, mx);
 }
 

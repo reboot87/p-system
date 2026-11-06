@@ -195,6 +195,7 @@ struct ExtraDemoState
     widgets::Slider       wSlider;
     widgets::Sparkline    wSparkline;
     widgets::Gauge        wGauge;
+    RatingBarState        ratingBar{};   // demo state for the new RatingBar control
 };
 
 inline void InitExtraDemo(ExtraDemoState& s)
@@ -1873,6 +1874,26 @@ inline const std::vector<DemoEntry>& Demos()
         { L"P5 协同", L"AudioWaveform",  160, DemoPaint_Waveform,    DemoClick_AudioWaveform, nullptr },
         // ---------------- P6 ----------------
         { L"P6 类体系", L"WidgetClasses", 250, DemoPaint_WidgetClasses, DemoClick_WidgetClasses, nullptr },
+        // --- extension demos: how to add / inherit a control (see docs/design-patterns.md) ---
+        { L"P6 类体系", L"RatingBar (新增)", 60,
+          [](IPainter& g, const Rect& rc, ExtraDemoState& s, const Palette& pal, const Metrics& mx) {
+              PaintRatingBar(g, rc, s.ratingBar, pal, mx);
+          },
+          [](int, Point pt, const Rect& rc, ExtraDemoState& s, const Metrics& mx, std::wstring&) {
+              (void)mx;
+              if (s.ratingBar.max > 0) {
+                  const int cell = rc.Width() / s.ratingBar.max;
+                  int v = (pt.x - rc.left) / cell + 1;
+                  if (v >= 0 && v <= s.ratingBar.max) s.ratingBar.value = v;
+              }
+          },
+          nullptr },
+        { L"P6 类体系", L"IconButton (继承)", 60,
+          [](IPainter& g, const Rect& rc, ExtraDemoState& s, const Palette& pal, const Metrics& mx) {
+              (void)s;
+              PaintIconButton(g, rc, L"保存", L"\u2605", ButtonStyle::Primary, ControlState{}, pal, mx);
+          },
+          nullptr, nullptr },
     };
     return demos;
 }
