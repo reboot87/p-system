@@ -306,6 +306,19 @@ set_target_properties(airui_gallery PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
     LINK_FLAGS "/SUBSYSTEM:WINDOWS"
 )
+# IPC pipe naming test (per-session isolation: name must carry _s<sessionId>)
+add_executable(test_ipc_pipe
+    tests/test_ipc_pipe.cpp
+    src/ipc/Ipc.cpp
+    src/core/MachineConfig.cpp
+)
+target_link_libraries(test_ipc_pipe advapi32)
+set_target_properties(test_ipc_pipe PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
+    LINK_FLAGS "/SUBSYSTEM:CONSOLE"
+)
+
 # ------------------------------------------------------------
 # Automated tests
 #   cd build; ctest -C Release --output-on-failure
@@ -321,7 +334,7 @@ endif()
 # test_ui is an end-to-end script that drives a *running* airecord.exe
 # (window lookup + IPC), so it is not registered as a ctest case.
 enable_testing()
-foreach(_t test_core_layout test_controls_core test_data_controls test_overlay_core test_framework_extra test_theme_manager test_draw_calls test_locale test_component_gallery)
+foreach(_t test_core_layout test_controls_core test_data_controls test_overlay_core test_framework_extra test_theme_manager test_draw_calls test_locale test_component_gallery test_ipc_pipe)
     if(TARGET ${_t})
         add_test(NAME ${_t} COMMAND ${_t})
     endif()

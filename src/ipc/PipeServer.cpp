@@ -32,7 +32,13 @@ void PipeServer::Loop()
             PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
             1,              // 单实例：一次服务一个客户端足够
             4096, 65536, 0, nullptr);
-        if (m_pipe == INVALID_HANDLE_VALUE) break;
+        if (m_pipe == INVALID_HANDLE_VALUE) {
+            // 管道名被占用/权限不足时不能直接退出：一旦退出，本会话的
+            // 代理就彻底失去 IPC 能力，客户端会静默连到其它实例（旧版本
+            // 多会话抢同一全局管道名时，正是这样丢的记录）。退避后重试。
+            Sleep(300);
+            continue;
+        }
 
         BOOL connected = ConnectNamedPipe(m_pipe, nullptr)
                          ? TRUE

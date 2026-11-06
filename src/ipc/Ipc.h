@@ -25,7 +25,8 @@
 namespace ipc
 {
     // 管道全名（从机器级配置 service.ini [service] pipe_name 读取，
-    // 默认 AireRecordIpc；首次调用后缓存，服务端/客户端读到同一值）
+    // 默认 AireRecordIpc，并追加 _s<会话ID> 做会话隔离；首次调用后缓存。
+    // 同一会话内的代理与客户端算出的名字一致，跨会话互不干扰）
     const wchar_t* PipeName();
 
     std::string  WideToUtf8(const std::wstring& w);

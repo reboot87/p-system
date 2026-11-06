@@ -9,7 +9,16 @@ const wchar_t* PipeName()
     static std::wstring name = [] {
         std::wstring p = machine::Get(L"service", L"pipe_name",
                                       L"AireRecordIpc");
-        return L"\\\\.\\pipe\\" + p;
+
+        // 会话内隔离：服务为每个 Active 会话（控制台 + 每个 RDP 会话）
+        // 各拉起一个代理，每个代理有自己的数据库。若用整机全局管道名，
+        // 多个会话会抢同一个名字——先创建者独占，后创建者静默失去 IPC，
+        // 客户端于是连到别的会话的代理上：读到别人的库（看起来像记录
+        // 全丢），且手动录入/删除会写进别人的库。
+        // 追加会话 ID 后，客户端只与本会话的代理通信。
+        DWORD sid = 0;
+        if (!ProcessIdToSessionId(GetCurrentProcessId(), &sid)) sid = 0;
+        return L"\\\\.\\pipe\\" + p + L"_s" + std::to_wstring(sid);
     }();
     return name.c_str();
 }
