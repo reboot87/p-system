@@ -10,6 +10,7 @@
 // ============================================================
 #include "airui/ControlsExtra.h"
 #include "airui/ControlsAdvanced.h"
+#include "airui/ControlsEnterprise.h"
 #include "airui/FrameworkCore.h"
 
 #include <algorithm>
@@ -89,6 +90,18 @@ inline const std::vector<ExtraDef>& Defs()
         {L"P3 浮层", L"Snackbar",       110},
         {L"P3 浮层", L"CommandPalette", 210},
         {L"P3 浮层", L"GuideTour",      220},
+        {L"P4 编辑", L"QueryBuilder",   200},
+        {L"P4 编辑", L"PropertyGrid",   240},
+        {L"P4 编辑", L"ScheduleGrid",  230},
+        {L"P4 编辑", L"FileDropZone",  190},
+        {L"P4 数据", L"TreeMap",        180},
+        {L"P4 数据", L"FunnelChart",    190},
+        {L"P4 数据", L"DiffView",       190},
+        {L"P4 数据", L"ScoreBreakdown", 240},
+        {L"P4 外壳", L"ChatThread",     280},
+        {L"P4 外壳", L"MultiStatusBar",  60},
+        {L"P4 外壳", L"RibbonBar",      120},
+        {L"P4 外壳", L"NoticeCenter",   270},
     };
     return defs;
 }
@@ -184,6 +197,20 @@ struct ExtraDemoState
     SnackbarState       snackbar;
     CommandPaletteState palette;
     GuideTourState      guide;
+
+    // P4 enterprise
+    QueryBuilderState     query;
+    PropertyGridState     property;
+    ScheduleState         schedule;
+    FileDropZoneState     dropZone;
+    TreeMapState          treeMap;
+    FunnelState           funnel;
+    DiffState             diff;
+    ScoreState            score;
+    ChatState             chat;
+    MultiStatusBarState   multiStatus;
+    RibbonState           ribbon;
+    NoticeCenterState     notice;
 };
 
 inline void InitExtraDemo(ExtraDemoState& s)
@@ -410,6 +437,87 @@ inline void InitExtraDemo(ExtraDemoState& s)
     s.guide.body = L"这里可以查看全部自绘控件，点击导航可快速跳转，滚轮可浏览长列表。";
     s.guide.step = 1;
     s.guide.total = 3;
+
+    // --- P4 editors ---
+    s.query.conditions = {
+        {L"AND", L"记录状态", L"=", L"进行中"},
+        {L"OR", L"负责人", L"包含", L"张"},
+        {L"AND", L"创建时间", L">", L"2026-01-01"},
+    };
+    s.property.items = {
+        {L"基本信息", L"名称", L"季度经营报表", PropertyKind::Text, true},
+        {L"基本信息", L"记录行数", L"240", PropertyKind::Number, true},
+        {L"基本信息", L"启用缓存", L"true", PropertyKind::Bool, true},
+        {L"显示", L"主题", L"浅色", PropertyKind::Choice, true},
+        {L"显示", L"只读模式", L"false", PropertyKind::Bool, false},
+    };
+    s.property.selected = 3;
+    s.schedule.days = {L"周一", L"周二", L"周三", L"周四", L"周五"};
+    s.schedule.startHour = 9;
+    s.schedule.endHour = 17;
+    s.schedule.today = 2;
+    s.schedule.events = {
+        {L"需求评审", 0, 9, 11, AlertKind::Info},
+        {L"设计走查", 1, 11, 12, AlertKind::Warning},
+        {L"版本发布", 2, 14, 16, AlertKind::Success},
+        {L"回归测试", 2, 14, 15, AlertKind::Error},
+        {L"项目周会", 4, 16, 17, AlertKind::Info},
+    };
+    s.dropZone.files = {
+        {L"report-q3.xlsx", L"已完成", 100, AlertKind::Success},
+        {L"screenshot.png", L"上传中", 62, AlertKind::Info},
+        {L"archive.zip", L"失败", 20, AlertKind::Error},
+    };
+
+    // --- P4 data ---
+    s.treeMap.items = {
+        {L"核心模块", 42, 0}, {L"数据层", 26, 0}, {L"界面", 18, 0},
+        {L"测试", 9, 0}, {L"文档", 5, 0},
+    };
+    s.funnel.stages = {
+        {L"访问页面", 12000}, {L"注册账号", 4800},
+        {L"完成激活", 2100}, {L"付费转化", 640},
+    };
+    s.diff.file = L"src/airui/core/src/Theme.cpp";
+    s.diff.lines = {
+        {DiffKind::Context, L"const Palette& Pal() { return current; }"},
+        {DiffKind::Removed, L"// legacy hard-coded palette"},
+        {DiffKind::Added, L"// semantic palette tokens"},
+        {DiffKind::Context, L"void SetPalette(const Palette& p) {"},
+        {DiffKind::Added, L"    current = p;"},
+        {DiffKind::Context, L"}"},
+    };
+    s.score.average = 4.6;
+    s.score.total = 1280;
+    s.score.counts = {820, 280, 110, 50, 20};
+
+    // --- P4 shell ---
+    s.chat.messages = {
+        {L"李", L"这版控件预览看起来不错，气泡排版没有重叠。", L"09:12", false},
+        {L"我", L"好的，我再把深色主题和 144 DPI 缩放跑一遍。", L"09:14", true},
+        {L"李", L"收到，记得检查裁剪区域。", L"09:15", false},
+    };
+    s.multiStatus.message = L"已连接到本地数据库";
+    s.multiStatus.trailing = L"UTF-8";
+    s.multiStatus.segments = {
+        {L"同步正常", AlertKind::Success, true},
+        {L"3 个任务", AlertKind::Warning, false},
+        {L"只读", AlertKind::Info, false},
+    };
+    s.ribbon.groups = {
+        {L"剪贴板", {{L"粘贴", L"贴", true, false}}},
+        {L"编辑", {{L"撤销", L"撤", false, false},
+                   {L"重做", L"做", false, false},
+                   {L"查找", L"查", false, false}}},
+        {L"视图", {{L"布局", L"局", true, false},
+                   {L"缩放", L"放", false, false}}},
+    };
+    s.notice.items = {
+        {L"构建完成", L"MSVC Release 全部目标已通过", L"2 分钟前", L"CI", true, AlertKind::Success},
+        {L"同步异常", L"凭据缓存写入被拒绝，请检查权限", L"18 分钟前", L"Git", true, AlertKind::Error},
+        {L"新增评论", L"控件契约头已审阅", L"1 小时前", L"评审", false, AlertKind::Info},
+        {L"磁盘空间", L"剩余空间低于 20%", L"昨天", L"系统", false, AlertKind::Warning},
+    };
 }
 
 inline Rect GuideAnchorRect(const Rect& rc, const Metrics& mx)
@@ -602,6 +710,24 @@ inline void DrawExtraControl(IPainter& g, const Rect& rc, int idx,
     case 56:
         PaintGuideTour(g, rc, GuideAnchorRect(rc, mx), s.guide, pal, mx);
         break;
+
+    // ---------------- P4 editors ----------------
+    case 57: PaintQueryBuilder(g, rc, s.query, pal, mx); break;
+    case 58: PaintPropertyGrid(g, rc, s.property, pal, mx); break;
+    case 59: PaintSchedule(g, rc, s.schedule, pal, mx); break;
+    case 60: PaintFileDropZone(g, rc, s.dropZone, pal, mx); break;
+
+    // ---------------- P4 data ----------------
+    case 61: PaintTreeMap(g, rc, s.treeMap, pal, mx); break;
+    case 62: PaintFunnel(g, rc, s.funnel, pal, mx); break;
+    case 63: PaintDiff(g, rc, s.diff, pal, mx); break;
+    case 64: PaintScore(g, rc, s.score, pal, mx); break;
+
+    // ---------------- P4 shell ----------------
+    case 65: PaintChat(g, rc, s.chat, pal, mx); break;
+    case 66: PaintMultiStatusBar(g, rc, s.multiStatus, pal, mx); break;
+    case 67: PaintRibbon(g, rc, s.ribbon, pal, mx); break;
+    case 68: PaintNoticeCenter(g, rc, s.notice, pal, mx); break;
     default: break;
     }
 }
@@ -967,6 +1093,194 @@ inline void ExtraClick(int idx, Point pt, const Rect& rc, ExtraDemoState& s,
         } else if (h == GuideTourHit::Skip) {
             s.guide.step = 1;
             status = L"GuideTour：已跳过引导";
+        }
+        break;
+    }
+    // ---------------- P4 editors ----------------
+    case 57: {
+        const QueryBuilderHit h = HitQueryBuilder(rc, s.query, mx, pt);
+        s.query.hoveredRow = h.row;
+        s.query.addHover = h.kind == QueryHitKind::Add;
+        switch (h.kind) {
+        case QueryHitKind::Logic: {
+            QueryCondition& c = s.query.conditions[static_cast<size_t>(h.row)];
+            c.logic = (c.logic == L"AND") ? L"OR" : L"AND";
+            status = L"QueryBuilder：第 " + std::to_wstring(h.row + 1) +
+                     L" 条切换为 " + c.logic;
+            break;
+        }
+        case QueryHitKind::Field:
+            s.query.hoveredCell = 1;
+            status = L"QueryBuilder：编辑字段";
+            break;
+        case QueryHitKind::Operator:
+            s.query.hoveredCell = 2;
+            status = L"QueryBuilder：切换操作符";
+            break;
+        case QueryHitKind::Value:
+            s.query.hoveredCell = 3;
+            status = L"QueryBuilder：编辑取值";
+            break;
+        case QueryHitKind::Remove:
+            if (h.row >= 0 && h.row < static_cast<int>(s.query.conditions.size())) {
+                s.query.conditions.erase(s.query.conditions.begin() + h.row);
+                status = L"QueryBuilder：已删除第 " +
+                         std::to_wstring(h.row + 1) + L" 条";
+            }
+            break;
+        case QueryHitKind::Add:
+            s.query.conditions.push_back(
+                {L"AND", L"新字段", L"=", L""});
+            status = L"QueryBuilder：新增一条条件";
+            break;
+        default:
+            status = L"QueryBuilder：点击条件行进行编辑";
+            break;
+        }
+        break;
+    }
+    case 58: {
+        const PropertyGridHit h = HitPropertyGrid(rc, s.property, mx, pt);
+        if (h.item >= 0 && h.item < static_cast<int>(s.property.items.size())) {
+            PropertyItem& item = s.property.items[static_cast<size_t>(h.item)];
+            s.property.selected = h.item;
+            s.property.hovered = h.item;
+            if (h.onValue && item.enabled && item.kind == PropertyKind::Bool) {
+                item.value = (item.value == L"true") ? L"false" : L"true";
+                status = L"PropertyGrid：" + item.name + L" → " + item.value;
+            } else if (h.onValue && item.enabled && item.kind == PropertyKind::Choice) {
+                item.value = (item.value == L"浅色") ? L"深色" : L"浅色";
+                status = L"PropertyGrid：" + item.name + L" → " + item.value;
+            } else {
+                status = L"PropertyGrid：选中 " + item.name;
+            }
+        }
+        break;
+    }
+    case 59: {
+        const int hit = ScheduleEventAt(rc, s.schedule, mx, pt);
+        s.schedule.hovered = hit;
+        if (hit >= 0 && hit < static_cast<int>(s.schedule.events.size())) {
+            const ScheduleEvent& ev = s.schedule.events[static_cast<size_t>(hit)];
+            status = L"ScheduleGrid：" + ev.title + L" · " +
+                     std::to_wstring(ev.startHour) + L":00–" +
+                     std::to_wstring(ev.endHour) + L":00";
+        }
+        break;
+    }
+    case 60: {
+        const FileDropZoneHit h = HitFileDropZone(rc, s.dropZone, mx, pt);
+        s.dropZone.hovered = h.file;
+        if (h.remove && h.file >= 0 &&
+            h.file < static_cast<int>(s.dropZone.files.size())) {
+            s.dropZone.files.erase(s.dropZone.files.begin() + h.file);
+            status = L"FileDropZone：已移除文件";
+        } else if (h.drop) {
+            s.dropZone.dragOver = !s.dropZone.dragOver;
+            status = s.dropZone.dragOver ? L"FileDropZone：拖拽悬停态"
+                                         : L"FileDropZone：取消拖拽态";
+        } else if (h.file >= 0 && h.file < static_cast<int>(s.dropZone.files.size())) {
+            UploadFile& f = s.dropZone.files[static_cast<size_t>(h.file)];
+            f.progress = (f.progress >= 100) ? 0 : (std::min)(100, f.progress + 20);
+            status = L"FileDropZone：" + f.name + L" 进度 " +
+                     std::to_wstring(f.progress) + L"%";
+        }
+        break;
+    }
+
+    // ---------------- P4 data ----------------
+    case 61: {
+        const int hit = TreeMapTileAt(rc, s.treeMap, mx, pt);
+        s.treeMap.hovered = hit;
+        if (hit >= 0 && hit < static_cast<int>(s.treeMap.items.size())) {
+            const TileItem& t = s.treeMap.items[static_cast<size_t>(hit)];
+            status = L"TreeMap：" + t.label + L" · 权重 " +
+                     std::to_wstring(t.weight);
+        }
+        break;
+    }
+    case 62: {
+        const int hit = FunnelStageAt(rc, s.funnel, mx, pt);
+        s.funnel.hovered = hit;
+        if (hit >= 0 && hit < static_cast<int>(s.funnel.stages.size())) {
+            const FunnelStage& f = s.funnel.stages[static_cast<size_t>(hit)];
+            status = L"FunnelChart：" + f.label + L" · " +
+                     std::to_wstring(f.value) + L" 人";
+        }
+        break;
+    }
+    case 63: {
+        const int hit = DiffLineAt(rc, s.diff, mx, pt);
+        s.diff.hovered = hit;
+        if (hit >= 0 && hit < static_cast<int>(s.diff.lines.size())) {
+            const DiffLine& line = s.diff.lines[static_cast<size_t>(hit)];
+            const wchar_t* kind = line.kind == DiffKind::Added ? L"新增"
+                                  : line.kind == DiffKind::Removed ? L"删除"
+                                                                   : L"上下文";
+            status = std::wstring(L"DiffView：第 ") +
+                     std::to_wstring(hit + 1) + L" 行 · " + kind;
+        }
+        break;
+    }
+    case 64: {
+        const int hit = ScoreBarAt(rc, s.score, mx, pt);
+        s.score.hovered = hit;
+        if (hit >= 0 && hit < static_cast<int>(s.score.counts.size())) {
+            status = L"ScoreBreakdown：" + std::to_wstring(5 - hit) +
+                     L" 星 · " + std::to_wstring(s.score.counts[static_cast<size_t>(hit)]) +
+                     L" 条";
+        }
+        break;
+    }
+
+    // ---------------- P4 shell ----------------
+    case 65: {
+        const int hit = ChatMessageAt(rc, s.chat, mx, pt);
+        s.chat.hovered = hit;
+        if (hit >= 0 && hit < static_cast<int>(s.chat.messages.size())) {
+            const ChatMessage& m = s.chat.messages[static_cast<size_t>(hit)];
+            status = L"ChatThread：" + m.author + L" · " + m.time;
+        }
+        break;
+    }
+    case 66: {
+        const MultiStatusBarHit h = HitMultiStatusBar(rc, s.multiStatus, mx, pt);
+        s.multiStatus.hovered = h.segment;
+        if (h.segment >= 0 &&
+            h.segment < static_cast<int>(s.multiStatus.segments.size())) {
+            StatusSegment& seg = s.multiStatus.segments[static_cast<size_t>(h.segment)];
+            seg.active = !seg.active;
+            status = L"MultiStatusBar：" + seg.text +
+                     (seg.active ? L" 已激活" : L" 已取消");
+        }
+        break;
+    }
+    case 67: {
+        const RibbonHit h = HitRibbon(rc, s.ribbon, mx, pt);
+        s.ribbon.hoveredGroup = h.group;
+        s.ribbon.hoveredButton = h.button;
+        if (h.group >= 0 && h.group < static_cast<int>(s.ribbon.groups.size()) &&
+            h.button >= 0 &&
+            h.button < static_cast<int>(s.ribbon.groups[static_cast<size_t>(h.group)].buttons.size())) {
+            const RibbonButton& b =
+                s.ribbon.groups[static_cast<size_t>(h.group)].buttons[static_cast<size_t>(h.button)];
+            status = std::wstring(L"RibbonBar：") + b.label +
+                     (b.disabled ? L"（禁用）" : L" 已执行");
+        }
+        break;
+    }
+    case 68: {
+        const NoticeCenterHit h = HitNoticeCenter(rc, s.notice, mx, pt);
+        s.notice.readAllHover = h.readAll;
+        s.notice.hovered = h.item;
+        if (h.readAll) {
+            for (NoticeItem& item : s.notice.items) item.unread = false;
+            status = L"NoticeCenter：全部标为已读";
+        } else if (h.item >= 0 && h.item < static_cast<int>(s.notice.items.size())) {
+            NoticeItem& item = s.notice.items[static_cast<size_t>(h.item)];
+            item.unread = false;
+            status = L"NoticeCenter：" + item.title + L" 已读 · 剩余 " +
+                     std::to_wstring(NoticeUnreadCount(s.notice)) + L" 条未读";
         }
         break;
     }
