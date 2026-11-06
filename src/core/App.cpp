@@ -25,6 +25,8 @@ int App::Run(HINSTANCE hInstance)
     opt.minHeight = 560;
     opt.sidebar   = true;
     opt.statusBar = true;
+    // 静默启动或延迟显示时，窗口先以隐藏状态创建
+    opt.showOnCreate = !m_startHidden && m_showDelayMs <= 0;
 
     if (!m_shell.Create(hInstance, opt)) {
         diag::Log(L"[fatal] shell create failed, gle=%lu", GetLastError());
@@ -43,6 +45,16 @@ int App::Run(HINSTANCE hInstance)
                 diag::Log(L"[msg] 0x%04X wParam=%llu insend=%d cursor=%ld,%ld",
                           msg, (unsigned long long)wParam,
                           (int)InSendMessage(), cur.x, cur.y);
+            }
+            // 延迟显示：窗口已隐藏建好，到点再显示（规避启动期的可见窗口检查）
+            if (msg == WM_TIMER && wParam == TIMER_PROBE_HIDDEN) {
+                KillTimer(hwnd, TIMER_PROBE_HIDDEN);
+                ShowWindow(hwnd, SW_SHOWNORMAL);
+                SetForegroundWindow(hwnd);
+                diag::Log(L"[show] deferred %d ms, visible=%d",
+                          m_showDelayMs, (int)IsWindowVisible(hwnd));
+                result = 0;
+                return true;
             }
             // 服务端新记录通知 → 防抖后刷新（合并连续多次复制）
             if (msg == WM_APP + 2) {
@@ -150,8 +162,11 @@ int App::Run(HINSTANCE hInstance)
     RefreshStats();
     SyncServiceUi();
 
-    diag::Log(L"[ui] message loop begin, stats.total=%lld, svc=%d",
-              (long long)m_stats.total, (int)m_svcState);
+    diag::Log(L"[ui] message loop begin, stats.total=%lld, svc=%d hidden=%d delay=%d",
+              (long long)m_stats.total, (int)m_svcState,
+              (int)m_startHidden, m_showDelayMs);
+    if (m_showDelayMs > 0)
+        SetTimer(m_shell.Hwnd(), TIMER_PROBE_HIDDEN, (UINT)m_showDelayMs, nullptr);
     int rc = m_shell.RunMessageLoop();
     diag::Log(L"[ui] message loop end, rc=%d", rc);
     m_plugins.DetachAll(*this);

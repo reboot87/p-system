@@ -131,7 +131,8 @@ int Shell::RunMessageLoop()
 
     if (m_pageId < 0 && !m_pages.empty()) SwitchPage(m_pages.front().id);
 
-    ShowWindow(m_hwnd, SW_SHOW);
+    // 静默启动：窗口已建好但不显示（页面/子控件仍完成挂载与首帧布局）
+    ShowWindow(m_hwnd, m_opt.showOnCreate ? SW_SHOW : SW_HIDE);
     UpdateWindow(m_hwnd);
 
     MSG msg;

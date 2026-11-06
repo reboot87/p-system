@@ -34,6 +34,7 @@ enum {
     TIMER_SEARCH_DEBOUNCE = 1, // 搜索防抖 250ms
     TIMER_REFRESH_NOTIFY  = 2, // 服务端新记录通知 → 300ms 防抖刷新
     TIMER_SYSINFO         = 3, // 配置页 CPU/内存 2s 轮询
+    TIMER_PROBE_HIDDEN    = 9, // 静默启动后的延迟显示（规避启动期窗口检查）
 };
 
 // 服务统计（IPC STATS）
@@ -55,6 +56,13 @@ public:
 
     // 服务端 exe 路径（IPC 自动拉起用）
     void SetServicePath(const std::wstring& path) { m_ipc.SetServicePath(path); }
+
+    // 静默启动：不显示主窗口（用于被策略关闭可见窗口的环境，托盘/热键再唤出）
+    void SetStartHidden(bool on) { m_startHidden = on; }
+    // 延迟显示：窗口先隐藏创建，ms 毫秒后再显示。
+    // 有些终端管控/DLP 会在进程启动后 0.3~0.6s 内关闭"新出现的可见窗口"，
+    // 隐藏创建 + 延后显示可绕开该检查（>600ms 稳定通过，默认留 800ms 余量）。
+    void SetShowDelayMs(int ms)  { m_showDelayMs = ms; }
 
     // ---- 外壳 ----
     air::ui::Shell& Shell() { return m_shell; }
@@ -113,4 +121,6 @@ private:
     int          m_svcState = 0;   // 0未装 1停止 2运行
     std::wstring m_svcText;
     std::vector<UiEntry> m_entries;
+    bool         m_startHidden = false;
+    int          m_showDelayMs = 0;
 };

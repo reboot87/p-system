@@ -158,11 +158,15 @@ static bool IsServiceInstalled()
 
 static void LaunchClient()
 {
+    // 客户端启动参数来自机器级配置 [service] client_args（默认空）
+    //   例：--hidden 静默启动（新建可见窗口会被管控策略关闭的机器上使用）
+    std::wstring args = machine::Get(L"service", L"client_args", L"");
     // 客户端"闪一下就没了"时，先确认是没拉起来还是拉起来后退出的
     HINSTANCE r = ShellExecuteW(g_hwnd, L"open", g_clientPath.c_str(),
-                                nullptr, nullptr, SW_SHOWNORMAL);
-    diag::Log(L"[launch-client] session=%lu path=%ls ret=%p",
-              diag::SessionId(), g_clientPath.c_str(), (void*)r);
+                                args.empty() ? nullptr : args.c_str(),
+                                nullptr, SW_SHOWNORMAL);
+    diag::Log(L"[launch-client] session=%lu path=%ls args='%ls' ret=%p",
+              diag::SessionId(), g_clientPath.c_str(), args.c_str(), (void*)r);
 }
 
 // ---------- 托盘 ----------

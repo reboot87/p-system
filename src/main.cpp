@@ -7,9 +7,12 @@
 // ============================================================
 #include "core/App.h"
 #include "core/DiagLog.h"
+#include "core/MachineConfig.h"
 #include "plugins/SearchPlugin.h"
 #include "plugins/ManualEntryPlugin.h"
 #include <memory>
+#include <shellapi.h>
+#include <stdlib.h>
 
 // 启用 Common Controls v6（视觉样式 + 输入框 cue banner 占位文字）
 #pragma comment(linker, "/manifestdependency:\"type='win32' \
@@ -37,7 +40,32 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int)
 {
     HeapSetInformation(nullptr, HeapEnableTerminationOnCorruption, nullptr, 0);
 
-    diag::Log(L"[start] session=%lu exe-dir=%ls", diag::SessionId(),
+    // ---- 启动参数 ----
+    //   --hidden            静默启动：窗口建好但不显示（由热键/托盘唤出）
+    //   --show-after=<ms>   延迟显示：先隐藏建窗，ms 后再显示
+    //                       不传则读机器级配置 [service] defer_show_ms（默认 0）
+    //
+    // 为什么要延迟显示：部分终端管控/DLP 会在进程启动后约 0.3~0.6s 检查
+    // "新出现的可见窗口"并投递 WM_CLOSE 后强杀；隐藏建窗、>600ms 再显示
+    // 可稳定通过（实测 300ms 被杀、600ms 起存活）。
+    bool startHidden = false;
+    int  showAfterMs = -1;
+    {
+        int argc = 0;
+        LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+        for (int i = 1; argv && i < argc; ++i) {
+            if (_wcsicmp(argv[i], L"--hidden") == 0)
+                startHidden = true;
+            else if (_wcsnicmp(argv[i], L"--show-after=", 13) == 0)
+                showAfterMs = _wtoi(argv[i] + 13);
+        }
+        if (argv) LocalFree(argv);
+    }
+    if (showAfterMs < 0)   // 机器级配置兜底（同一台机器所有会话统一）
+        showAfterMs = _wtoi(machine::Get(L"service", L"defer_show_ms", L"0").c_str());
+
+    diag::Log(L"[start] session=%lu hidden=%d delay=%d exe-dir=%ls",
+              diag::SessionId(), (int)startHidden, showAfterMs,
               ExeDir().c_str());
 
     // 未处理异常：先落盘再交给系统（现场"闪一下就没了"时靠这条定位）
@@ -64,6 +92,8 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int)
 
     App app;
     app.SetServicePath(ExeDir() + L"\\airecordd.exe");
+    app.SetStartHidden(startHidden);
+    app.SetShowDelayMs(showAfterMs);
     RegisterClientPlugins(app);
     int rc = app.Run(hInstance);
     diag::Log(L"[exit] rc=%d", rc);

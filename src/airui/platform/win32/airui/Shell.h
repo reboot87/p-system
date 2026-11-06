@@ -72,6 +72,8 @@ struct ShellOptions
     bool         sidebar     = true;
     int          sidebarW    = 208;
     bool         statusBar   = true;
+    // 创建后是否立刻显示。false = 静默启动（热键/托盘唤出前不显示窗口）
+    bool         showOnCreate= true;
     bool         dark        = false;
     int          dpi         = 0;
     HICON        icon        = nullptr;
