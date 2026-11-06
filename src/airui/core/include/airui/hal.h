@@ -1,7 +1,8 @@
 #pragma once
 // ============================================================
 // AirUI - hal.h
-// Hardware abstraction layer, phase 0 freeze.
+// Hardware abstraction layer. Phase 0 froze the drawing surface;
+// Phase 1 completes the event surface below.
 //
 // Three layers:
 //   core       - components, layout, theme, state machines
@@ -131,6 +132,18 @@ public:
     virtual void OnWheel(std::function<void(Point, float delta)>) = 0;
     virtual void OnKeyDown(std::function<void(int vk, bool ctrl, bool shift)>) = 0;
     virtual void OnResized(std::function<void(Rect content)>) = 0;
+
+    // ---- Phase 1 events: mouse enter/leave, text input, focus, DPI ----
+    // A backend may not be able to deliver every one of these (e.g. a
+    // headless test backend has no DPI changes), so defaults are no-ops
+    // rather than pure virtual. Adding an event never breaks an existing
+    // backend; Win32Window implements all of them.
+    virtual void OnMouseEnter(std::function<void()>) {}
+    virtual void OnMouseLeave(std::function<void()>) {}
+    virtual void OnChar(std::function<void(wchar_t)>) {}
+    virtual void OnFocus(std::function<void()>) {}
+    virtual void OnBlur(std::function<void()>) {}
+    virtual void OnDpiChanged(std::function<void(int dpi)>) {}
 
     // ---- caption buttons, decoded by the backend ----
     virtual void OnMinimize(std::function<void()>) = 0;

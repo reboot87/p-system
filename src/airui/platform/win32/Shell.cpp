@@ -1,4 +1,5 @@
 #include "airui/Shell.h"
+#include "airui/GdiPainter.h"
 #include "airui/Gfx.h"
 #include "airui/Responsive.h"
 #include <commctrl.h>
@@ -34,7 +35,47 @@ HWND IPage::ParentWnd() const
 // ============================================================
 // 构造 / 析构
 // ============================================================
-Shell::Shell() = default;
+namespace {
+
+// NavGroup / NavItem are Win32 control types; ShellNavGroup /
+// ShellNavItem are the platform-free equivalents owned by ShellCore.
+// Keeping the conversion here means the core never sees a Win32 type.
+std::vector<ShellNavGroup> ToCoreNavGroups(const std::vector<NavGroup>& src)
+{
+    std::vector<ShellNavGroup> out;
+    out.reserve(src.size());
+    for (const auto& g : src) {
+        ShellNavGroup cg;
+        cg.title = g.title;
+        cg.items.reserve(g.items.size());
+        for (const auto& it : g.items) {
+            ShellNavItem ci;
+            ci.id       = it.id;
+            ci.label    = it.label;
+            ci.disabled = it.disabled;
+            ci.badge    = it.badge;
+            ci.badgeOk  = it.badgeOk;
+            cg.items.push_back(std::move(ci));
+        }
+        out.push_back(std::move(cg));
+    }
+    return out;
+}
+
+} // namespace
+
+Shell::Shell()
+{
+    // Core is the single source of truth for caption / status state.
+    CaptionState cs;
+    cs.badgeOk = true;
+    m_shellCore.SetCaption(cs);
+
+    StatusState ss;
+    ss.text = L"就绪";
+    ss.ok   = true;
+    m_shellCore.SetStatus(ss);
+}
 
 Shell::~Shell()
 {
@@ -75,6 +116,10 @@ bool Shell::Create(HINSTANCE hInstance, const ShellOptions& options)
     m_opt   = options;
     if (m_opt.className.empty()) m_opt.className = L"AirUiShellWnd";
     if (m_opt.appName.empty())   m_opt.appName   = L"App";
+
+    CaptionState cs = m_shellCore.Caption();
+    cs.title = m_opt.appName;
+    m_shellCore.SetCaption(cs);
 
     // DPI：默认跟随系统
     m_dpi = m_opt.dpi;
@@ -189,6 +234,7 @@ bool Shell::SwitchPage(int id)
 
     m_pageId = id;
     m_nav.SetActive(id);
+    m_shellCore.SetActiveNav(id);
 
     // 挂起重绘：布局 → 显示 → 一次性上屏，避免切页闪白
     SendMessageW(m_hwnd, WM_SETREDRAW, FALSE, 0);
@@ -217,12 +263,14 @@ void Shell::CreateNavItems()
     }
     if (!g.items.empty()) m_navGroups.push_back(std::move(g));
     m_nav.SetGroups(m_navGroups);
+    m_shellCore.SetNavGroups(ToCoreNavGroups(m_navGroups));
 }
 
 void Shell::SetNavGroups(std::vector<NavGroup> groups)
 {
     m_navGroups = std::move(groups);
     m_nav.SetGroups(m_navGroups);
+    m_shellCore.SetNavGroups(ToCoreNavGroups(m_navGroups));
     if (m_hwnd) LayoutAll();
 }
 
@@ -252,6 +300,7 @@ void Shell::AddNavCommand(int id, const std::wstring& glyph,
 void Shell::SetNavBadge(int id, const std::wstring& text, bool ok)
 {
     m_nav.SetBadge(id, text, ok);
+    m_shellCore.SetNavBadge(id, text, ok);
     if (m_hwnd) Invalidate();
 }
 
@@ -265,27 +314,35 @@ void Shell::SetNavCommandHandler(std::function<void(int)> handler)
 // ============================================================
 void Shell::SetCaptionBadge(const std::wstring& text, bool ok)
 {
-    m_captionBadge   = text;
-    m_captionBadgeOk = ok;
+    CaptionState cs = m_shellCore.Caption();
+    cs.badge   = text;
+    cs.badgeOk = ok;
+    m_shellCore.SetCaption(cs);
     if (m_hwnd) InvalidateTitle();
 }
 
 void Shell::SetCaptionSubtitle(const std::wstring& text)
 {
-    m_captionSubtitle = text;
+    CaptionState cs = m_shellCore.Caption();
+    cs.subtitle = text;
+    m_shellCore.SetCaption(cs);
     if (m_hwnd) InvalidateTitle();
 }
 
 void Shell::SetStatus(const std::wstring& text, bool ok)
 {
-    m_statusText = text;
-    m_statusOk   = ok;
+    StatusState ss = m_shellCore.Status();
+    ss.text = text;
+    ss.ok   = ok;
+    m_shellCore.SetStatus(ss);
     if (m_hwnd) Invalidate();
 }
 
 void Shell::SetStatusExtra(const std::wstring& text)
 {
-    m_statusExtra = text;
+    StatusState ss = m_shellCore.Status();
+    ss.extra = text;
+    m_shellCore.SetStatus(ss);
     if (m_hwnd) Invalidate();
 }
 
@@ -441,6 +498,11 @@ void Shell::LayoutAll()
     CreateNavItems();
     if (m_opt.sidebar) m_nav.Layout(m_side);
 
+    // Feed the geometry we actually draw into the platform-free core so
+    // ContentRect / HitTestNav never drift from the Win32 pixels.
+    m_shellCore.SetShellGeometry(m.titleH, statusH, sideW);
+    m_shellCore.Layout(Rect{ 0, 0, W, H });
+
     if (IPage* p = CurrentPage()) p->OnLayout(m_content);
 }
 
@@ -453,16 +515,25 @@ void Shell::Paint(HDC dc)
     GetClientRect(m_hwnd, &rc);
 
     gfx::Fill(dc, rc, Pal().bg);
-    DrawCaption(dc, rc);
 
-    if (m_opt.sidebar) {
-        m_nav.Paint(dc, m_fonts);
-        DrawSidebarFooter(dc);
+    if (m_opt.coreShell) {
+        // Phase 1 HAL route: core owns state & layout, GdiPainter owns
+        // pixels. Useful for backend parity checks and future Skia port.
+        GdiPainter painter(dc);
+        m_shellCore.Paint(painter, Pal(), Mx());
+    } else {
+        // Legacy rich chrome (logo, three caption buttons, status pills,
+        // key hints). Its state is now read back from ShellCore below.
+        DrawCaption(dc, rc);
+        if (m_opt.sidebar) {
+            m_nav.Paint(dc, m_fonts);
+            DrawSidebarFooter(dc);
+        }
     }
 
     if (IPage* p = CurrentPage()) p->OnPaint(dc, m_content);
 
-    if (m_opt.statusBar) DrawStatusBar(dc, rc);
+    if (!m_opt.coreShell && m_opt.statusBar) DrawStatusBar(dc, rc);
 }
 
 // ------------------------------------------------------------
@@ -472,6 +543,7 @@ void Shell::DrawCaption(HDC dc, const RECT& rc)
 {
     const Palette& p = Pal();
     const Metrics& m = Mx();
+    const CaptionState& cs = m_shellCore.Caption();   // core is the state source
 
     gfx::Fill(dc, m_caption, p.surface);
     gfx::HLine(dc, 0, rc.right, m.titleH - 1, p.split);
@@ -507,7 +579,7 @@ void Shell::DrawCaption(HDC dc, const RECT& rc)
     gfx::VLine(dc, dx, m.titleH / 2 - 8, m.titleH / 2 + 8, p.split);
 
     // 副标题
-    std::wstring sub = m_captionSubtitle;
+    std::wstring sub = cs.subtitle;
     if (sub.empty()) {
         if (IPage* pg = CurrentPage()) sub = pg->Title();
     }
@@ -521,14 +593,14 @@ void Shell::DrawCaption(HDC dc, const RECT& rc)
 
     // 状态胶囊
     int rightLimit = rc.right - m.capBtnW * 3 - 12;
-    if (!m_captionBadge.empty()) {
+    if (!cs.badge.empty()) {
         gfx::StatusTag(dc, rightLimit, m.titleH / 2,
-                       m_captionBadge.c_str(),
+                       cs.badge.c_str(),
                        m_fonts.Get(FontRole::Meta),
-                       m_captionBadgeOk ? p.okSoft : p.errorSoft,
-                       m_captionBadgeOk ? p.okBorder : p.errorBorder,
-                       m_captionBadgeOk ? p.okText : p.errorText,
-                       m_captionBadgeOk ? p.ok : p.error,
+                       cs.badgeOk ? p.okSoft : p.errorSoft,
+                       cs.badgeOk ? p.okBorder : p.errorBorder,
+                       cs.badgeOk ? p.okText : p.errorText,
+                       cs.badgeOk ? p.ok : p.error,
                        24);
     }
 
@@ -558,6 +630,7 @@ void Shell::DrawStatusBar(HDC dc, const RECT& rc)
 {
     const Palette& p = Pal();
     const Metrics& m = Mx();
+    const StatusState& ss = m_shellCore.Status();   // core is the state source
     (void)rc;
 
     gfx::Fill(dc, m_status, p.surface);
@@ -566,22 +639,22 @@ void Shell::DrawStatusBar(HDC dc, const RECT& rc)
     int cy = m_status.top + m.statusH / 2;
 
     // 状态点
-    gfx::Dot(dc, 17, cy, 6, m_statusOk ? p.ok : p.error);
+    gfx::Dot(dc, 17, cy, 6, ss.ok ? p.ok : p.error);
 
     // 状态文本
-    std::wstring svc = m_statusText;
+    std::wstring svc = ss.text;
     gfx::Text(dc, m_fonts.Get(FontRole::Meta),
-              m_statusOk ? p.okText : p.errorText,
+              ss.ok ? p.okText : p.errorText,
               RECT{ 26, m_status.top, m_status.right - 400, m_status.bottom },
               svc, DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
 
     // 副信息
-    if (!m_statusExtra.empty()) {
+    if (!ss.extra.empty()) {
         int w = gfx::MeasureWidth(dc, m_fonts.Get(FontRole::Meta), svc);
         int x2 = 26 + w + 18;
         gfx::Text(dc, m_fonts.Get(FontRole::Meta), RGB(143, 149, 158),
                   RECT{ x2, m_status.top, m_status.right - 300, m_status.bottom },
-                  m_statusExtra,
+                  ss.extra,
                   DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
     }
 
@@ -782,6 +855,8 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         } else {
             if (m_nav.OnMouseLeave()) needRepaint = true;
         }
+        // Keep the platform-free hit-test state in step with the mouse.
+        m_shellCore.SetNavHover(m_shellCore.HitTestNav(Point{ pt.x, pt.y }));
 
         POINT cp = { pt.x - m_content.left, pt.y - m_content.top };
         if (IPage* p = CurrentPage())
@@ -799,6 +874,7 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         bool dirty = false;
         if (m_capHover) { m_capHover = 0; dirty = true; }
         if (m_nav.OnMouseLeave()) dirty = true;
+        m_shellCore.SetNavHover(-1);
         if (IPage* p = CurrentPage())
             if (p->OnMouseLeave()) dirty = true;
         if (dirty) ::InvalidateRect(hwnd, nullptr, FALSE);

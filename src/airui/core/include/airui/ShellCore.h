@@ -59,7 +59,16 @@ public:
     void SetCaption(const CaptionState& cs) { m_caption = cs; }
     void SetStatus(const StatusState& ss) { m_status = ss; }
 
+    // Read-only views: the backend renders pixels from these states
+    // instead of keeping its own duplicate copies.
+    const CaptionState& Caption() const { return m_caption; }
+    const StatusState&  Status()  const { return m_status; }
+    const std::vector<ShellNavGroup>& NavGroups() const { return m_groups; }
+
     // --- Layout ---
+    // The backend supplies the geometry it actually draws, so the
+    // platform-free hit test and ContentRect never drift from pixels.
+    void SetShellGeometry(int captionH, int statusH, int navW);
     void Layout(const Rect& client);
     Rect NavRect() const     { return m_navRect; }
     Rect CaptionRect() const { return m_captionRect; }
@@ -96,6 +105,10 @@ private:
     Rect m_captionRect;
     Rect m_statusRect;
     Rect m_contentRect;
+
+    int m_captionH = 36;
+    int m_statusH  = 24;
+    int m_navW     = 220;
 
     std::vector<Rect> m_navItemRects;   // parallel to flattened nav items
     std::vector<int>  m_navItemIds;

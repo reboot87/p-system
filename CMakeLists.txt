@@ -331,6 +331,20 @@ set_target_properties(test_controls_core PROPERTIES
     LINK_FLAGS "/SUBSYSTEM:CONSOLE"
 )
 
+# ShellCore HAL test - platform-free state / layout / hit test / IPainter
+add_executable(test_shell_hal
+    tests/test_shell_hal.cpp
+)
+target_link_libraries(test_shell_hal airui-core)
+set_target_properties(test_shell_hal PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
+)
+# /SUBSYSTEM is MSVC-only; keep this target linkable on Linux/macOS CI.
+if(MSVC)
+    set_target_properties(test_shell_hal PROPERTIES LINK_FLAGS "/SUBSYSTEM:CONSOLE")
+endif()
+
 # AirUI reuse demo (examples/DemoWindow.cpp) — minimal Shell+Page example
 add_executable(airui_demo
     examples/DemoWindow.cpp
@@ -388,7 +402,7 @@ endif()
 # test_ui is an end-to-end script that drives a *running* airecord.exe
 # (window lookup + IPC), so it is not registered as a ctest case.
 enable_testing()
-foreach(_t test_core_layout test_controls_core test_data_controls test_overlay_core test_framework_extra test_advanced_controls test_enterprise_controls test_studio_controls test_control_classes test_theme_manager test_draw_calls test_locale test_component_gallery test_ipc_pipe)
+foreach(_t test_core_layout test_controls_core test_shell_hal test_data_controls test_overlay_core test_framework_extra test_advanced_controls test_enterprise_controls test_studio_controls test_control_classes test_theme_manager test_draw_calls test_locale test_component_gallery test_ipc_pipe)
     if(TARGET ${_t})
         add_test(NAME ${_t} COMMAND ${_t})
     endif()

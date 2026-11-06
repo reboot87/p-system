@@ -35,16 +35,20 @@ void ShellCore::SetNavBadge(int id, const std::wstring& text, bool ok)
     }
 }
 
+void ShellCore::SetShellGeometry(int captionH, int statusH, int navW)
+{
+    // 0 is meaningful: the backend may have no status bar / sidebar.
+    m_captionH = captionH > 0 ? captionH : 0;
+    m_statusH  = statusH  > 0 ? statusH  : 0;
+    m_navW     = navW     > 0 ? navW     : 0;
+}
+
 void ShellCore::Layout(const Rect& client)
 {
-    const int captionH = 36;
-    const int statusH  = 24;
-    const int navW     = 220;
-
-    m_captionRect = { client.left, client.top, client.right, client.top + captionH };
-    m_navRect     = { client.left, m_captionRect.bottom, client.left + navW, client.bottom - statusH };
-    m_statusRect  = { client.left, client.bottom - statusH, client.right, client.bottom };
-    m_contentRect = { m_navRect.right, m_captionRect.bottom, client.right, client.bottom - statusH };
+    m_captionRect = { client.left, client.top, client.right, client.top + m_captionH };
+    m_navRect     = { client.left, m_captionRect.bottom, client.left + m_navW, client.bottom - m_statusH };
+    m_statusRect  = { client.left, client.bottom - m_statusH, client.right, client.bottom };
+    m_contentRect = { m_navRect.right, m_captionRect.bottom, client.right, client.bottom - m_statusH };
 
     LayoutNav(Mx());
 }

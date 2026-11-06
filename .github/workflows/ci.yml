@@ -32,6 +32,11 @@ jobs:
       - name: Build airui-core
         run: cmake --build build-core --config Release --target airui-core
 
+      - name: Build + run ShellCore HAL test (platform-free)
+        run: |
+          cmake --build build-core --config Release --target test_shell_hal
+          ./build-core/test_shell_hal
+
       - name: Core smoke test (compile + link + run core tests)
         run: bash scripts/check-core-linux-smoke.sh
 

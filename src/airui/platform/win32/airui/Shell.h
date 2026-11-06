@@ -13,6 +13,7 @@
 #include "airui/Fonts.h"
 #include "airui/Controls.h"
 #include "airui/Page.h"
+#include "airui/ShellCore.h"
 
 // 前向声明
 namespace air { namespace ui { 
@@ -77,6 +78,10 @@ struct ShellOptions
     bool         dark        = false;
     int          dpi         = 0;
     HICON        icon        = nullptr;
+    // Phase 1 HAL route: let the platform-free ShellCore draw the chrome
+    // through GdiPainter instead of the legacy rich renderer. Default off
+    // so the existing caption (logo / three buttons) never regresses.
+    bool         coreShell   = false;
 };
 
 class Shell
@@ -143,6 +148,11 @@ public:
     const RECT&  ContentRect() const { return m_content; }
     const RECT&  SidebarRect() const { return m_side; }
 
+    // Platform-free shell state / layout / hit test. Core owns state,
+    // the Win32 backend owns pixels (see ShellCore.h).
+    ShellCore&       Core()       { return m_shellCore; }
+    const ShellCore& Core() const { return m_shellCore; }
+
     void SetMessageHook(
         std::function<bool(HWND, UINT, WPARAM, LPARAM, LRESULT&)> hook);
 
@@ -185,6 +195,7 @@ private:
     ShellOptions  m_opt;
     Fonts         m_fonts;
     NavBar        m_nav;
+    ShellCore     m_shellCore;   // platform-free state, layout, hit test
 
     std::vector<PageSlot> m_pages;
     std::vector<NavGroup> m_navGroups;
@@ -200,13 +211,8 @@ private:
     int           m_capHover = 0;
     bool          m_active  = true;
 
-    std::wstring  m_captionBadge;
-    bool          m_captionBadgeOk = true;
-    std::wstring  m_captionSubtitle;
-
-    std::wstring  m_statusText = L"就绪";
-    std::wstring  m_statusExtra;
-    bool          m_statusOk   = true;
+    // Caption / Status state lives in m_shellCore (the single source of
+    // truth). Only platform-only extras (key hints) stay here.
     std::vector<std::pair<std::wstring, std::wstring>> m_statusKeys;
     std::wstring  m_footerText;
 

@@ -2,8 +2,8 @@
 rem ============================================================
 rem AireRecord build script -- CMake + Visual Studio 2017 (MSVC)
 rem
-rem 唯一支持的构建方式: CMake + Visual Studio 2017。
-rem 不要用 MinGW / g++ 构建本项目。
+rem Only supported toolchain: CMake + Visual Studio 2017 (MSVC).
+rem Do NOT build this project with MinGW / g++.
 rem
 rem Single build entry, everything goes through CMake:
 rem   build-cmake\Release\airecordd.exe     - background service
@@ -56,7 +56,7 @@ if exist %BUILD_DIR%\CMakeCache.txt (
   if not defined CONFIGURED call :try_generator "Visual Studio 16 2019"
   if not defined CONFIGURED call :try_generator "Visual Studio 17 2022"
   if not defined CONFIGURED (
-    echo [ERROR] Visual Studio 2017 (or 2019/2022) with C++ tools not found.
+    echo [ERROR] Visual Studio 2017 / 2019 / 2022 with C++ tools not found.
     exit /b 1
   )
 )
@@ -95,7 +95,7 @@ exit /b 0
 
 :try_generator
 echo        trying generator: %~1
-"%CMAKE%" -S . -B %BUILD_DIR% -G %~1 -A x64
+"%CMAKE%" -S . -B %BUILD_DIR% -G "%~1" -A x64
 if errorlevel 1 (
   if exist %BUILD_DIR% rmdir /s /q %BUILD_DIR%
   exit /b 1

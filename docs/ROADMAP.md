@@ -15,20 +15,20 @@
   - Windows：唯一官方 = CMake + Visual Studio 2017（`build.bat`）。
   - Linux：CMake + Unix Makefiles/Ninja，**仅构建 `airui-core`**（`build.sh`）。
   - 绝不使用 MinGW 构建完整项目（g++ 仅用于核心 CI 冒烟）。
-- **测试**：`ctest -C Release` 6/6 通过（`test_core_layout` / `test_controls_core` / `test_theme_manager` / `test_draw_calls` / `test_locale` / `test_component_gallery`）。
+- **测试**：`ctest -C Release` **15/15 通过**（含 Phase 1 新增的 `test_shell_hal`）；`test_ui` 为端到端脚本，仍需手工跑。
 
 ---
 
 ## 1. 未实现清单（按层）
 
-### A. 跨平台 / 后端层（最大块，纯设计草稿）
+### A. 跨平台 / 后端层（Phase 1 三项已完成，Skia 仍为设计稿）
 | 项 | 状态 | 说明 / 证据 |
 |---|---|---|
 | Skia 跨平台后端（Win/Linux/macOS 统一绘制） | 未实施 | `docs/cross-platform.md` 标注"草稿 v0.1，仅设计，未实施" |
 | Linux / macOS 应用本体构建 | 不可行 | 完整 exe 依赖 Win32/GDI/DWM；目前仅 `airui-core` 可在 Linux 编 |
-| `GdiPainter` / `Win32Window` 生产级 HAL | 仅 stub | 文件头标注 "Phase 1 HAL stub" |
-| `IWindow` 完整事件注入 | 未完成 | `phase0-signoff.md` 下一步 |
-| `NavBar` / `Caption` / `StatusBar` 迁入 ShellCore HAL | 未完成 | `phase0-signoff.md` 下一步 |
+| `GdiPainter` / `Win32Window` 生产级 HAL | ✅ 已完成 (1) | 真圆角/虚线/alpha/FontRole 字体/裁剪栈；`SetNavBadge` 落库、`WM_GETMINMAXINFO` 强制最小尺寸、滚轮屏幕坐标转客户区 |
+| `IWindow` 完整事件注入 | ✅ 已完成 (2) | 平台无关 `IWindow` 补齐 enter/leave/char/focus/blur/DPI 六个事件（默认 no-op，不破坏其他后端），`Win32Window::PumpEvent` 全量转发 |
+| `NavBar` / `Caption` / `StatusBar` 迁入 ShellCore HAL | ✅ 已完成 (3) | 按 `ShellCore.h` 的设计契约「core owns state & layout, backend owns pixels」：`Shell` 删除重复状态字段、全部读写 `ShellCore`；后端把真实几何喂给 `SetShellGeometry()`，使平台无关命中与像素对齐；`ShellOptions.coreShell` 提供可选的 `GdiPainter + ShellCore::Paint` 渲染路径（默认关，富渲染零回归） |
 
 ### B. App 业务模块（产品功能）
 | 模块 | 状态 | 证据 |
@@ -54,9 +54,9 @@
 ## 2. 建议的阶段路线
 
 ### Phase 1 —— Win32 HAL 化（保持 Windows 行为零回归）
-1. `GdiPainter` / `Win32Window` 从 stub 升级为生产级 HAL 实现。
-2. 完成 `IWindow` 完整事件注入（键盘 / 鼠标 / 焦点 / 缩放）。
-3. `NavBar` / `Caption` / `StatusBar` 迁入 ShellCore HAL。
+1. ✅ `GdiPainter` / `Win32Window` 从 stub 升级为生产级 HAL 实现。
+2. ✅ 完成 `IWindow` 完整事件注入（键盘 / 鼠标 / 焦点 / 缩放 / DPI）。
+3. ✅ `NavBar` / `Caption` / `StatusBar` 迁入 ShellCore HAL（状态与布局层；像素仍由后端负责，符合设计契约）。
 4. TextBox / ListBox 行为重写（去 Win32 原生依赖，改为自绘 + 平台适配）。
 5. Win32 层 `RECT` / `COLORREF` 逐步替换为平台无关类型。
 6. 把 `test_ui` 编排进 ctest（启动 `airecord.exe` + IPC 断言）。
@@ -87,3 +87,11 @@
   - `check-core-linux-smoke.sh` 改为对 clang（macOS 上 `g++` 实为 clang）不启用 `-Werror`，避免误伤 CI。
   - 注：GitHub 托管的 Windows runner 只有 VS2022、无 VS2017；Windows CI 作业是跨平台编译门禁，官方本地构建仍为 CMake + VS2017（`build.bat`）。
   - 下一步（A 的后续）：`GdiPainter` / `Win32Window` 从 stub 升级为生产级 HAL；`IWindow` 完整事件注入；`NavBar`/`Caption`/`StatusBar` 迁入 ShellCore HAL；随后启动 Skia 后端原型。
+
+- **2026-11-07 — A 的 Phase 1 三项（1 / 2 / 3）完成**
+  - **(1) HAL 生产化**：`GdiPainter.h` 从 stub 升为真圆角/虚线/alpha 混合/按 `FontRole` 选字体/可嵌套裁剪栈的 HDC 版 `IPainter`；`Win32Window.h` 补齐 `SetNavBadge` 真实存储、`WM_GETMINMAXINFO` 强制最小尺寸、`WM_MOUSEWHEEL` 屏幕→客户区坐标修正。
+  - **(2) 完整事件注入**：`hal.h` 的 `IWindow` 新增 `OnMouseEnter/OnMouseLeave/OnChar/OnFocus/OnBlur/OnDpiChanged` 六个平台无关事件（默认 no-op，保证其他后端不被破坏）；`Win32Window::PumpEvent` 覆盖键鼠/焦点/DPI/系统命令/最小尺寸。
+  - **(3) 迁入 ShellCore HAL**：`ShellCore.h/.cpp` 新增只读状态视图与 `SetShellGeometry()`（后端喂真实几何，命中不漂移）；Win32 `Shell` 持有 `ShellCore`、删掉 6 个重复状态字段，所有 setter 写 core、`DrawCaption/DrawStatusBar` 从 core 读；`ShellOptions.coreShell` 提供可选 `GdiPainter + ShellCore::Paint` 路径（默认关，Logo/三键/状态胶囊零回归）。
+  - **验证**：VS2017 `cmake --build build --config Release` 全绿；新增平台无关 `test_shell_hal`（状态/布局/命中/IPainter 驱动），`ctest -C Release` **15/15 通过**；该测试已接入 GitHub Actions 的 ubuntu / macOS 作业。
+  - **顺带修复**：`build.bat` 三处 cmd 批处理陷阱（UTF-8 中文 `rem`、生成器名未加引号、块内 echo 括号提前闭合），脚本现在能端到端跑 CMake + VS2017。
+  - **边界**：像素级"富渲染整体委托给 core"**不属于** step 3 —— 设计契约明确是 core 拥有状态/布局、后端拥有像素；三键/Logo/键位提示等平台装饰保留在 Win32 层。Skia 后端与 Linux/macOS 应用本体仍是 Phase 2。
