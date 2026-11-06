@@ -31,14 +31,29 @@ build.bat test         # 构建后运行 ctest
 build.bat clean test   # 清空 + 构建 + 测试
 ```
 
-### 手动构建
+### 手动构建（Windows）
 ```
 cmake -S . -B build -G "Visual Studio 15 2017" -A x64
 cmake --build build --config Release
 ```
-> ⚠️ 生成器**必须**是 `Visual Studio 15 2017`（即 VS2017）。**不要**使用 `MinGW Makefiles` 或 `Unix Makefiles` 来构建本项目。
+> ⚠️ 完整应用**必须**用 `Visual Studio 15 2017`（即 VS2017）生成器。**不要**在 Windows 上使用 `MinGW Makefiles` 构建本项目。
+
+### Linux（仅平台无关核心）
+完整应用依赖 Win32 / GDI / DWM，只能在 Windows + MSVC 下编译；**Linux 下只能构建平台无关核心 `airui-core`**（静态库 + 核心冒烟测试）。统一走 **CMake + Unix Makefiles**：
+
+```
+./build.sh            # cmake -G 'Unix Makefiles' 构建 airui-core
+./build.sh test       # 构建后运行核心冒烟测试
+```
+等价于：
+```
+cmake -S . -B build-linux -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release
+cmake --build build-linux --target airui-core
+```
+产物：`build-linux/libairui-core.a`；核心行为验证见 `scripts/check-core-linux-smoke.sh`。
 
 ### 说明
 - 平台相关代码位于 `src/airui/platform/win32`，依赖 Win32 / GDI / DWM，只能在 **Windows + MSVC** 下编译。
+- **构建约定（硬性）**：Windows = CMake + VS2017；Linux = CMake + Unix Makefiles（仅核心）。详细规则与"禁止猜测工具链"见项目 skill `p-system-build`。
 - 跨平台（Skia / Linux / macOS）仅为设计草稿，见 `docs/cross-platform.md`，当前未实施。
 - 控件采用「类体系 + 注册表」设计，新增/继承控件的做法见 `docs/design-patterns.md`。
