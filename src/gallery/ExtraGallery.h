@@ -9,6 +9,7 @@
 // resize that rebuilds the Item list never resets any interaction.
 // ============================================================
 #include "airui/ControlsExtra.h"
+#include "airui/ControlsAdvanced.h"
 #include "airui/FrameworkCore.h"
 
 #include <algorithm>
@@ -76,6 +77,18 @@ inline const std::vector<ExtraDef>& Defs()
         {L"P2 布局", L"Splitter",       140},
         {L"P2 布局", L"ColumnResize",   110},
         {L"P2 布局", L"Scrollbar",      150},
+        {L"P3 输入", L"TagInput",        90},
+        {L"P3 输入", L"RangeSlider",     90},
+        {L"P3 输入", L"OtpInput",        90},
+        {L"P3 输入", L"Cascader",       170},
+        {L"P3 数据", L"AvatarGroup",     90},
+        {L"P3 数据", L"Heatmap",        180},
+        {L"P3 数据", L"CodeBlock",      170},
+        {L"P3 数据", L"KanbanBoard",    200},
+        {L"P3 数据", L"GanttChart",     190},
+        {L"P3 浮层", L"Snackbar",       110},
+        {L"P3 浮层", L"CommandPalette", 210},
+        {L"P3 浮层", L"GuideTour",      220},
     };
     return defs;
 }
@@ -157,6 +170,20 @@ struct ExtraDemoState
     AnchorState       anchor;
     SplitterState     splitter;
     ColumnResizeState columnResize;
+
+    // P3 advanced
+    TagInputState       tagInput;
+    RangeSliderState    rangeSlider;
+    OtpInputState       otp;
+    CascaderState       cascader;
+    AvatarGroupState    avatars;
+    HeatmapState        heatmap;
+    CodeBlockState      codeBlock;
+    KanbanState         kanban;
+    GanttState          gantt;
+    SnackbarState       snackbar;
+    CommandPaletteState palette;
+    GuideTourState      guide;
 };
 
 inline void InitExtraDemo(ExtraDemoState& s)
@@ -313,6 +340,82 @@ inline void InitExtraDemo(ExtraDemoState& s)
     s.accordion.expanded = { true, false, false };
     s.anchor.items = { L"概览", L"数据", L"统计", L"设置" };
     s.columnResize.widths = { 3, 2, 1, 2 };
+
+    // --- P3 input ---
+    s.tagInput.tags = { L"airui", L"core", L"自绘" };
+    s.tagInput.placeholder = L"输入新标签…";
+    s.rangeSlider.low = 20;
+    s.rangeSlider.high = 80;
+    s.rangeSlider.step = 5;
+    s.rangeSlider.showTicks = true;
+    s.otp.code = L"826";
+    s.otp.length = 6;
+    s.otp.focused = 3;
+    s.cascader.columns = {
+        {L"一级", {L"华东", L"华北", L"华南", L"西南"}},
+        {L"二级", {L"上海", L"江苏", L"浙江", L"安徽"}},
+        {L"三级", {L"浦东", L"徐汇", L"静安", L"长宁"}},
+    };
+    s.cascader.selected = { 0, 1, -1 };
+
+    // --- P3 data ---
+    s.avatars.items = { {L"李", 0}, {L"王", 0}, {L"张", 0},
+                        {L"赵", 0}, {L"陈", 0}, {L"周", 0}, {L"吴", 0} };
+    s.avatars.maxVisible = 4;
+    s.heatmap.title = L"近 20 周活跃度";
+    s.heatmap.weeks = 20;
+    s.heatmap.values.clear();
+    for (int i = 0; i < 20 * 7; ++i) {
+        s.heatmap.values.push_back((i * 7 + i / 9) % 5);
+    }
+    s.codeBlock.title = L"example.cpp";
+    s.codeBlock.lines = {
+        L"#include \"airui/ControlsAdvanced.h\"",
+        L"",
+        L"void Demo(IPainter& g, const Rect& rc) {",
+        L"    PaintHeatmap(g, rc, state, Pal(), Mx());",
+        L"}",
+    };
+    s.codeBlock.highlightLine = 2;
+    s.kanban.columns = {
+        {L"待办", {{L"补齐单元测试", L"P1", AlertKind::Warning},
+                   {L"整理设计稿", L"设计", AlertKind::Info}}},
+        {L"进行中", {{L"虚拟滚动优化", L"P0", AlertKind::Error},
+                     {L"深色主题适配", L"P2", AlertKind::Info}}},
+        {L"已完成", {{L"Overlay 焦点陷阱", L"P0", AlertKind::Success},
+                     {L"控件平台迁移", L"P1", AlertKind::Success}}},
+    };
+    s.gantt.days = 14;
+    s.gantt.today = 5;
+    s.gantt.tasks = {
+        {L"需求梳理", 0, 3, 100, AlertKind::Success},
+        {L"控件实现", 2, 6, 65, AlertKind::Info},
+        {L"视觉走查", 7, 3, 20, AlertKind::Warning},
+        {L"发布验证", 10, 4, 0, AlertKind::Info},
+    };
+
+    // --- P3 overlay ---
+    s.snackbar.message = L"已删除 1 条记录";
+    s.snackbar.action = L"撤销";
+    s.palette.query = L"theme";
+    s.palette.items = {
+        {L"切换主题", L"外观", L"Ctrl+T", L"Theme", false},
+        {L"主题编辑器", L"外观", L"", L"Theme", false},
+        {L"打开设置", L"通用", L"Ctrl+,", L"General", false},
+        {L"导出数据", L"通用", L"", L"General", false},
+        {L"查看快捷键", L"帮助", L"?", L"Help", false},
+        {L"插件市场（未开放）", L"扩展", L"", L"Plugin", true},
+    };
+    s.guide.title = L"欢迎使用 AirUI";
+    s.guide.body = L"这里可以查看全部自绘控件，点击导航可快速跳转，滚轮可浏览长列表。";
+    s.guide.step = 1;
+    s.guide.total = 3;
+}
+
+inline Rect GuideAnchorRect(const Rect& rc, const Metrics& mx)
+{
+    return Rect(rc.left + mx.unit * 4, rc.top + mx.unit * 2,
+                rc.left + mx.unit * 18, rc.top + mx.unit * 6);
 }
 
 inline void DrawExtraControl(IPainter& g, const Rect& rc, int idx,
@@ -480,6 +583,25 @@ inline void DrawExtraControl(IPainter& g, const Rect& rc, int idx,
                dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix | dt::EndEllipsis);
         break;
     }
+    // ---------------- P3 input ----------------
+    case 45: PaintTagInput(g, rc, s.tagInput, pal, mx); break;
+    case 46: PaintRangeSlider(g, rc, s.rangeSlider, pal, mx); break;
+    case 47: PaintOtpInput(g, rc, s.otp, pal, mx); break;
+    case 48: PaintCascader(g, rc, s.cascader, pal, mx); break;
+
+    // ---------------- P3 data ----------------
+    case 49: PaintAvatarGroup(g, rc, s.avatars, pal, mx); break;
+    case 50: PaintHeatmap(g, rc, s.heatmap, pal, mx); break;
+    case 51: PaintCodeBlock(g, rc, s.codeBlock, pal, mx); break;
+    case 52: PaintKanban(g, rc, s.kanban, pal, mx); break;
+    case 53: PaintGantt(g, rc, s.gantt, pal, mx); break;
+
+    // ---------------- P3 overlay ----------------
+    case 54: PaintSnackbar(g, rc, s.snackbar, pal, mx); break;
+    case 55: PaintCommandPalette(g, rc, s.palette, pal, mx); break;
+    case 56:
+        PaintGuideTour(g, rc, GuideAnchorRect(rc, mx), s.guide, pal, mx);
+        break;
     default: break;
     }
 }
@@ -694,6 +816,158 @@ inline void ExtraClick(int idx, Point pt, const Rect& rc, ExtraDemoState& s,
         else if (h == ScrollBarHit::UpButton) ScrollBy(s.demoScroll, -s.demoScroll.lineH);
         else if (h == ScrollBarHit::DownButton) ScrollBy(s.demoScroll, s.demoScroll.lineH);
         status = L"Scrollbar：offset=" + std::to_wstring(s.demoScroll.offset);
+        break;
+    }
+    // ---------------- P3 input ----------------
+    case 45: {
+        const TagInputHit h = HitTagInput(rc, s.tagInput, mx, pt);
+        if (h.close && h.tag >= 0 &&
+            h.tag < static_cast<int>(s.tagInput.tags.size())) {
+            const std::wstring removed = s.tagInput.tags[static_cast<size_t>(h.tag)];
+            s.tagInput.tags.erase(s.tagInput.tags.begin() + h.tag);
+            s.tagInput.hoveredTag = -1;
+            status = L"TagInput：移除标签 " + removed;
+        } else if (h.clearAll) {
+            s.tagInput.tags.clear();
+            status = L"TagInput：已清空全部标签";
+        } else if (h.input) {
+            s.tagInput.hasFocus = true;
+            status = L"TagInput：输入区已聚焦";
+        }
+        break;
+    }
+    case 46: {
+        const int thumb = RangeSliderThumbAt(rc, s.rangeSlider, mx, pt);
+        if (thumb == 1 || thumb == 2) {
+            s.rangeSlider.draggingThumb = thumb;
+            s.rangeSlider.hoveredThumb = thumb;
+            status = thumb == 1 ? L"RangeSlider：拖拽下限" : L"RangeSlider：拖拽上限";
+        } else if (thumb != -2) {
+            const int v = RangeSliderValueAt(rc, s.rangeSlider, mx, pt);
+            int dLow = v - s.rangeSlider.low;  if (dLow < 0) dLow = -dLow;
+            int dHigh = v - s.rangeSlider.high; if (dHigh < 0) dHigh = -dHigh;
+            if (dLow <= dHigh) s.rangeSlider.low = (std::min)(v, s.rangeSlider.high);
+            else s.rangeSlider.high = (std::max)(v, s.rangeSlider.low);
+            status = L"RangeSlider：区间 " + std::to_wstring(s.rangeSlider.low) +
+                     L" – " + std::to_wstring(s.rangeSlider.high);
+        }
+        break;
+    }
+    case 47: {
+        const int cell = OtpCellAt(rc, s.otp, mx, pt);
+        if (cell >= 0) {
+            s.otp.focused = cell;
+            status = L"OtpInput：聚焦第 " + std::to_wstring(cell + 1) + L" 格";
+        }
+        break;
+    }
+    case 48: {
+        const CascaderHit h = HitCascader(rc, s.cascader, mx, pt);
+        if (h.column >= 0 && h.row >= 0) {
+            if (static_cast<int>(s.cascader.selected.size()) < h.column + 1)
+                s.cascader.selected.resize(static_cast<size_t>(h.column + 1), -1);
+            s.cascader.selected[static_cast<size_t>(h.column)] = h.row;
+            for (int c = h.column + 1;
+                 c < static_cast<int>(s.cascader.selected.size()); ++c)
+                s.cascader.selected[static_cast<size_t>(c)] = -1;
+            status = L"Cascader：选择 " +
+                     s.cascader.columns[static_cast<size_t>(h.column)]
+                         .items[static_cast<size_t>(h.row)];
+        }
+        break;
+    }
+
+    // ---------------- P3 data ----------------
+    case 49: {
+        const int a = AvatarGroupAt(rc, s.avatars, mx, pt);
+        if (a >= 0) {
+            s.avatars.hovered = a;
+            status = L"AvatarGroup：成员 " +
+                     s.avatars.items[static_cast<size_t>(a)].text;
+        } else if (a == -2) {
+            status = L"AvatarGroup：展开更多成员";
+        }
+        break;
+    }
+    case 50: {
+        const HeatmapCell c = HeatmapCellAt(rc, s.heatmap, mx, pt);
+        if (c.week >= 0) {
+            s.heatmap.hoveredWeek = c.week;
+            s.heatmap.hoveredDay = c.day;
+            const int idx = c.week * 7 + c.day;
+            const int level = (idx < static_cast<int>(s.heatmap.values.size()))
+                            ? s.heatmap.values[static_cast<size_t>(idx)] : 0;
+            status = L"Heatmap：第 " + std::to_wstring(c.week + 1) +
+                     L" 周 · 强度 " + std::to_wstring(level);
+        }
+        break;
+    }
+    case 51:
+        if (CodeBlockCopyHit(rc, s.codeBlock, mx, pt)) {
+            s.codeBlock.copyHover = true;
+            status = L"CodeBlock：已复制代码";
+        }
+        break;
+    case 52: {
+        const KanbanHit h = HitKanban(rc, s.kanban, mx, pt);
+        if (h.column >= 0 && h.card >= 0) {
+            s.kanban.hoveredColumn = h.column;
+            s.kanban.hoveredCard = h.card;
+            status = L"KanbanBoard：选中卡片 " +
+                     s.kanban.columns[static_cast<size_t>(h.column)]
+                         .cards[static_cast<size_t>(h.card)].title;
+        }
+        break;
+    }
+    case 53: {
+        const int t = GanttTaskAt(rc, s.gantt, mx, pt);
+        if (t >= 0) {
+            s.gantt.hoveredTask = t;
+            status = L"GanttChart：任务 " +
+                     s.gantt.tasks[static_cast<size_t>(t)].name;
+        }
+        break;
+    }
+
+    // ---------------- P3 overlay ----------------
+    case 54: {
+        const SnackbarHit h = HitSnackbar(rc, s.snackbar, mx, pt);
+        if (h == SnackbarHit::Action) {
+            s.snackbar.actionHover = true;
+            status = L"Snackbar：已撤销删除";
+        } else if (h == SnackbarHit::Close) {
+            s.snackbar.closeHover = true;
+            status = L"Snackbar：关闭提示条";
+        }
+        break;
+    }
+    case 55: {
+        const CommandPaletteHit h = HitCommandPalette(rc, s.palette, mx, pt);
+        if (h.row >= 0 && h.row < static_cast<int>(s.palette.items.size())) {
+            const std::vector<int> matches = CommandPaletteMatches(s.palette);
+            for (size_t k = 0; k < matches.size(); ++k) {
+                if (matches[k] == h.row) s.palette.selected = static_cast<int>(k);
+            }
+            status = L"CommandPalette：执行 " +
+                     s.palette.items[static_cast<size_t>(h.row)].title;
+        } else if (h.search) {
+            status = L"CommandPalette：搜索框（可输入过滤）";
+        }
+        break;
+    }
+    case 56: {
+        const GuideTourHit h = HitGuideTour(rc, GuideAnchorRect(rc, mx),
+                                            s.guide, mx, pt);
+        if (h == GuideTourHit::Next) {
+            s.guide.step = (std::min)(s.guide.total, s.guide.step + 1);
+            status = L"GuideTour：第 " + std::to_wstring(s.guide.step) + L" 步";
+        } else if (h == GuideTourHit::Prev) {
+            s.guide.step = (std::max)(1, s.guide.step - 1);
+            status = L"GuideTour：返回第 " + std::to_wstring(s.guide.step) + L" 步";
+        } else if (h == GuideTourHit::Skip) {
+            s.guide.step = 1;
+            status = L"GuideTour：已跳过引导";
+        }
         break;
     }
     default: {
