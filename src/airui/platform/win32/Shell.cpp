@@ -699,8 +699,19 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_CREATE:
         return 0;
 
-    case WM_ERASEBKGND:
-        return 1;   // 全自绘，不擦背景（消除切页闪白）
+    case WM_ERASEBKGND: {
+        // 最大化/缩放时 DWM 会在 WM_PAINT 之前呈现新暴露的区域：
+        // 完全不擦背景会让该区域渲染成黑帧（最大化闪黑屏的根源）。
+        // 这里同步填一层与页面一致的背景色，随后的 WM_PAINT 双缓冲
+        // 全帧覆盖——最坏情况暴露的是主题背景色，视觉无感。
+        HDC dc = (HDC)wParam;
+        RECT rcClient;
+        GetClientRect(hwnd, &rcClient);
+        static HBRUSH s_bg = nullptr;
+        if (!s_bg) s_bg = CreateSolidBrush(Pal().bg);
+        FillRect(dc, &rcClient, s_bg);
+        return 1;
+    }
 
     // ---- 无边框：客户区 = 整个窗口 ----
     case WM_NCCALCSIZE:
