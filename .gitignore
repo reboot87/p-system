@@ -38,3 +38,4 @@ gallery_*.png
 Thumbs.db
 desktop.ini
 .DS_Store
+build-cmake/
