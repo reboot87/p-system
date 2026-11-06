@@ -7,6 +7,15 @@
 //
 // All state lives in ExtraDemoState, owned by GalleryPage, so a
 // resize that rebuilds the Item list never resets any interaction.
+//
+// Design note: every demo control is described by a single
+// `DemoEntry` registered in `Demos()`. One entry bundles the
+// metadata (group/label/height) together with its Paint / Click /
+// Wheel behaviour. This is a Command + Registry (Factory) pattern:
+// adding a new control is a *single* registration instead of
+// editing four parallel switch statements (the previous OCP
+// violation). `Defs()` and `Count()` are derived from the same
+// registry, so there is one source of truth for the demo list.
 // ============================================================
 #include "airui/ControlsExtra.h"
 #include "airui/ControlsAdvanced.h"
@@ -16,6 +25,7 @@
 #include "airui/WidgetControls.h"
 
 #include <algorithm>
+#include <functional>
 #include <memory>
 #include <string>
 #include <utility>
@@ -32,97 +42,33 @@ struct ExtraDef
     int  height;
 };
 
-inline const std::vector<ExtraDef>& Defs()
+// Forward declaration so the command signatures below can name it.
+struct ExtraDemoState;
+
+// ------------------------------------------------------------
+// Command + Registry pattern.
+// Each demo control is one DemoEntry: metadata plus the three
+// behaviour hooks. `paint` is mandatory; `click`/`wheel` are
+// optional (nullptr → falls back to the default handler).
+// ------------------------------------------------------------
+using DemoPaintFn = std::function<void(IPainter&, const Rect&, ExtraDemoState&,
+                                      const Palette&, const Metrics&)>;
+using DemoClickFn = std::function<void(int, Point, const Rect&, ExtraDemoState&,
+                                      const Metrics&, std::wstring&)>;
+using DemoWheelFn = std::function<bool(int, int, ExtraDemoState&, const Metrics&)>;
+
+struct DemoEntry
 {
-    static const std::vector<ExtraDef> defs = {
-        {L"P0 框架", L"Framework",      120},
-        {L"P0 框架", L"ScrollVirtual",  190},
-        {L"P0 框架", L"DpiScaling",      76},
-        {L"P0 框架", L"Animation",       86},
-        {L"P0 框架", L"Accessibility",  100},
-        {L"P0 框架", L"TextBox",         80},
-        {L"P1 迁移", L"Card",           170},
-        {L"P1 迁移", L"EmptyView",      140},
-        {L"P1 迁移", L"StatusTag",       70},
-        {L"P1 迁移", L"KbdChip",         70},
-        {L"P1 迁移", L"Toolbar",         76},
-        {L"P1 迁移", L"Form",           210},
-        {L"P1 迁移", L"DataGrid",       190},
-        {L"P1 迁移", L"ListData",       170},
-        {L"P1 迁移", L"Custom",         110},
-        {L"P2 输入", L"SearchBox",       70},
-        {L"P2 输入", L"PasswordBox",     70},
-        {L"P2 输入", L"TextArea",       110},
-        {L"P2 输入", L"NumberInput",     70},
-        {L"P2 输入", L"DatePicker",     230},
-        {L"P2 输入", L"ColorPicker",    110},
-        {L"P2 选择", L"Dropdown",       180},
-        {L"P2 选择", L"Menu",           200},
-        {L"P2 选择", L"ContextMenu",    170},
-        {L"P2 选择", L"MultiSelect",    150},
-        {L"P2 选择", L"Transfer",       200},
-        {L"P2 展示", L"Timeline",       180},
-        {L"P2 展示", L"Steps",           90},
-        {L"P2 展示", L"Calendar",       230},
-        {L"P2 展示", L"DescriptionList",130},
-        {L"P2 展示", L"StatCard",       150},
-        {L"P2 展示", L"Chart",          170},
-        {L"P2 展示", L"Carousel",       160},
-        {L"P2 反馈", L"Spinner",         90},
-        {L"P2 反馈", L"Tooltip",        110},
-        {L"P2 反馈", L"Popover",        150},
-        {L"P2 反馈", L"Modal",          210},
-        {L"P2 反馈", L"Drawer",         190},
-        {L"P2 反馈", L"Notification",   190},
-        {L"P2 反馈", L"Result",         160},
-        {L"P2 布局", L"Accordion",      180},
-        {L"P2 布局", L"Anchor",         150},
-        {L"P2 布局", L"Splitter",       140},
-        {L"P2 布局", L"ColumnResize",   110},
-        {L"P2 布局", L"Scrollbar",      150},
-        {L"P3 输入", L"TagInput",        90},
-        {L"P3 输入", L"RangeSlider",     90},
-        {L"P3 输入", L"OtpInput",        90},
-        {L"P3 输入", L"Cascader",       170},
-        {L"P3 数据", L"AvatarGroup",     90},
-        {L"P3 数据", L"Heatmap",        180},
-        {L"P3 数据", L"CodeBlock",      170},
-        {L"P3 数据", L"KanbanBoard",    200},
-        {L"P3 数据", L"GanttChart",     190},
-        {L"P3 浮层", L"Snackbar",       110},
-        {L"P3 浮层", L"CommandPalette", 210},
-        {L"P3 浮层", L"GuideTour",      220},
-        {L"P4 编辑", L"QueryBuilder",   200},
-        {L"P4 编辑", L"PropertyGrid",   240},
-        {L"P4 编辑", L"ScheduleGrid",  230},
-        {L"P4 编辑", L"FileDropZone",  190},
-        {L"P4 数据", L"TreeMap",        180},
-        {L"P4 数据", L"FunnelChart",    190},
-        {L"P4 数据", L"DiffView",       190},
-        {L"P4 数据", L"ScoreBreakdown", 240},
-        {L"P4 外壳", L"ChatThread",     280},
-        {L"P4 外壳", L"MultiStatusBar",  60},
-        {L"P4 外壳", L"RibbonBar",      120},
-        {L"P4 外壳", L"NoticeCenter",   270},
+    const wchar_t* group;
+    const wchar_t* label;
+    int  height;
+    DemoPaintFn paint;
+    DemoClickFn click;   // optional
+    DemoWheelFn wheel;   // optional
+};
 
-        {L"P5 图表", L"Sparkline",      150},
-        {L"P5 图表", L"WaterfallChart", 210},
-        {L"P5 图表", L"StackedBar",     190},
-        {L"P5 图表", L"GaugeMeter",     160},
-        {L"P5 编辑", L"JsonTree",       230},
-        {L"P5 编辑", L"LogViewer",      230},
-        {L"P5 编辑", L"CronEditor",     190},
-        {L"P5 编辑", L"MentionInput",   210},
-        {L"P5 协同", L"OrgChart",       240},
-        {L"P5 协同", L"Leaderboard",    240},
-        {L"P5 协同", L"ActivityFeed",   230},
-        {L"P5 协同", L"AudioWaveform",  160},
-        {L"P6 类体系", L"WidgetClasses", 250},
-    };
-    return defs;
-}
-
-inline int Count() { return static_cast<int>(Defs().size()); }
+// Forward declaration; defined after the command implementations.
+inline const std::vector<DemoEntry>& Demos();
 
 // ------------------------------------------------------------
 // A tiny in-memory clipboard so the editable text demo can use
@@ -658,1054 +604,1325 @@ inline Rect GuideAnchorRect(const Rect& rc, const Metrics& mx)
                 rc.left + mx.unit * 18, rc.top + mx.unit * 6);
 }
 
+// ============================================================
+// Demo command implementations.
+// Each block below is one control's Paint / Click / Wheel, lifted
+// verbatim from the previous switch statements. Keeping them as
+// named commands makes the registry (Demos()) read as a flat,
+// declarative table and removes the four-way duplication.
+// ============================================================
+
+// --- Paint commands (simple cases: forward to the core PaintXxx) ---
+#define DEMO_PAINT(Name, Member, Fn)                                            \
+    inline void DemoPaint_##Name(IPainter& g, const Rect& rc, ExtraDemoState& s, \
+                                const Palette& pal, const Metrics& mx) {        \
+        Fn(g, rc, s.Member, pal, mx);                                           \
+    }
+DEMO_PAINT(TextBox, textbox, PaintTextBox)
+DEMO_PAINT(Card, card, PaintCard)
+DEMO_PAINT(EmptyView, emptyView, PaintEmptyView)
+DEMO_PAINT(Toolbar, toolbar, PaintToolbar)
+DEMO_PAINT(Form, form, PaintForm)
+DEMO_PAINT(DataGrid, grid, PaintDataGrid)
+DEMO_PAINT(Custom, custom, PaintCustom)
+DEMO_PAINT(SearchBox, search, PaintSearchBox)
+DEMO_PAINT(PasswordBox, password, PaintPasswordBox)
+DEMO_PAINT(TextArea, textArea, PaintTextArea)
+DEMO_PAINT(NumberInput, number, PaintNumberInput)
+DEMO_PAINT(DatePicker, date, PaintDatePicker)
+DEMO_PAINT(ColorPicker, color, PaintColorPicker)
+DEMO_PAINT(Dropdown, dropdown, PaintDropdown)
+DEMO_PAINT(Menu, menu, PaintMenu)
+DEMO_PAINT(MultiSelect, multi, PaintMultiSelect)
+DEMO_PAINT(Transfer, transfer, PaintTransfer)
+DEMO_PAINT(Timeline, timeline, PaintTimeline)
+DEMO_PAINT(Steps, steps, PaintSteps)
+DEMO_PAINT(Calendar, calendar, PaintCalendar)
+DEMO_PAINT(DescriptionList, description, PaintDescriptionList)
+DEMO_PAINT(StatCard, stat, PaintStatCard)
+DEMO_PAINT(Chart, chart, PaintChart)
+DEMO_PAINT(Carousel, carousel, PaintCarousel)
+DEMO_PAINT(Modal, modal, PaintModal)
+DEMO_PAINT(Drawer, drawer, PaintDrawer)
+DEMO_PAINT(Notification, notification, PaintNotificationQueue)
+DEMO_PAINT(Result, result, PaintResult)
+DEMO_PAINT(Accordion, accordion, PaintAccordion)
+DEMO_PAINT(Anchor, anchor, PaintAnchor)
+DEMO_PAINT(Splitter, splitter, PaintSplitter)
+DEMO_PAINT(ColumnResize, columnResize, PaintColumnResize)
+DEMO_PAINT(TagInput, tagInput, PaintTagInput)
+DEMO_PAINT(RangeSlider, rangeSlider, PaintRangeSlider)
+DEMO_PAINT(OtpInput, otp, PaintOtpInput)
+DEMO_PAINT(Cascader, cascader, PaintCascader)
+DEMO_PAINT(AvatarGroup, avatars, PaintAvatarGroup)
+DEMO_PAINT(Heatmap, heatmap, PaintHeatmap)
+DEMO_PAINT(CodeBlock, codeBlock, PaintCodeBlock)
+DEMO_PAINT(Kanban, kanban, PaintKanban)
+DEMO_PAINT(Gantt, gantt, PaintGantt)
+DEMO_PAINT(Snackbar, snackbar, PaintSnackbar)
+DEMO_PAINT(CommandPalette, palette, PaintCommandPalette)
+DEMO_PAINT(QueryBuilder, query, PaintQueryBuilder)
+DEMO_PAINT(PropertyGrid, property, PaintPropertyGrid)
+DEMO_PAINT(Schedule, schedule, PaintSchedule)
+DEMO_PAINT(FileDropZone, dropZone, PaintFileDropZone)
+DEMO_PAINT(TreeMap, treeMap, PaintTreeMap)
+DEMO_PAINT(Funnel, funnel, PaintFunnel)
+DEMO_PAINT(Diff, diff, PaintDiff)
+DEMO_PAINT(Score, score, PaintScore)
+DEMO_PAINT(Chat, chat, PaintChat)
+DEMO_PAINT(MultiStatusBar, multiStatus, PaintMultiStatusBar)
+DEMO_PAINT(Ribbon, ribbon, PaintRibbon)
+DEMO_PAINT(NoticeCenter, notice, PaintNoticeCenter)
+DEMO_PAINT(Sparkline, spark, PaintSparkline)
+DEMO_PAINT(Waterfall, waterfall, PaintWaterfall)
+DEMO_PAINT(StackedBar, stacked, PaintStackedBar)
+DEMO_PAINT(Gauge, gauge, PaintGauge)
+DEMO_PAINT(JsonTree, jsonTree, PaintJsonTree)
+DEMO_PAINT(LogViewer, logs, PaintLogViewer)
+DEMO_PAINT(CronEditor, cron, PaintCronEditor)
+DEMO_PAINT(MentionInput, mention, PaintMentionInput)
+DEMO_PAINT(OrgChart, org, PaintOrgChart)
+DEMO_PAINT(Leaderboard, leaders, PaintLeaderboard)
+DEMO_PAINT(ActivityFeed, feed, PaintActivityFeed)
+DEMO_PAINT(Waveform, wave, PaintWaveform)
+#undef DEMO_PAINT
+
+// --- Paint commands (special cases) ---
+inline void DemoPaint_Framework(IPainter& g, const Rect& rc, ExtraDemoState& s,
+                                const Palette& pal, const Metrics& mx)
+{
+    g.Translate(Point{rc.left, rc.top});
+    s.host.PaintAll(g, pal, mx);
+    g.Translate(Point{-rc.left, -rc.top});
+    g.Text(Rect(rc.left, rc.bottom - 28, rc.right, rc.bottom),
+           L"ControlHost：z-order 命中 / 事件路由 / Tab 焦点 · 点击重叠区试试",
+           FontRole::Meta, pal.textSub,
+           dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix | dt::EndEllipsis);
+}
+
+inline void DemoPaint_ScrollVirtual(IPainter& g, const Rect& rc, ExtraDemoState& s,
+                                    const Palette& pal, const Metrics& mx)
+{
+    s.virtualList.scroll.viewH = rc.Height();
+    s.virtualList.scroll.contentH = ListDataContentHeight(s.virtualList, mx);
+    PaintListData(g, rc, s.virtualList, pal, mx);
+}
+
+inline void DemoPaint_DpiScaling(IPainter& g, const Rect& rc, ExtraDemoState& s,
+                                 const Palette& pal, const Metrics& mx)
+{
+    const Rect scaled = ScaleRect(Rect(0, 0, 100, 32), s.dpi);
+    g.FillRound(rc, mx.radiusMd, pal.surface);
+    g.StrokeRound(rc, mx.radiusMd, pal.split, 1);
+    g.Text(Rect(rc.left + mx.unit, rc.top, rc.right - mx.unit, rc.bottom),
+           L"DPI " + std::to_wstring(s.dpi) + L" · unit=" +
+           std::to_wstring(MetricsForDpi(s.dpiBase, s.dpi).unit) +
+           L" · 100x32 → " + std::to_wstring(scaled.Width()) + L"x" +
+           std::to_wstring(scaled.Height()) + L"（按 D 键切换 96/120/144）",
+           FontRole::Body, pal.text,
+           dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix | dt::EndEllipsis);
+}
+
+inline void DemoPaint_Animation(IPainter& g, const Rect& rc, ExtraDemoState& s,
+                                const Palette& pal, const Metrics& mx)
+{
+    SpinnerState sp = s.spinner;
+    sp.phase = s.animPhase;
+    PaintSpinner(g, Rect(rc.left, rc.top, rc.left + mx.unit * 20, rc.bottom), sp, pal, mx);
+    ControlState cs;
+    PaintProgressBar(g, Rect(rc.left + mx.unit * 22, rc.top + rc.Height() / 2 - 4,
+                             rc.right - mx.unit, rc.top + rc.Height() / 2 + 4),
+                     s.animPhase, cs, pal, mx);
+}
+
+inline void DemoPaint_Accessibility(IPainter& g, const Rect& rc, ExtraDemoState& s,
+                                    const Palette& pal, const Metrics& mx)
+{
+    g.FillRound(rc, mx.radiusMd, pal.sunken);
+    g.TextBlock(rc, L"无障碍树：\n" + DescribeAll(s.host),
+                FontRole::Meta, pal.textSub, 4);
+}
+
+inline void DemoPaint_StatusTag(IPainter& g, const Rect& rc, ExtraDemoState& s,
+                                const Palette& pal, const Metrics& mx)
+{
+    const int w = rc.Width() / 4;
+    const AlertKind kinds[] = { AlertKind::Info, AlertKind::Success,
+                                AlertKind::Warning, AlertKind::Error };
+    for (int i = 0; i < 4; ++i) {
+        StatusTagState st = s.statusTag;
+        st.kind = kinds[i];
+        st.text = kinds[i] == AlertKind::Info ? L"信息"
+                : kinds[i] == AlertKind::Success ? L"成功"
+                : kinds[i] == AlertKind::Warning ? L"警告" : L"错误";
+        PaintStatusTag(g, Rect(rc.left + i * w + mx.unit, rc.top + mx.unit,
+                               rc.left + (i + 1) * w - mx.unit,
+                               rc.bottom - mx.unit), st, pal, mx);
+    }
+}
+
+inline void DemoPaint_KbdChip(IPainter& g, const Rect& rc, ExtraDemoState& s,
+                              const Palette& pal, const Metrics& mx)
+{
+    const int w = MeasureKbdChip(s.kbd, mx);
+    PaintKbdChip(g, Rect(rc.right - w - mx.unit * 2, rc.top + mx.unit,
+                         rc.right - mx.unit * 2, rc.bottom - mx.unit),
+                 s.kbd, pal, mx);
+    KbdChipState alt; alt.key = L"Alt"; alt.label = L"+ F4 关闭";
+    const int w2 = MeasureKbdChip(alt, mx);
+    PaintKbdChip(g, Rect(rc.left + mx.unit, rc.top + mx.unit,
+                         rc.left + mx.unit + w2, rc.bottom - mx.unit),
+                 alt, pal, mx);
+}
+
+inline void DemoPaint_ListData(IPainter& g, const Rect& rc, ExtraDemoState& s,
+                               const Palette& pal, const Metrics& mx)
+{
+    s.listData.scroll.viewH = rc.Height();
+    s.listData.scroll.contentH = ListDataContentHeight(s.listData, mx);
+    PaintListData(g, rc, s.listData, pal, mx);
+}
+
+inline void DemoPaint_ContextMenu(IPainter& g, const Rect& rc, ExtraDemoState& s,
+                                  const Palette& pal, const Metrics& mx)
+{
+    s.contextMenu.anchor = Point{rc.left + mx.unit * 8, rc.top + mx.unit * 2};
+    PaintContextMenu(g, rc, s.contextMenu, pal, mx);
+}
+
+inline void DemoPaint_Spinner(IPainter& g, const Rect& rc, ExtraDemoState& s,
+                              const Palette& pal, const Metrics& mx)
+{
+    SpinnerState sp = s.spinner;
+    sp.phase = s.animPhase;
+    PaintSpinner(g, rc, sp, pal, mx);
+}
+
+inline void DemoPaint_Tooltip(IPainter& g, const Rect& rc, ExtraDemoState& s,
+                              const Palette& pal, const Metrics& mx)
+{
+    PaintTooltip(g, Rect(rc.left + mx.unit * 4, rc.top + mx.unit,
+                         rc.left + mx.unit * 18, rc.top + mx.unit * 5),
+                 rc, s.tooltip, pal, mx);
+}
+
+inline void DemoPaint_Popover(IPainter& g, const Rect& rc, ExtraDemoState& s,
+                              const Palette& pal, const Metrics& mx)
+{
+    PaintPopover(g, Rect(rc.left + mx.unit * 4, rc.top,
+                         rc.left + mx.unit * 18, rc.top + mx.unit * 4),
+                 rc, s.popover, pal, mx);
+}
+
+inline void DemoPaint_Scrollbar(IPainter& g, const Rect& rc, ExtraDemoState& s,
+                                const Palette& pal, const Metrics& mx)
+{
+    g.FillRound(rc, mx.radiusMd, pal.surface);
+    g.StrokeRound(rc, mx.radiusMd, pal.split, 1);
+    s.demoScroll.viewH = rc.Height();
+    PaintScrollbar(g, rc, s.demoScroll, pal, mx);
+    g.Text(Rect(rc.left + mx.unit, rc.top, rc.right - mx.unit * 3, rc.bottom),
+           L"自绘滚动条 · offset=" + std::to_wstring(s.demoScroll.offset) +
+           L" / max=" + std::to_wstring(ScrollMax(s.demoScroll)) +
+           L"（在此区域滚轮）",
+           FontRole::Meta, pal.textSub,
+           dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix | dt::EndEllipsis);
+}
+
+inline void DemoPaint_GuideTour(IPainter& g, const Rect& rc, ExtraDemoState& s,
+                                const Palette& pal, const Metrics& mx)
+{
+    PaintGuideTour(g, rc, GuideAnchorRect(rc, mx), s.guide, pal, mx);
+}
+
+inline void DemoPaint_WidgetClasses(IPainter& g, const Rect& rc, ExtraDemoState& s,
+                                    const Palette& pal, const Metrics& mx)
+{
+    const int gap = mx.unit;
+    const int cols = 3;
+    const int cw = (rc.Width() - gap * (cols - 1)) / cols;
+    const int ch = (rc.Height() - gap) / 2;
+    if (cw <= 0 || ch <= 0) return;
+    Control* items[6] = {&s.wButton, &s.wCheckbox, &s.wTextField,
+                         &s.wSlider, &s.wSparkline, &s.wGauge};
+    const wchar_t* names[6] = {
+        L"widgets::Button", L"widgets::Checkbox", L"widgets::TextField",
+        L"widgets::Slider", L"widgets::Sparkline", L"widgets::Gauge"};
+    const TextFormat tf = dt::SingleLine | dt::Left | dt::VCenter |
+                          dt::NoPrefix | dt::EndEllipsis;
+    for (int i = 0; i < 6; ++i) {
+        const int col = i % cols;
+        const int row = i / cols;
+        const Rect tile(rc.left + col * (cw + gap),
+                        rc.top + row * (ch + gap),
+                        rc.left + col * (cw + gap) + cw,
+                        rc.top + row * (ch + gap) + ch);
+        g.FillRound(tile, mx.radiusMd, pal.surface);
+        g.StrokeRound(tile, mx.radiusMd, pal.border, 1);
+        const int labelH = (std::min)(mx.rowH, ch / 3);
+        g.Text(Rect(tile.left + gap, tile.top + 2,
+                    tile.right - gap, tile.top + labelH),
+               names[i], FontRole::Meta, pal.textSub, tf);
+        const Rect body(tile.left + gap, tile.top + labelH,
+                        tile.right - gap, tile.bottom - gap);
+        items[i]->SetBounds(body);
+        items[i]->Paint(g, pal, mx);
+    }
+}
+
+// --- Click commands ---
+inline void DemoClick_Framework(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                                const Metrics&, std::wstring& status)
+{
+    const Point local{pt.x - rc.left, pt.y - rc.top};
+    PointerEvent ev; ev.pos = local; ev.down = true; ev.button = 0;
+    const ControlResult r = s.host.DispatchPointer(ev);
+    status = r.handled ? L"ControlHost：命中控件 #" + std::to_wstring(r.id)
+                       : L"ControlHost：空白区域";
+}
+
+inline void DemoClick_VirtualList(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                                  const Metrics& mx, std::wstring& status)
+{
+    ListDataState& target = s.virtualList;
+    const int row = ListDataRowAt(rc, target, mx, pt);
+    if (row >= 0) {
+        target.selected = row;
+        status = L"ListData：选中第 " + std::to_wstring(row + 1) + L" 行";
+    }
+}
+
+inline void DemoClick_TextBox(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                              const Metrics& mx, std::wstring& status)
+{
+    const int charW = 8;
+    s.textbox.edit.cursor = CaretIndexAt(rc, s.textbox.edit, mx, charW, pt);
+    s.textbox.edit.selectionAnchor = -1;
+    s.textbox.edit.hasFocus = true;
+    status = L"TextBox：光标定位，可用键盘编辑";
+}
+
+inline void DemoClick_Toolbar(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                              const Metrics& mx, std::wstring& status)
+{
+    const ToolbarHit h = HitToolbar(rc, s.toolbar, mx, pt);
+    if (h.action >= 0) status = L"Toolbar：点击动作 #" + std::to_wstring(h.action + 1);
+    else if (h.crumb >= 0) status = L"Toolbar：面包屑 " + s.toolbar.crumbs[static_cast<size_t>(h.crumb)];
+    else if (h.search) status = L"Toolbar：搜索框";
+}
+
+inline void DemoClick_Form(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                           const Metrics& mx, std::wstring& status)
+{
+    const FormHit h = HitForm(rc, s.form, mx, pt);
+    if (h.field >= 0) {
+        s.form.focusedField = h.field;
+        status = L"Form：聚焦字段 " + s.form.fields[static_cast<size_t>(h.field)].label;
+    } else if (h.submit) {
+        const int bad = ValidateForm(s.form);
+        status = bad < 0 ? L"Form：校验通过，已提交"
+                         : L"Form：字段 " + s.form.fields[static_cast<size_t>(bad)].label + L" 必填";
+    }
+}
+
+inline void DemoClick_DataGrid(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                               const Metrics& mx, std::wstring& status)
+{
+    const DataGridHit h = HitDataGrid(rc, s.grid, mx, pt);
+    if (h.resize >= 0) {
+        s.grid.resizingColumn = h.resize;
+        status = L"DataGrid：拖拽列宽 #" + std::to_wstring(h.resize + 1);
+    } else if (h.header && h.column >= 0) {
+        if (s.grid.sortColumn == h.column) s.grid.sortAscending = !s.grid.sortAscending;
+        else { s.grid.sortColumn = h.column; s.grid.sortAscending = true; }
+        status = L"DataGrid：按列 " + s.grid.columns[static_cast<size_t>(h.column)].header + L" 排序";
+    } else if (h.row >= 0) {
+        s.grid.selected = h.row;
+        status = L"DataGrid：选中第 " + std::to_wstring(h.row + 1) + L" 行";
+    }
+}
+
+inline void DemoClick_ListData(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                               const Metrics& mx, std::wstring& status)
+{
+    ListDataState& target = s.listData;
+    const int row = ListDataRowAt(rc, target, mx, pt);
+    if (row >= 0) {
+        target.selected = row;
+        status = L"ListData：选中第 " + std::to_wstring(row + 1) + L" 行";
+    }
+}
+
+inline void DemoClick_SearchBox(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                                const Metrics& mx, std::wstring& status)
+{
+    if (HitSearchBox(rc, s.search, mx, pt) == SearchBoxHit::Clear) {
+        s.search.text.clear();
+        status = L"SearchBox：已清空";
+    }
+}
+
+inline void DemoClick_PasswordBox(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                                  const Metrics& mx, std::wstring& status)
+{
+    if (HitPasswordBox(rc, s.password, mx, pt) == PasswordBoxHit::Reveal) {
+        s.password.revealed = !s.password.revealed;
+        status = s.password.revealed ? L"PasswordBox：已显示" : L"PasswordBox：已隐藏";
+    }
+}
+
+inline void DemoClick_NumberInput(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                                  const Metrics& mx, std::wstring& status)
+{
+    const NumberInputHit h = HitNumberInput(rc, s.number, mx, pt);
+    if (h == NumberInputHit::Plus)  s.number.value = (std::min)(s.number.max, s.number.value + s.number.step);
+    if (h == NumberInputHit::Minus) s.number.value = (std::max)(s.number.min, s.number.value - s.number.step);
+    status = L"NumberInput：value=" + std::to_wstring(s.number.value);
+}
+
+inline void DemoClick_DatePicker(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                                 const Metrics& mx, std::wstring& status)
+{
+    const int day = DatePickerDayAt(rc, s.date, mx, pt);
+    if (day > 0) { s.date.day = day; status = L"DatePicker：选择 " + std::to_wstring(day) + L" 日"; }
+    else if (day == -2 || day == -3) {
+        s.date.month += day == -2 ? -1 : 1;
+        if (s.date.month < 1) { s.date.month = 12; --s.date.year; }
+        if (s.date.month > 12) { s.date.month = 1; ++s.date.year; }
+        status = L"DatePicker：切换月份";
+    }
+}
+
+inline void DemoClick_ColorPicker(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                                  const Metrics& mx, std::wstring& status)
+{
+    const int i = ColorPickerSwatchAt(rc, s.color, mx, pt);
+    if (i >= 0) { s.color.selected = i; status = L"ColorPicker：选择色块 #" + std::to_wstring(i + 1); }
+}
+
+inline void DemoClick_Dropdown(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                               const Metrics& mx, std::wstring& status)
+{
+    const int o = DropdownOptionAt(rc, s.dropdown, mx, pt);
+    if (o >= 0) {
+        s.dropdown.selected = o;
+        s.dropdown.text = s.dropdown.options[static_cast<size_t>(o)];
+        status = L"Dropdown：选择 " + s.dropdown.text;
+    } else if (o == -1) {
+        s.dropdown.open = !s.dropdown.open;
+        status = s.dropdown.open ? L"Dropdown：展开" : L"Dropdown：收起";
+    }
+}
+
+inline void DemoClick_Menu(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                           const Metrics& mx, std::wstring& status)
+{
+    const int i = MenuItemAt(rc, s.menu, mx, pt);
+    if (i >= 0) {
+        s.menu.selected = i;
+        status = L"Menu：选择 " + s.menu.items[static_cast<size_t>(i)].text;
+    }
+}
+
+inline void DemoClick_MultiSelect(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                                  const Metrics& mx, std::wstring& status)
+{
+    const int i = MultiSelectAt(rc, s.multi, mx, pt);
+    if (i >= 0 && i < static_cast<int>(s.multi.checked.size())) {
+        s.multi.checked[static_cast<size_t>(i)] = !s.multi.checked[static_cast<size_t>(i)];
+        status = L"MultiSelect：切换 " + s.multi.options[static_cast<size_t>(i)];
+    }
+}
+
+inline void DemoClick_Transfer(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                               const Metrics& mx, std::wstring& status)
+{
+    const TransferHit h = HitTransfer(rc, s.transfer, mx, pt);
+    if (h.button != 0) {
+        const int row = h.button == 1 ? 0 : 0;
+        MoveTransferItem(s.transfer, h.button == 1 ? 0 : 1, row);
+        status = L"Transfer：移动条目";
+    } else if (h.row >= 0) {
+        if (h.side == 0 && h.row < static_cast<int>(s.transfer.leftChecked.size()))
+            s.transfer.leftChecked[static_cast<size_t>(h.row)] = !s.transfer.leftChecked[static_cast<size_t>(h.row)];
+        if (h.side == 1 && h.row < static_cast<int>(s.transfer.rightChecked.size()))
+            s.transfer.rightChecked[static_cast<size_t>(h.row)] = !s.transfer.rightChecked[static_cast<size_t>(h.row)];
+        status = L"Transfer：勾选条目";
+    }
+}
+
+inline void DemoClick_Steps(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                            const Metrics& mx, std::wstring& status)
+{
+    const int i = StepAt(rc, s.steps, mx, pt);
+    if (i >= 0) { s.steps.current = i; status = L"Steps：跳到第 " + std::to_wstring(i + 1) + L" 步"; }
+}
+
+inline void DemoClick_Calendar(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                               const Metrics& mx, std::wstring& status)
+{
+    const int d = CalendarDayAt(rc, s.calendar, mx, pt);
+    if (d > 0) { s.calendar.selectedDay = d; status = L"Calendar：选择 " + std::to_wstring(d) + L" 日"; }
+}
+
+inline void DemoClick_Chart(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                            const Metrics& mx, std::wstring& status)
+{
+    const int i = ChartBarAt(rc, s.chart, mx, pt);
+    if (i >= 0) { s.chart.hovered = i; status = L"Chart：柱 #" + std::to_wstring(i + 1); }
+}
+
+inline void DemoClick_Carousel(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                               const Metrics& mx, std::wstring& status)
+{
+    const CarouselHitResult h = HitCarousel(rc, s.carousel, mx, pt);
+    const int n = static_cast<int>(s.carousel.slides.size());
+    if (h.code == 1) s.carousel.current = (s.carousel.current - 1 + n) % n;
+    else if (h.code == 2) s.carousel.current = (s.carousel.current + 1) % n;
+    else if (h.code == 3 && h.index >= 0) s.carousel.current = h.index % n;
+    if (h.code != 0) status = L"Carousel：第 " + std::to_wstring(s.carousel.current + 1) + L" 页";
+}
+
+inline void DemoClick_Modal(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                            const Metrics& mx, std::wstring& status)
+{
+    const int b = ModalButtonAt(rc, s.modal, mx, pt);
+    if (b > 0) { s.modal.focused = b; status = b == 1 ? L"Modal：确定" : L"Modal：取消"; }
+}
+
+inline void DemoClick_Result(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                             const Metrics& mx, std::wstring& status)
+{
+    if (ResultActionHit(rc, s.result, mx, pt))
+        status = L"Result：点击返回首页";
+}
+
+inline void DemoClick_Accordion(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                                const Metrics& mx, std::wstring& status)
+{
+    const int i = AccordionHeaderAt(rc, s.accordion, mx, pt);
+    if (i >= 0) {
+        if (i >= static_cast<int>(s.accordion.expanded.size()))
+            s.accordion.expanded.resize(static_cast<size_t>(i + 1), false);
+        s.accordion.expanded[static_cast<size_t>(i)] = !s.accordion.expanded[static_cast<size_t>(i)];
+        status = L"Accordion：展开/折叠 " + s.accordion.panels[static_cast<size_t>(i)].first;
+    }
+}
+
+inline void DemoClick_Anchor(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                             const Metrics& mx, std::wstring& status)
+{
+    const int i = AnchorHit(rc, s.anchor, mx, pt);
+    if (i >= 0) { s.anchor.active = i; status = L"Anchor：跳转 " + s.anchor.items[static_cast<size_t>(i)]; }
+}
+
+inline void DemoClick_Splitter(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                               const Metrics& mx, std::wstring& status)
+{
+    if (SplitterHandleHit(rc, s.splitter, mx, pt)) {
+        s.splitter.dragging = !s.splitter.dragging;
+        status = s.splitter.dragging ? L"Splitter：开始拖拽" : L"Splitter：结束拖拽";
+    }
+}
+
+inline void DemoClick_ColumnResize(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                                   const Metrics& mx, std::wstring& status)
+{
+    const int i = ColumnResizeHandleAt(rc, s.columnResize, mx, pt);
+    if (i >= 0) {
+        s.columnResize.dragging = i;
+        status = L"ColumnResize：拖拽边界 #" + std::to_wstring(i + 1);
+    }
+}
+
+inline void DemoClick_Scrollbar(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                                const Metrics& mx, std::wstring& status)
+{
+    const ScrollBarHit h = HitScrollbar(rc, s.demoScroll, mx, pt);
+    if (h == ScrollBarHit::TrackAbove) ScrollPage(s.demoScroll, -1);
+    else if (h == ScrollBarHit::TrackBelow) ScrollPage(s.demoScroll, 1);
+    else if (h == ScrollBarHit::UpButton) ScrollBy(s.demoScroll, -s.demoScroll.lineH);
+    else if (h == ScrollBarHit::DownButton) ScrollBy(s.demoScroll, s.demoScroll.lineH);
+    status = L"Scrollbar：offset=" + std::to_wstring(s.demoScroll.offset);
+}
+
+inline void DemoClick_TagInput(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                               const Metrics& mx, std::wstring& status)
+{
+    const TagInputHit h = HitTagInput(rc, s.tagInput, mx, pt);
+    if (h.close && h.tag >= 0 && h.tag < static_cast<int>(s.tagInput.tags.size())) {
+        const std::wstring removed = s.tagInput.tags[static_cast<size_t>(h.tag)];
+        s.tagInput.tags.erase(s.tagInput.tags.begin() + h.tag);
+        s.tagInput.hoveredTag = -1;
+        status = L"TagInput：移除标签 " + removed;
+    } else if (h.clearAll) {
+        s.tagInput.tags.clear();
+        status = L"TagInput：已清空全部标签";
+    } else if (h.input) {
+        s.tagInput.hasFocus = true;
+        status = L"TagInput：输入区已聚焦";
+    }
+}
+
+inline void DemoClick_RangeSlider(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                                  const Metrics& mx, std::wstring& status)
+{
+    const int thumb = RangeSliderThumbAt(rc, s.rangeSlider, mx, pt);
+    if (thumb == 1 || thumb == 2) {
+        s.rangeSlider.draggingThumb = thumb;
+        s.rangeSlider.hoveredThumb = thumb;
+        status = thumb == 1 ? L"RangeSlider：拖拽下限" : L"RangeSlider：拖拽上限";
+    } else if (thumb != -2) {
+        const int v = RangeSliderValueAt(rc, s.rangeSlider, mx, pt);
+        int dLow = v - s.rangeSlider.low;  if (dLow < 0) dLow = -dLow;
+        int dHigh = v - s.rangeSlider.high; if (dHigh < 0) dHigh = -dHigh;
+        if (dLow <= dHigh) s.rangeSlider.low = (std::min)(v, s.rangeSlider.high);
+        else s.rangeSlider.high = (std::max)(v, s.rangeSlider.low);
+        status = L"RangeSlider：区间 " + std::to_wstring(s.rangeSlider.low) +
+                 L" – " + std::to_wstring(s.rangeSlider.high);
+    }
+}
+
+inline void DemoClick_OtpInput(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                               const Metrics& mx, std::wstring& status)
+{
+    const int cell = OtpCellAt(rc, s.otp, mx, pt);
+    if (cell >= 0) {
+        s.otp.focused = cell;
+        status = L"OtpInput：聚焦第 " + std::to_wstring(cell + 1) + L" 格";
+    }
+}
+
+inline void DemoClick_Cascader(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                               const Metrics& mx, std::wstring& status)
+{
+    const CascaderHit h = HitCascader(rc, s.cascader, mx, pt);
+    if (h.column >= 0 && h.row >= 0) {
+        if (static_cast<int>(s.cascader.selected.size()) < h.column + 1)
+            s.cascader.selected.resize(static_cast<size_t>(h.column + 1), -1);
+        s.cascader.selected[static_cast<size_t>(h.column)] = h.row;
+        for (int c = h.column + 1; c < static_cast<int>(s.cascader.selected.size()); ++c)
+            s.cascader.selected[static_cast<size_t>(c)] = -1;
+        status = L"Cascader：选择 " +
+                 s.cascader.columns[static_cast<size_t>(h.column)]
+                     .items[static_cast<size_t>(h.row)];
+    }
+}
+
+inline void DemoClick_AvatarGroup(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                                  const Metrics& mx, std::wstring& status)
+{
+    const int a = AvatarGroupAt(rc, s.avatars, mx, pt);
+    if (a >= 0) {
+        s.avatars.hovered = a;
+        status = L"AvatarGroup：成员 " + s.avatars.items[static_cast<size_t>(a)].text;
+    } else if (a == -2) {
+        status = L"AvatarGroup：展开更多成员";
+    }
+}
+
+inline void DemoClick_Heatmap(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                              const Metrics& mx, std::wstring& status)
+{
+    const HeatmapCell c = HeatmapCellAt(rc, s.heatmap, mx, pt);
+    if (c.week >= 0) {
+        s.heatmap.hoveredWeek = c.week;
+        s.heatmap.hoveredDay = c.day;
+        const int idx = c.week * 7 + c.day;
+        const int level = (idx < static_cast<int>(s.heatmap.values.size()))
+                        ? s.heatmap.values[static_cast<size_t>(idx)] : 0;
+        status = L"Heatmap：第 " + std::to_wstring(c.week + 1) +
+                 L" 周 · 强度 " + std::to_wstring(level);
+    }
+}
+
+inline void DemoClick_CodeBlock(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                                const Metrics& mx, std::wstring& status)
+{
+    if (CodeBlockCopyHit(rc, s.codeBlock, mx, pt)) {
+        s.codeBlock.copyHover = true;
+        status = L"CodeBlock：已复制代码";
+    }
+}
+
+inline void DemoClick_Kanban(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                             const Metrics& mx, std::wstring& status)
+{
+    const KanbanHit h = HitKanban(rc, s.kanban, mx, pt);
+    if (h.column >= 0 && h.card >= 0) {
+        s.kanban.hoveredColumn = h.column;
+        s.kanban.hoveredCard = h.card;
+        status = L"KanbanBoard：选中卡片 " +
+                 s.kanban.columns[static_cast<size_t>(h.column)]
+                     .cards[static_cast<size_t>(h.card)].title;
+    }
+}
+
+inline void DemoClick_Gantt(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                            const Metrics& mx, std::wstring& status)
+{
+    const int t = GanttTaskAt(rc, s.gantt, mx, pt);
+    if (t >= 0) {
+        s.gantt.hoveredTask = t;
+        status = L"GanttChart：任务 " + s.gantt.tasks[static_cast<size_t>(t)].name;
+    }
+}
+
+inline void DemoClick_Snackbar(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                               const Metrics& mx, std::wstring& status)
+{
+    const SnackbarHit h = HitSnackbar(rc, s.snackbar, mx, pt);
+    if (h == SnackbarHit::Action) {
+        s.snackbar.actionHover = true;
+        status = L"Snackbar：已撤销删除";
+    } else if (h == SnackbarHit::Close) {
+        s.snackbar.closeHover = true;
+        status = L"Snackbar：关闭提示条";
+    }
+}
+
+inline void DemoClick_CommandPalette(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                                     const Metrics& mx, std::wstring& status)
+{
+    const CommandPaletteHit h = HitCommandPalette(rc, s.palette, mx, pt);
+    if (h.row >= 0 && h.row < static_cast<int>(s.palette.items.size())) {
+        const std::vector<int> matches = CommandPaletteMatches(s.palette);
+        for (size_t k = 0; k < matches.size(); ++k) {
+            if (matches[k] == h.row) s.palette.selected = static_cast<int>(k);
+        }
+        status = L"CommandPalette：执行 " + s.palette.items[static_cast<size_t>(h.row)].title;
+    } else if (h.search) {
+        status = L"CommandPalette：搜索框（可输入过滤）";
+    }
+}
+
+inline void DemoClick_GuideTour(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                                const Metrics& mx, std::wstring& status)
+{
+    const GuideTourHit h = HitGuideTour(rc, GuideAnchorRect(rc, mx), s.guide, mx, pt);
+    if (h == GuideTourHit::Next) {
+        s.guide.step = (std::min)(s.guide.total, s.guide.step + 1);
+        status = L"GuideTour：第 " + std::to_wstring(s.guide.step) + L" 步";
+    } else if (h == GuideTourHit::Prev) {
+        s.guide.step = (std::max)(1, s.guide.step - 1);
+        status = L"GuideTour：返回第 " + std::to_wstring(s.guide.step) + L" 步";
+    } else if (h == GuideTourHit::Skip) {
+        s.guide.step = 1;
+        status = L"GuideTour：已跳过引导";
+    }
+}
+
+inline void DemoClick_QueryBuilder(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                                   const Metrics& mx, std::wstring& status)
+{
+    const QueryBuilderHit h = HitQueryBuilder(rc, s.query, mx, pt);
+    s.query.hoveredRow = h.row;
+    s.query.addHover = h.kind == QueryHitKind::Add;
+    switch (h.kind) {
+    case QueryHitKind::Logic: {
+        QueryCondition& c = s.query.conditions[static_cast<size_t>(h.row)];
+        c.logic = (c.logic == L"AND") ? L"OR" : L"AND";
+        status = L"QueryBuilder：第 " + std::to_wstring(h.row + 1) +
+                 L" 条切换为 " + c.logic;
+        break;
+    }
+    case QueryHitKind::Field:
+        s.query.hoveredCell = 1;
+        status = L"QueryBuilder：编辑字段";
+        break;
+    case QueryHitKind::Operator:
+        s.query.hoveredCell = 2;
+        status = L"QueryBuilder：切换操作符";
+        break;
+    case QueryHitKind::Value:
+        s.query.hoveredCell = 3;
+        status = L"QueryBuilder：编辑取值";
+        break;
+    case QueryHitKind::Remove:
+        if (h.row >= 0 && h.row < static_cast<int>(s.query.conditions.size())) {
+            s.query.conditions.erase(s.query.conditions.begin() + h.row);
+            status = L"QueryBuilder：已删除第 " + std::to_wstring(h.row + 1) + L" 条";
+        }
+        break;
+    case QueryHitKind::Add:
+        s.query.conditions.push_back({L"AND", L"新字段", L"=", L""});
+        status = L"QueryBuilder：新增一条条件";
+        break;
+    default:
+        status = L"QueryBuilder：点击条件行进行编辑";
+        break;
+    }
+}
+
+inline void DemoClick_PropertyGrid(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                                   const Metrics& mx, std::wstring& status)
+{
+    const PropertyGridHit h = HitPropertyGrid(rc, s.property, mx, pt);
+    if (h.item >= 0 && h.item < static_cast<int>(s.property.items.size())) {
+        PropertyItem& item = s.property.items[static_cast<size_t>(h.item)];
+        s.property.selected = h.item;
+        s.property.hovered = h.item;
+        if (h.onValue && item.enabled && item.kind == PropertyKind::Bool) {
+            item.value = (item.value == L"true") ? L"false" : L"true";
+            status = L"PropertyGrid：" + item.name + L" → " + item.value;
+        } else if (h.onValue && item.enabled && item.kind == PropertyKind::Choice) {
+            item.value = (item.value == L"浅色") ? L"深色" : L"浅色";
+            status = L"PropertyGrid：" + item.name + L" → " + item.value;
+        } else {
+            status = L"PropertyGrid：选中 " + item.name;
+        }
+    }
+}
+
+inline void DemoClick_Schedule(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                               const Metrics& mx, std::wstring& status)
+{
+    const int hit = ScheduleEventAt(rc, s.schedule, mx, pt);
+    s.schedule.hovered = hit;
+    if (hit >= 0 && hit < static_cast<int>(s.schedule.events.size())) {
+        const ScheduleEvent& ev = s.schedule.events[static_cast<size_t>(hit)];
+        status = L"ScheduleGrid：" + ev.title + L" · " +
+                 std::to_wstring(ev.startHour) + L":00–" +
+                 std::to_wstring(ev.endHour) + L":00";
+    }
+}
+
+inline void DemoClick_FileDropZone(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                                   const Metrics& mx, std::wstring& status)
+{
+    const FileDropZoneHit h = HitFileDropZone(rc, s.dropZone, mx, pt);
+    s.dropZone.hovered = h.file;
+    if (h.remove && h.file >= 0 && h.file < static_cast<int>(s.dropZone.files.size())) {
+        s.dropZone.files.erase(s.dropZone.files.begin() + h.file);
+        status = L"FileDropZone：已移除文件";
+    } else if (h.drop) {
+        s.dropZone.dragOver = !s.dropZone.dragOver;
+        status = s.dropZone.dragOver ? L"FileDropZone：拖拽悬停态"
+                                     : L"FileDropZone：取消拖拽态";
+    } else if (h.file >= 0 && h.file < static_cast<int>(s.dropZone.files.size())) {
+        UploadFile& f = s.dropZone.files[static_cast<size_t>(h.file)];
+        f.progress = (f.progress >= 100) ? 0 : (std::min)(100, f.progress + 20);
+        status = L"FileDropZone：" + f.name + L" 进度 " +
+                 std::to_wstring(f.progress) + L"%";
+    }
+}
+
+inline void DemoClick_TreeMap(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                              const Metrics& mx, std::wstring& status)
+{
+    const int hit = TreeMapTileAt(rc, s.treeMap, mx, pt);
+    s.treeMap.hovered = hit;
+    if (hit >= 0 && hit < static_cast<int>(s.treeMap.items.size())) {
+        const TileItem& t = s.treeMap.items[static_cast<size_t>(hit)];
+        status = L"TreeMap：" + t.label + L" · 权重 " + std::to_wstring(t.weight);
+    }
+}
+
+inline void DemoClick_Funnel(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                             const Metrics& mx, std::wstring& status)
+{
+    const int hit = FunnelStageAt(rc, s.funnel, mx, pt);
+    s.funnel.hovered = hit;
+    if (hit >= 0 && hit < static_cast<int>(s.funnel.stages.size())) {
+        const FunnelStage& f = s.funnel.stages[static_cast<size_t>(hit)];
+        status = L"FunnelChart：" + f.label + L" · " + std::to_wstring(f.value) + L" 人";
+    }
+}
+
+inline void DemoClick_Diff(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                           const Metrics& mx, std::wstring& status)
+{
+    const int hit = DiffLineAt(rc, s.diff, mx, pt);
+    s.diff.hovered = hit;
+    if (hit >= 0 && hit < static_cast<int>(s.diff.lines.size())) {
+        const DiffLine& line = s.diff.lines[static_cast<size_t>(hit)];
+        const wchar_t* kind = line.kind == DiffKind::Added ? L"新增"
+                              : line.kind == DiffKind::Removed ? L"删除" : L"上下文";
+        status = std::wstring(L"DiffView：第 ") + std::to_wstring(hit + 1) +
+                 L" 行 · " + kind;
+    }
+}
+
+inline void DemoClick_Score(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                            const Metrics& mx, std::wstring& status)
+{
+    const int hit = ScoreBarAt(rc, s.score, mx, pt);
+    s.score.hovered = hit;
+    if (hit >= 0 && hit < static_cast<int>(s.score.counts.size())) {
+        status = L"ScoreBreakdown：" + std::to_wstring(5 - hit) +
+                 L" 星 · " + std::to_wstring(s.score.counts[static_cast<size_t>(hit)]) +
+                 L" 条";
+    }
+}
+
+inline void DemoClick_Chat(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                           const Metrics& mx, std::wstring& status)
+{
+    const int hit = ChatMessageAt(rc, s.chat, mx, pt);
+    s.chat.hovered = hit;
+    if (hit >= 0 && hit < static_cast<int>(s.chat.messages.size())) {
+        const ChatMessage& m = s.chat.messages[static_cast<size_t>(hit)];
+        status = L"ChatThread：" + m.author + L" · " + m.time;
+    }
+}
+
+inline void DemoClick_MultiStatusBar(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                                     const Metrics& mx, std::wstring& status)
+{
+    const MultiStatusBarHit h = HitMultiStatusBar(rc, s.multiStatus, mx, pt);
+    s.multiStatus.hovered = h.segment;
+    if (h.segment >= 0 && h.segment < static_cast<int>(s.multiStatus.segments.size())) {
+        StatusSegment& seg = s.multiStatus.segments[static_cast<size_t>(h.segment)];
+        seg.active = !seg.active;
+        status = L"MultiStatusBar：" + seg.text + (seg.active ? L" 已激活" : L" 已取消");
+    }
+}
+
+inline void DemoClick_Ribbon(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                             const Metrics& mx, std::wstring& status)
+{
+    const RibbonHit h = HitRibbon(rc, s.ribbon, mx, pt);
+    s.ribbon.hoveredGroup = h.group;
+    s.ribbon.hoveredButton = h.button;
+    if (h.group >= 0 && h.group < static_cast<int>(s.ribbon.groups.size()) &&
+        h.button >= 0 && h.button < static_cast<int>(s.ribbon.groups[static_cast<size_t>(h.group)].buttons.size())) {
+        const RibbonButton& b =
+            s.ribbon.groups[static_cast<size_t>(h.group)].buttons[static_cast<size_t>(h.button)];
+        status = std::wstring(L"RibbonBar：") + b.label +
+                 (b.disabled ? L"（禁用）" : L" 已执行");
+    }
+}
+
+inline void DemoClick_NoticeCenter(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                                   const Metrics& mx, std::wstring& status)
+{
+    const NoticeCenterHit h = HitNoticeCenter(rc, s.notice, mx, pt);
+    s.notice.readAllHover = h.readAll;
+    s.notice.hovered = h.item;
+    if (h.readAll) {
+        for (NoticeItem& item : s.notice.items) item.unread = false;
+        status = L"NoticeCenter：全部标为已读";
+    } else if (h.item >= 0 && h.item < static_cast<int>(s.notice.items.size())) {
+        NoticeItem& item = s.notice.items[static_cast<size_t>(h.item)];
+        item.unread = false;
+        status = L"NoticeCenter：" + item.title + L" 已读 · 剩余 " +
+                 std::to_wstring(NoticeUnreadCount(s.notice)) + L" 条未读";
+    }
+}
+
+inline void DemoClick_Sparkline(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                                const Metrics& mx, std::wstring& status)
+{
+    const int i = SparklinePointAt(rc, s.spark, mx, pt);
+    s.spark.hovered = i;
+    status = i >= 0 && i < static_cast<int>(s.spark.values.size())
+                 ? L"Sparkline：第 " + std::to_wstring(i + 1) +
+                   L" 个采样点，数值 " +
+                   std::to_wstring(static_cast<int>(s.spark.values[static_cast<size_t>(i)]))
+                 : L"Sparkline：点在绘图区外";
+}
+
+inline void DemoClick_Waterfall(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                                const Metrics& mx, std::wstring& status)
+{
+    const int i = WaterfallBarAt(rc, s.waterfall, mx, pt);
+    s.waterfall.hovered = i;
+    status = i >= 0 && i < static_cast<int>(s.waterfall.bars.size())
+                 ? L"WaterfallChart：" + s.waterfall.bars[static_cast<size_t>(i)].label +
+                   L" · 变化 " + std::to_wstring(static_cast<int>(
+                       s.waterfall.bars[static_cast<size_t>(i)].delta))
+                 : L"WaterfallChart：点在绘图区外";
+}
+
+inline void DemoClick_StackedBar(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                                 const Metrics& mx, std::wstring& status)
+{
+    const StackedBarHit h = HitStackedBar(rc, s.stacked, mx, pt);
+    s.stacked.hoveredRow = h.row;
+    s.stacked.hoveredSeg = h.seg;
+    status = (h.row >= 0 && h.seg >= 0 && h.row < static_cast<int>(s.stacked.rows.size()))
+                 ? L"StackedBar：" + s.stacked.rows[static_cast<size_t>(h.row)].label +
+                   L" · " + s.stacked.legend[static_cast<size_t>(
+                       (std::min)(h.seg, static_cast<int>(s.stacked.legend.size()) - 1))]
+                 : L"StackedBar：点在条形区外";
+}
+
+inline void DemoClick_Gauge(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                            const Metrics& mx, std::wstring& status)
+{
+    const int i = GaugeSegmentAt(rc, s.gauge, mx, pt);
+    s.gauge.hovered = i;
+    status = i >= 0 ? L"GaugeMeter：第 " + std::to_wstring(i + 1) +
+                   L" 段，当前 " + std::to_wstring(static_cast<int>(s.gauge.value)) + L"%"
+                 : L"GaugeMeter：点在刻度区外";
+}
+
+inline void DemoClick_JsonTree(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                               const Metrics& mx, std::wstring& status)
+{
+    const JsonTreeHit h = HitJsonTree(rc, s.jsonTree, mx, pt);
+    s.jsonTree.hovered = h.node;
+    if (h.node < 0 || h.node >= static_cast<int>(s.jsonTree.nodes.size())) {
+        status = L"JsonTree：点在节点区外";
+        return;
+    }
+    JsonNode& node = s.jsonTree.nodes[static_cast<size_t>(h.node)];
+    if (h.toggle && node.expandable) {
+        node.expanded = !node.expanded;
+        status = std::wstring(L"JsonTree：") + node.key +
+                 (node.expanded ? L" 已展开" : L" 已折叠");
+    } else {
+        s.jsonTree.selected = h.node;
+        status = L"JsonTree：选中 " + node.key + L" = " + node.value;
+    }
+}
+
+inline void DemoClick_LogViewer(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                                const Metrics& mx, std::wstring& status)
+{
+    const int i = LogLineAt(rc, s.logs, mx, pt);
+    s.logs.selected = i;
+    s.logs.hovered = i;
+    status = i >= 0 && i < static_cast<int>(s.logs.entries.size())
+                 ? L"LogViewer：" + s.logs.entries[static_cast<size_t>(i)].text
+                 : L"LogViewer：点在日志区外";
+}
+
+inline void DemoClick_CronEditor(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                                 const Metrics& mx, std::wstring& status)
+{
+    const CronEditorHit h = HitCronEditor(rc, s.cron, mx, pt);
+    s.cron.hoveredField = h.field;
+    s.cron.hoveredPreset = h.preset;
+    if (h.preset >= 0 && h.preset < static_cast<int>(s.cron.presets.size())) {
+        s.cron.selectedPreset = h.preset;
+        s.cron.focused = false;
+        switch (h.preset) {
+        case 0: s.cron.fields = {L"0", L"*", L"*", L"*", L"*"};
+                s.cron.description = L"每小时整点执行一次"; break;
+        case 1: s.cron.fields = {L"0", L"9", L"*", L"*", L"*"};
+                s.cron.description = L"每天上午 09:00 执行一次"; break;
+        case 2: s.cron.fields = {L"0", L"9", L"*", L"*", L"1"};
+                s.cron.description = L"每周一上午 09:00 执行一次"; break;
+        default: s.cron.description = L"自定义表达式，可点击字段编辑"; break;
+        }
+        status = L"CronEditor：已应用预设「" +
+                 s.cron.presets[static_cast<size_t>(h.preset)] + L"」";
+    } else if (h.field >= 0) {
+        s.cron.focused = true;
+        status = L"CronEditor：选中第 " + std::to_wstring(h.field + 1) + L" 段";
+    }
+}
+
+inline void DemoClick_MentionInput(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                                   const Metrics& mx, std::wstring& status)
+{
+    const MentionInputHit h = HitMentionInput(rc, s.mention, mx, pt);
+    s.mention.hovered = h.candidate;
+    if (h.candidate >= 0 && h.candidate < static_cast<int>(s.mention.candidates.size())) {
+        const MentionCandidate& c =
+            s.mention.candidates[static_cast<size_t>(h.candidate)];
+        s.mention.text = L"@" + c.name + L" ";
+        s.mention.selected = h.candidate;
+        s.mention.showCandidates = false;
+        status = L"MentionInput：已提及 " + c.name;
+    } else if (h.input) {
+        s.mention.showCandidates = true;
+        s.mention.focused = true;
+        status = L"MentionInput：候选项已展开";
+    }
+}
+
+inline void DemoClick_OrgChart(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                               const Metrics& mx, std::wstring& status)
+{
+    const int i = OrgNodeAt(rc, s.org, mx, pt);
+    s.org.selected = i;
+    s.org.hovered = i;
+    status = i >= 0 && i < static_cast<int>(s.org.nodes.size())
+                 ? L"OrgChart：选中 " + s.org.nodes[static_cast<size_t>(i)].name +
+                   L" · " + s.org.nodes[static_cast<size_t>(i)].role
+                 : L"OrgChart：点在节点外";
+}
+
+inline void DemoClick_Leaderboard(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                                  const Metrics& mx, std::wstring& status)
+{
+    const int i = LeaderRowAt(rc, s.leaders, mx, pt);
+    s.leaders.selected = i;
+    s.leaders.hovered = i;
+    status = i >= 0 && i < static_cast<int>(s.leaders.rows.size())
+                 ? L"Leaderboard：第 " + std::to_wstring(i + 1) + L" 名 " +
+                   s.leaders.rows[static_cast<size_t>(i)].name
+                 : L"Leaderboard：点在榜单外";
+}
+
+inline void DemoClick_ActivityFeed(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                                   const Metrics& mx, std::wstring& status)
+{
+    const int i = ActivityItemAt(rc, s.feed, mx, pt);
+    s.feed.hovered = i;
+    if (i >= 0 && i < static_cast<int>(s.feed.items.size())) {
+        ActivityItem& item = s.feed.items[static_cast<size_t>(i)];
+        item.unread = false;
+        status = L"ActivityFeed：" + item.actor + L" " + item.action +
+                 L" " + item.target + L"（已读）";
+    }
+}
+
+inline void DemoClick_AudioWaveform(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                                    const Metrics& mx, std::wstring& status)
+{
+    if (WaveformPlayButtonAt(rc, s.wave, mx, pt)) {
+        s.wave.playing = !s.wave.playing;
+        status = s.wave.playing ? L"AudioWaveform：开始播放"
+                                : L"AudioWaveform：已暂停";
+    } else {
+        const int milli = WaveformPositionAt(rc, s.wave, mx, pt);
+        s.wave.position = static_cast<double>(milli) / 1000.0;
+        status = L"AudioWaveform：跳转到 " +
+                 std::to_wstring(static_cast<int>(s.wave.duration * s.wave.position)) +
+                 L" 秒";
+    }
+}
+
+inline void DemoClick_WidgetClasses(int, Point pt, const Rect& rc, ExtraDemoState& s,
+                                    const Metrics& mx, std::wstring& status)
+{
+    const int gap = mx.unit;
+    const int cols = 3;
+    const int cw = (rc.Width() - gap * (cols - 1)) / cols;
+    const int ch = (rc.Height() - gap) / 2;
+    if (cw <= 0 || ch <= 0) return;
+    Control* items[6] = {&s.wButton, &s.wCheckbox, &s.wTextField,
+                         &s.wSlider, &s.wSparkline, &s.wGauge};
+    for (int i = 0; i < 6; ++i) {
+        const int col = i % cols;
+        const int row = i / cols;
+        const Rect tile(rc.left + col * (cw + gap),
+                        rc.top + row * (ch + gap),
+                        rc.left + col * (cw + gap) + cw,
+                        rc.top + row * (ch + gap) + ch);
+        if (!tile.Contains(pt)) continue;
+        PointerEvent ev; ev.pos = pt; ev.down = true;
+        const ControlResult r = items[i]->OnPointer(ev);
+        switch (i) {
+        case 0:
+            s.wButton.style = s.wButton.style == ButtonStyle::Primary
+                                  ? ButtonStyle::Secondary : ButtonStyle::Primary;
+            status = L"widgets::Button：切换按钮样式";
+            break;
+        case 1:
+            s.wCheckbox.state.checked = !s.wCheckbox.state.checked;
+            status = s.wCheckbox.state.checked ? L"widgets::Checkbox：已勾选"
+                                               : L"widgets::Checkbox：已取消";
+            break;
+        case 2:
+            s.wTextField.state.hasFocus = !s.wTextField.state.hasFocus;
+            status = L"widgets::TextField：切换焦点外观";
+            break;
+        case 3:
+            s.wSlider.state.value = (s.wSlider.state.value + 13) % 101;
+            status = L"widgets::Slider：value = " +
+                     std::to_wstring(s.wSlider.state.value);
+            break;
+        case 4:
+            s.wSparkline.state.hovered =
+                (s.wSparkline.state.hovered + 1) %
+                static_cast<int>(s.wSparkline.state.values.size());
+            status = L"widgets::Sparkline：切换高亮数据点";
+            break;
+        default:
+            s.wGauge.state.value = s.wGauge.state.value + 9 > 100
+                                       ? 10 : s.wGauge.state.value + 9;
+            status = L"widgets::Gauge：value = " +
+                     std::to_wstring(static_cast<int>(s.wGauge.state.value));
+            break;
+        }
+        status += r.handled ? L"（事件已处理）" : L"（未处理）";
+        break;
+    }
+}
+
+// --- Wheel commands ---
+inline bool DemoWheel_VirtualList(int, int delta, ExtraDemoState& s, const Metrics& mx)
+{
+    s.virtualList.scroll.contentH = ListDataContentHeight(s.virtualList, mx);
+    ScrollBy(s.virtualList.scroll, delta);
+    return true;
+}
+
+inline bool DemoWheel_ListData(int, int delta, ExtraDemoState& s, const Metrics& mx)
+{
+    s.listData.scroll.contentH = ListDataContentHeight(s.listData, mx);
+    ScrollBy(s.listData.scroll, delta);
+    return true;
+}
+
+inline bool DemoWheel_DemoScroll(int, int delta, ExtraDemoState& s, const Metrics&)
+{
+    ScrollBy(s.demoScroll, delta);
+    return true;
+}
+
+// ============================================================
+// The registry: one entry per demo control. This is the single
+// source of truth consumed by Defs() / Count() and the three
+// dispatch hooks below. To add a control you edit *this* list
+// only — no more parallel switch statements.
+// ============================================================
+inline const std::vector<DemoEntry>& Demos()
+{
+    static const std::vector<DemoEntry> demos = {
+        // ---------------- P0 ----------------
+        { L"P0 框架", L"Framework",      120, DemoPaint_Framework,  DemoClick_Framework,  nullptr },
+        { L"P0 框架", L"ScrollVirtual",  190, DemoPaint_ScrollVirtual, DemoClick_VirtualList, DemoWheel_VirtualList },
+        { L"P0 框架", L"DpiScaling",      76, DemoPaint_DpiScaling,  nullptr, nullptr },
+        { L"P0 框架", L"Animation",       86, DemoPaint_Animation,   nullptr, nullptr },
+        { L"P0 框架", L"Accessibility",  100, DemoPaint_Accessibility, nullptr, nullptr },
+        { L"P0 框架", L"TextBox",         80, DemoPaint_TextBox,     DemoClick_TextBox, nullptr },
+        // ---------------- P1 ----------------
+        { L"P1 迁移", L"Card",           170, DemoPaint_Card,        nullptr, nullptr },
+        { L"P1 迁移", L"EmptyView",      140, DemoPaint_EmptyView,   nullptr, nullptr },
+        { L"P1 迁移", L"StatusTag",       70, DemoPaint_StatusTag,   nullptr, nullptr },
+        { L"P1 迁移", L"KbdChip",         70, DemoPaint_KbdChip,     nullptr, nullptr },
+        { L"P1 迁移", L"Toolbar",         76, DemoPaint_Toolbar,     DemoClick_Toolbar, nullptr },
+        { L"P1 迁移", L"Form",           210, DemoPaint_Form,        DemoClick_Form, nullptr },
+        { L"P1 迁移", L"DataGrid",       190, DemoPaint_DataGrid,    DemoClick_DataGrid, nullptr },
+        { L"P1 迁移", L"ListData",       170, DemoPaint_ListData,    DemoClick_ListData, DemoWheel_ListData },
+        { L"P1 迁移", L"Custom",         110, DemoPaint_Custom,      nullptr, nullptr },
+        // ---------------- P2 input ----------------
+        { L"P2 输入", L"SearchBox",       70, DemoPaint_SearchBox,   DemoClick_SearchBox, nullptr },
+        { L"P2 输入", L"PasswordBox",     70, DemoPaint_PasswordBox, DemoClick_PasswordBox, nullptr },
+        { L"P2 输入", L"TextArea",       110, DemoPaint_TextArea,    nullptr, nullptr },
+        { L"P2 输入", L"NumberInput",     70, DemoPaint_NumberInput, DemoClick_NumberInput, nullptr },
+        { L"P2 输入", L"DatePicker",     230, DemoPaint_DatePicker,  DemoClick_DatePicker, nullptr },
+        { L"P2 输入", L"ColorPicker",    110, DemoPaint_ColorPicker, DemoClick_ColorPicker, nullptr },
+        // ---------------- P2 choice ----------------
+        { L"P2 选择", L"Dropdown",       180, DemoPaint_Dropdown,    DemoClick_Dropdown, nullptr },
+        { L"P2 选择", L"Menu",           200, DemoPaint_Menu,        DemoClick_Menu, nullptr },
+        { L"P2 选择", L"ContextMenu",    170, DemoPaint_ContextMenu, nullptr, nullptr },
+        { L"P2 选择", L"MultiSelect",    150, DemoPaint_MultiSelect, DemoClick_MultiSelect, nullptr },
+        { L"P2 选择", L"Transfer",       200, DemoPaint_Transfer,    DemoClick_Transfer, nullptr },
+        // ---------------- P2 display ----------------
+        { L"P2 展示", L"Timeline",       180, DemoPaint_Timeline,    nullptr, nullptr },
+        { L"P2 展示", L"Steps",           90, DemoPaint_Steps,       DemoClick_Steps, nullptr },
+        { L"P2 展示", L"Calendar",       230, DemoPaint_Calendar,    DemoClick_Calendar, nullptr },
+        { L"P2 展示", L"DescriptionList",130, DemoPaint_DescriptionList, nullptr, nullptr },
+        { L"P2 展示", L"StatCard",       150, DemoPaint_StatCard,    nullptr, nullptr },
+        { L"P2 展示", L"Chart",          170, DemoPaint_Chart,       DemoClick_Chart, nullptr },
+        { L"P2 展示", L"Carousel",       160, DemoPaint_Carousel,    DemoClick_Carousel, nullptr },
+        // ---------------- P2 feedback ----------------
+        { L"P2 反馈", L"Spinner",         90, DemoPaint_Spinner,     nullptr, nullptr },
+        { L"P2 反馈", L"Tooltip",        110, DemoPaint_Tooltip,     nullptr, nullptr },
+        { L"P2 反馈", L"Popover",        150, DemoPaint_Popover,     nullptr, nullptr },
+        { L"P2 反馈", L"Modal",          210, DemoPaint_Modal,       DemoClick_Modal, nullptr },
+        { L"P2 反馈", L"Drawer",         190, DemoPaint_Drawer,      nullptr, nullptr },
+        { L"P2 反馈", L"Notification",   190, DemoPaint_Notification,nullptr, nullptr },
+        { L"P2 反馈", L"Result",         160, DemoPaint_Result,      DemoClick_Result, nullptr },
+        // ---------------- P2 layout ----------------
+        { L"P2 布局", L"Accordion",      180, DemoPaint_Accordion,   DemoClick_Accordion, nullptr },
+        { L"P2 布局", L"Anchor",         150, DemoPaint_Anchor,      DemoClick_Anchor, nullptr },
+        { L"P2 布局", L"Splitter",       140, DemoPaint_Splitter,    DemoClick_Splitter, nullptr },
+        { L"P2 布局", L"ColumnResize",   110, DemoPaint_ColumnResize,DemoClick_ColumnResize, nullptr },
+        { L"P2 布局", L"Scrollbar",      150, DemoPaint_Scrollbar,   DemoClick_Scrollbar, DemoWheel_DemoScroll },
+        // ---------------- P3 input ----------------
+        { L"P3 输入", L"TagInput",        90, DemoPaint_TagInput,    DemoClick_TagInput, nullptr },
+        { L"P3 输入", L"RangeSlider",     90, DemoPaint_RangeSlider, DemoClick_RangeSlider, nullptr },
+        { L"P3 输入", L"OtpInput",        90, DemoPaint_OtpInput,    DemoClick_OtpInput, nullptr },
+        { L"P3 输入", L"Cascader",       170, DemoPaint_Cascader,    DemoClick_Cascader, nullptr },
+        // ---------------- P3 data ----------------
+        { L"P3 数据", L"AvatarGroup",     90, DemoPaint_AvatarGroup, DemoClick_AvatarGroup, nullptr },
+        { L"P3 数据", L"Heatmap",        180, DemoPaint_Heatmap,     DemoClick_Heatmap, nullptr },
+        { L"P3 数据", L"CodeBlock",      170, DemoPaint_CodeBlock,   DemoClick_CodeBlock, nullptr },
+        { L"P3 数据", L"KanbanBoard",    200, DemoPaint_Kanban,      DemoClick_Kanban, nullptr },
+        { L"P3 数据", L"GanttChart",     190, DemoPaint_Gantt,       DemoClick_Gantt, nullptr },
+        // ---------------- P3 overlay ----------------
+        { L"P3 浮层", L"Snackbar",       110, DemoPaint_Snackbar,    DemoClick_Snackbar, nullptr },
+        { L"P3 浮层", L"CommandPalette", 210, DemoPaint_CommandPalette, DemoClick_CommandPalette, nullptr },
+        { L"P3 浮层", L"GuideTour",      220, DemoPaint_GuideTour,   DemoClick_GuideTour, nullptr },
+        // ---------------- P4 editors ----------------
+        { L"P4 编辑", L"QueryBuilder",   200, DemoPaint_QueryBuilder,DemoClick_QueryBuilder, nullptr },
+        { L"P4 编辑", L"PropertyGrid",   240, DemoPaint_PropertyGrid,DemoClick_PropertyGrid, nullptr },
+        { L"P4 编辑", L"ScheduleGrid",  230, DemoPaint_Schedule,     DemoClick_Schedule, nullptr },
+        { L"P4 编辑", L"FileDropZone",  190, DemoPaint_FileDropZone, DemoClick_FileDropZone, nullptr },
+        // ---------------- P4 data ----------------
+        { L"P4 数据", L"TreeMap",        180, DemoPaint_TreeMap,     DemoClick_TreeMap, nullptr },
+        { L"P4 数据", L"FunnelChart",    190, DemoPaint_Funnel,      DemoClick_Funnel, nullptr },
+        { L"P4 数据", L"DiffView",       190, DemoPaint_Diff,        DemoClick_Diff, nullptr },
+        { L"P4 数据", L"ScoreBreakdown", 240, DemoPaint_Score,       DemoClick_Score, nullptr },
+        // ---------------- P4 shell ----------------
+        { L"P4 外壳", L"ChatThread",     280, DemoPaint_Chat,        DemoClick_Chat, nullptr },
+        { L"P4 外壳", L"MultiStatusBar",  60, DemoPaint_MultiStatusBar, DemoClick_MultiStatusBar, nullptr },
+        { L"P4 外壳", L"RibbonBar",      120, DemoPaint_Ribbon,      DemoClick_Ribbon, nullptr },
+        { L"P4 外壳", L"NoticeCenter",   270, DemoPaint_NoticeCenter, DemoClick_NoticeCenter, nullptr },
+        // ---------------- P5 charts ----------------
+        { L"P5 图表", L"Sparkline",      150, DemoPaint_Sparkline,   DemoClick_Sparkline, nullptr },
+        { L"P5 图表", L"WaterfallChart", 210, DemoPaint_Waterfall,   DemoClick_Waterfall, nullptr },
+        { L"P5 图表", L"StackedBar",     190, DemoPaint_StackedBar,  DemoClick_StackedBar, nullptr },
+        { L"P5 图表", L"GaugeMeter",     160, DemoPaint_Gauge,       DemoClick_Gauge, nullptr },
+        // ---------------- P5 editors ----------------
+        { L"P5 编辑", L"JsonTree",       230, DemoPaint_JsonTree,    DemoClick_JsonTree, nullptr },
+        { L"P5 编辑", L"LogViewer",      230, DemoPaint_LogViewer,   DemoClick_LogViewer, nullptr },
+        { L"P5 编辑", L"CronEditor",     190, DemoPaint_CronEditor,  DemoClick_CronEditor, nullptr },
+        { L"P5 编辑", L"MentionInput",   210, DemoPaint_MentionInput,DemoClick_MentionInput, nullptr },
+        // ---------------- P5 collaboration ----------------
+        { L"P5 协同", L"OrgChart",       240, DemoPaint_OrgChart,    DemoClick_OrgChart, nullptr },
+        { L"P5 协同", L"Leaderboard",    240, DemoPaint_Leaderboard, DemoClick_Leaderboard, nullptr },
+        { L"P5 协同", L"ActivityFeed",   230, DemoPaint_ActivityFeed,DemoClick_ActivityFeed, nullptr },
+        { L"P5 协同", L"AudioWaveform",  160, DemoPaint_Waveform,    DemoClick_AudioWaveform, nullptr },
+        // ---------------- P6 ----------------
+        { L"P6 类体系", L"WidgetClasses", 250, DemoPaint_WidgetClasses, DemoClick_WidgetClasses, nullptr },
+    };
+    return demos;
+}
+
+inline const std::vector<ExtraDef>& Defs()
+{
+    static std::vector<ExtraDef> defs;
+    if (defs.empty()) {
+        for (const auto& e : Demos())
+            defs.push_back({e.group, e.label, e.height});
+    }
+    return defs;
+}
+
+inline int Count() { return static_cast<int>(Demos().size()); }
+
+// ============================================================
+// Dispatch hooks. These are now trivial table lookups over the
+// registry — the previous switch(idx) logic lives inside the
+// individual command functions above.
+// ============================================================
 inline void DrawExtraControl(IPainter& g, const Rect& rc, int idx,
                              ExtraDemoState& s, const Palette& pal,
                              const Metrics& mx)
 {
     if (rc.Empty()) return;
-    switch (idx) {
-    // ---------------- P0 ----------------
-    case 0: {
-        g.Translate(Point{rc.left, rc.top});
-        s.host.PaintAll(g, pal, mx);
-        g.Translate(Point{-rc.left, -rc.top});
-        g.Text(Rect(rc.left, rc.bottom - 28, rc.right, rc.bottom),
-               L"ControlHost：z-order 命中 / 事件路由 / Tab 焦点 · 点击重叠区试试",
-               FontRole::Meta, pal.textSub,
-               dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix | dt::EndEllipsis);
-        break;
-    }
-    case 1: {
-        s.virtualList.scroll.viewH = rc.Height();
-        s.virtualList.scroll.contentH = ListDataContentHeight(s.virtualList, mx);
-        PaintListData(g, rc, s.virtualList, pal, mx);
-        break;
-    }
-    case 2: {
-        const Rect scaled = ScaleRect(Rect(0, 0, 100, 32), s.dpi);
-        g.FillRound(rc, mx.radiusMd, pal.surface);
-        g.StrokeRound(rc, mx.radiusMd, pal.split, 1);
-        g.Text(Rect(rc.left + mx.unit, rc.top, rc.right - mx.unit, rc.bottom),
-               L"DPI " + std::to_wstring(s.dpi) + L" · unit=" +
-               std::to_wstring(MetricsForDpi(s.dpiBase, s.dpi).unit) +
-               L" · 100x32 → " + std::to_wstring(scaled.Width()) + L"x" +
-               std::to_wstring(scaled.Height()) + L"（按 D 键切换 96/120/144）",
-               FontRole::Body, pal.text,
-               dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix | dt::EndEllipsis);
-        break;
-    }
-    case 3: {
-        SpinnerState sp = s.spinner;
-        sp.phase = s.animPhase;
-        PaintSpinner(g, Rect(rc.left, rc.top, rc.left + mx.unit * 20, rc.bottom), sp, pal, mx);
-        ControlState cs;
-        PaintProgressBar(g, Rect(rc.left + mx.unit * 22, rc.top + rc.Height() / 2 - 4,
-                                 rc.right - mx.unit, rc.top + rc.Height() / 2 + 4),
-                         s.animPhase, cs, pal, mx);
-        break;
-    }
-    case 4: {
-        g.FillRound(rc, mx.radiusMd, pal.sunken);
-        g.TextBlock(rc, L"无障碍树：\n" + DescribeAll(s.host),
-                    FontRole::Meta, pal.textSub, 4);
-        break;
-    }
-    case 5:
-        PaintTextBox(g, rc, s.textbox, pal, mx);
-        break;
-
-    // ---------------- P1 ----------------
-    case 6:  PaintCard(g, rc, s.card, pal, mx); break;
-    case 7:  PaintEmptyView(g, rc, s.emptyView, pal, mx); break;
-    case 8: {
-        const int w = rc.Width() / 4;
-        const AlertKind kinds[] = { AlertKind::Info, AlertKind::Success,
-                                    AlertKind::Warning, AlertKind::Error };
-        for (int i = 0; i < 4; ++i) {
-            StatusTagState st = s.statusTag;
-            st.kind = kinds[i];
-            st.text = kinds[i] == AlertKind::Info ? L"信息"
-                    : kinds[i] == AlertKind::Success ? L"成功"
-                    : kinds[i] == AlertKind::Warning ? L"警告" : L"错误";
-            PaintStatusTag(g, Rect(rc.left + i * w + mx.unit, rc.top + mx.unit,
-                                   rc.left + (i + 1) * w - mx.unit,
-                                   rc.bottom - mx.unit), st, pal, mx);
-        }
-        break;
-    }
-    case 9: {
-        const int w = MeasureKbdChip(s.kbd, mx);
-        PaintKbdChip(g, Rect(rc.right - w - mx.unit * 2, rc.top + mx.unit,
-                             rc.right - mx.unit * 2, rc.bottom - mx.unit),
-                     s.kbd, pal, mx);
-        KbdChipState alt; alt.key = L"Alt"; alt.label = L"+ F4 关闭";
-        const int w2 = MeasureKbdChip(alt, mx);
-        PaintKbdChip(g, Rect(rc.left + mx.unit, rc.top + mx.unit,
-                             rc.left + mx.unit + w2, rc.bottom - mx.unit),
-                     alt, pal, mx);
-        break;
-    }
-    case 10: PaintToolbar(g, rc, s.toolbar, pal, mx); break;
-    case 11: PaintForm(g, rc, s.form, pal, mx); break;
-    case 12: PaintDataGrid(g, rc, s.grid, pal, mx); break;
-    case 13:
-        s.listData.scroll.viewH = rc.Height();
-        s.listData.scroll.contentH = ListDataContentHeight(s.listData, mx);
-        PaintListData(g, rc, s.listData, pal, mx);
-        break;
-    case 14: PaintCustom(g, rc, s.custom, pal, mx); break;
-
-    // ---------------- P2 input ----------------
-    case 15: PaintSearchBox(g, rc, s.search, pal, mx); break;
-    case 16: PaintPasswordBox(g, rc, s.password, pal, mx); break;
-    case 17: PaintTextArea(g, rc, s.textArea, pal, mx); break;
-    case 18: PaintNumberInput(g, rc, s.number, pal, mx); break;
-    case 19: PaintDatePicker(g, rc, s.date, pal, mx); break;
-    case 20: PaintColorPicker(g, rc, s.color, pal, mx); break;
-
-    // ---------------- P2 choice ----------------
-    case 21: PaintDropdown(g, rc, s.dropdown, pal, mx); break;
-    case 22: PaintMenu(g, rc, s.menu, pal, mx); break;
-    case 23: {
-        s.contextMenu.anchor = Point{rc.left + mx.unit * 8, rc.top + mx.unit * 2};
-        PaintContextMenu(g, rc, s.contextMenu, pal, mx);
-        break;
-    }
-    case 24: PaintMultiSelect(g, rc, s.multi, pal, mx); break;
-    case 25: PaintTransfer(g, rc, s.transfer, pal, mx); break;
-
-    // ---------------- P2 display ----------------
-    case 26: PaintTimeline(g, rc, s.timeline, pal, mx); break;
-    case 27: PaintSteps(g, rc, s.steps, pal, mx); break;
-    case 28: PaintCalendar(g, rc, s.calendar, pal, mx); break;
-    case 29: PaintDescriptionList(g, rc, s.description, pal, mx); break;
-    case 30: PaintStatCard(g, rc, s.stat, pal, mx); break;
-    case 31: PaintChart(g, rc, s.chart, pal, mx); break;
-    case 32: PaintCarousel(g, rc, s.carousel, pal, mx); break;
-
-    // ---------------- P2 feedback ----------------
-    case 33: {
-        SpinnerState sp = s.spinner;
-        sp.phase = s.animPhase;
-        PaintSpinner(g, rc, sp, pal, mx);
-        break;
-    }
-    case 34:
-        PaintTooltip(g, Rect(rc.left + mx.unit * 4, rc.top + mx.unit,
-                             rc.left + mx.unit * 18, rc.top + mx.unit * 5),
-                     rc, s.tooltip, pal, mx);
-        break;
-    case 35:
-        PaintPopover(g, Rect(rc.left + mx.unit * 4, rc.top,
-                             rc.left + mx.unit * 18, rc.top + mx.unit * 4),
-                     rc, s.popover, pal, mx);
-        break;
-    case 36: PaintModal(g, rc, s.modal, pal, mx); break;
-    case 37: PaintDrawer(g, rc, s.drawer, pal, mx); break;
-    case 38: PaintNotificationQueue(g, rc, s.notification, pal, mx); break;
-    case 39: PaintResult(g, rc, s.result, pal, mx); break;
-
-    // ---------------- P2 layout ----------------
-    case 40: PaintAccordion(g, rc, s.accordion, pal, mx); break;
-    case 41: PaintAnchor(g, rc, s.anchor, pal, mx); break;
-    case 42: PaintSplitter(g, rc, s.splitter, pal, mx); break;
-    case 43: PaintColumnResize(g, rc, s.columnResize, pal, mx); break;
-    case 44: {
-        g.FillRound(rc, mx.radiusMd, pal.surface);
-        g.StrokeRound(rc, mx.radiusMd, pal.split, 1);
-        s.demoScroll.viewH = rc.Height();
-        PaintScrollbar(g, rc, s.demoScroll, pal, mx);
-        g.Text(Rect(rc.left + mx.unit, rc.top, rc.right - mx.unit * 3, rc.bottom),
-               L"自绘滚动条 · offset=" + std::to_wstring(s.demoScroll.offset) +
-               L" / max=" + std::to_wstring(ScrollMax(s.demoScroll)) +
-               L"（在此区域滚轮）",
-               FontRole::Meta, pal.textSub,
-               dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix | dt::EndEllipsis);
-        break;
-    }
-    // ---------------- P3 input ----------------
-    case 45: PaintTagInput(g, rc, s.tagInput, pal, mx); break;
-    case 46: PaintRangeSlider(g, rc, s.rangeSlider, pal, mx); break;
-    case 47: PaintOtpInput(g, rc, s.otp, pal, mx); break;
-    case 48: PaintCascader(g, rc, s.cascader, pal, mx); break;
-
-    // ---------------- P3 data ----------------
-    case 49: PaintAvatarGroup(g, rc, s.avatars, pal, mx); break;
-    case 50: PaintHeatmap(g, rc, s.heatmap, pal, mx); break;
-    case 51: PaintCodeBlock(g, rc, s.codeBlock, pal, mx); break;
-    case 52: PaintKanban(g, rc, s.kanban, pal, mx); break;
-    case 53: PaintGantt(g, rc, s.gantt, pal, mx); break;
-
-    // ---------------- P3 overlay ----------------
-    case 54: PaintSnackbar(g, rc, s.snackbar, pal, mx); break;
-    case 55: PaintCommandPalette(g, rc, s.palette, pal, mx); break;
-    case 56:
-        PaintGuideTour(g, rc, GuideAnchorRect(rc, mx), s.guide, pal, mx);
-        break;
-
-    // ---------------- P4 editors ----------------
-    case 57: PaintQueryBuilder(g, rc, s.query, pal, mx); break;
-    case 58: PaintPropertyGrid(g, rc, s.property, pal, mx); break;
-    case 59: PaintSchedule(g, rc, s.schedule, pal, mx); break;
-    case 60: PaintFileDropZone(g, rc, s.dropZone, pal, mx); break;
-
-    // ---------------- P4 data ----------------
-    case 61: PaintTreeMap(g, rc, s.treeMap, pal, mx); break;
-    case 62: PaintFunnel(g, rc, s.funnel, pal, mx); break;
-    case 63: PaintDiff(g, rc, s.diff, pal, mx); break;
-    case 64: PaintScore(g, rc, s.score, pal, mx); break;
-
-    // ---------------- P4 shell ----------------
-    case 65: PaintChat(g, rc, s.chat, pal, mx); break;
-    case 66: PaintMultiStatusBar(g, rc, s.multiStatus, pal, mx); break;
-    case 67: PaintRibbon(g, rc, s.ribbon, pal, mx); break;
-    case 68: PaintNoticeCenter(g, rc, s.notice, pal, mx); break;
-
-    // ---------------- P5 charts ----------------
-    case 69: PaintSparkline(g, rc, s.spark, pal, mx); break;
-    case 70: PaintWaterfall(g, rc, s.waterfall, pal, mx); break;
-    case 71: PaintStackedBar(g, rc, s.stacked, pal, mx); break;
-    case 72: PaintGauge(g, rc, s.gauge, pal, mx); break;
-
-    // ---------------- P5 editors ----------------
-    case 73: PaintJsonTree(g, rc, s.jsonTree, pal, mx); break;
-    case 74: PaintLogViewer(g, rc, s.logs, pal, mx); break;
-    case 75: PaintCronEditor(g, rc, s.cron, pal, mx); break;
-    case 76: PaintMentionInput(g, rc, s.mention, pal, mx); break;
-
-    // ---------------- P5 collaboration ----------------
-    case 77: PaintOrgChart(g, rc, s.org, pal, mx); break;
-    case 78: PaintLeaderboard(g, rc, s.leaders, pal, mx); break;
-    case 79: PaintActivityFeed(g, rc, s.feed, pal, mx); break;
-    case 80: PaintWaveform(g, rc, s.wave, pal, mx); break;
-    case 81: {
-        const int gap = mx.unit;
-        const int cols = 3;
-        const int cw = (rc.Width() - gap * (cols - 1)) / cols;
-        const int ch = (rc.Height() - gap) / 2;
-        if (cw <= 0 || ch <= 0) break;
-        Control* items[6] = {&s.wButton, &s.wCheckbox, &s.wTextField,
-                             &s.wSlider, &s.wSparkline, &s.wGauge};
-        const wchar_t* names[6] = {
-            L"widgets::Button", L"widgets::Checkbox", L"widgets::TextField",
-            L"widgets::Slider", L"widgets::Sparkline", L"widgets::Gauge"};
-        const TextFormat tf = dt::SingleLine | dt::Left | dt::VCenter |
-                              dt::NoPrefix | dt::EndEllipsis;
-        for (int i = 0; i < 6; ++i) {
-            const int col = i % cols;
-            const int row = i / cols;
-            const Rect tile(rc.left + col * (cw + gap),
-                            rc.top + row * (ch + gap),
-                            rc.left + col * (cw + gap) + cw,
-                            rc.top + row * (ch + gap) + ch);
-            g.FillRound(tile, mx.radiusMd, pal.surface);
-            g.StrokeRound(tile, mx.radiusMd, pal.border, 1);
-            const int labelH = (std::min)(mx.rowH, ch / 3);
-            g.Text(Rect(tile.left + gap, tile.top + 2,
-                        tile.right - gap, tile.top + labelH),
-                   names[i], FontRole::Meta, pal.textSub, tf);
-            const Rect body(tile.left + gap, tile.top + labelH,
-                            tile.right - gap, tile.bottom - gap);
-            items[i]->SetBounds(body);
-            items[i]->Paint(g, pal, mx);
-        }
-        break;
-    }
-    default: break;
-    }
+    const auto& v = Demos();
+    if (idx < 0 || idx >= static_cast<int>(v.size())) return;
+    if (v[idx].paint) v[idx].paint(g, rc, s, pal, mx);
 }
 
 inline void ExtraClick(int idx, Point pt, const Rect& rc, ExtraDemoState& s,
                        const Metrics& mx, std::wstring& status)
 {
-    switch (idx) {
-    case 0: {
-        const Point local{pt.x - rc.left, pt.y - rc.top};
-        PointerEvent ev; ev.pos = local; ev.down = true; ev.button = 0;
-        const ControlResult r = s.host.DispatchPointer(ev);
-        status = r.handled ? L"ControlHost：命中控件 #" + std::to_wstring(r.id)
-                           : L"ControlHost：空白区域";
-        break;
-    }
-    case 1: case 13: {
-        ListDataState& target = idx == 1 ? s.virtualList : s.listData;
-        const int row = ListDataRowAt(rc, target, mx, pt);
-        if (row >= 0) {
-            target.selected = row;
-            status = L"ListData：选中第 " + std::to_wstring(row + 1) + L" 行";
-        }
-        break;
-    }
-    case 5: {
-        const int charW = 8;
-        s.textbox.edit.cursor = CaretIndexAt(rc, s.textbox.edit, mx, charW, pt);
-        s.textbox.edit.selectionAnchor = -1;
-        s.textbox.edit.hasFocus = true;
-        status = L"TextBox：光标定位，可用键盘编辑";
-        break;
-    }
-    case 10: {
-        const ToolbarHit h = HitToolbar(rc, s.toolbar, mx, pt);
-        if (h.action >= 0) status = L"Toolbar：点击动作 #" + std::to_wstring(h.action + 1);
-        else if (h.crumb >= 0) status = L"Toolbar：面包屑 " + s.toolbar.crumbs[static_cast<size_t>(h.crumb)];
-        else if (h.search) status = L"Toolbar：搜索框";
-        break;
-    }
-    case 11: {
-        const FormHit h = HitForm(rc, s.form, mx, pt);
-        if (h.field >= 0) {
-            s.form.focusedField = h.field;
-            status = L"Form：聚焦字段 " + s.form.fields[static_cast<size_t>(h.field)].label;
-        } else if (h.submit) {
-            const int bad = ValidateForm(s.form);
-            status = bad < 0 ? L"Form：校验通过，已提交"
-                             : L"Form：字段 " + s.form.fields[static_cast<size_t>(bad)].label + L" 必填";
-        }
-        break;
-    }
-    case 12: {
-        const DataGridHit h = HitDataGrid(rc, s.grid, mx, pt);
-        if (h.resize >= 0) {
-            s.grid.resizingColumn = h.resize;
-            status = L"DataGrid：拖拽列宽 #" + std::to_wstring(h.resize + 1);
-        } else if (h.header && h.column >= 0) {
-            if (s.grid.sortColumn == h.column) s.grid.sortAscending = !s.grid.sortAscending;
-            else { s.grid.sortColumn = h.column; s.grid.sortAscending = true; }
-            status = L"DataGrid：按列 " + s.grid.columns[static_cast<size_t>(h.column)].header + L" 排序";
-        } else if (h.row >= 0) {
-            s.grid.selected = h.row;
-            status = L"DataGrid：选中第 " + std::to_wstring(h.row + 1) + L" 行";
-        }
-        break;
-    }
-    case 15:
-        if (HitSearchBox(rc, s.search, mx, pt) == SearchBoxHit::Clear) {
-            s.search.text.clear();
-            status = L"SearchBox：已清空";
-        }
-        break;
-    case 16:
-        if (HitPasswordBox(rc, s.password, mx, pt) == PasswordBoxHit::Reveal) {
-            s.password.revealed = !s.password.revealed;
-            status = s.password.revealed ? L"PasswordBox：已显示" : L"PasswordBox：已隐藏";
-        }
-        break;
-    case 18: {
-        const NumberInputHit h = HitNumberInput(rc, s.number, mx, pt);
-        if (h == NumberInputHit::Plus)  s.number.value = (std::min)(s.number.max, s.number.value + s.number.step);
-        if (h == NumberInputHit::Minus) s.number.value = (std::max)(s.number.min, s.number.value - s.number.step);
-        status = L"NumberInput：value=" + std::to_wstring(s.number.value);
-        break;
-    }
-    case 19: {
-        const int day = DatePickerDayAt(rc, s.date, mx, pt);
-        if (day > 0) { s.date.day = day; status = L"DatePicker：选择 " + std::to_wstring(day) + L" 日"; }
-        else if (day == -2 || day == -3) {
-            s.date.month += day == -2 ? -1 : 1;
-            if (s.date.month < 1) { s.date.month = 12; --s.date.year; }
-            if (s.date.month > 12) { s.date.month = 1; ++s.date.year; }
-            status = L"DatePicker：切换月份";
-        }
-        break;
-    }
-    case 20: {
-        const int i = ColorPickerSwatchAt(rc, s.color, mx, pt);
-        if (i >= 0) { s.color.selected = i; status = L"ColorPicker：选择色块 #" + std::to_wstring(i + 1); }
-        break;
-    }
-    case 21: {
-        const int o = DropdownOptionAt(rc, s.dropdown, mx, pt);
-        if (o >= 0) {
-            s.dropdown.selected = o;
-            s.dropdown.text = s.dropdown.options[static_cast<size_t>(o)];
-            status = L"Dropdown：选择 " + s.dropdown.text;
-        } else if (o == -1) {
-            s.dropdown.open = !s.dropdown.open;
-            status = s.dropdown.open ? L"Dropdown：展开" : L"Dropdown：收起";
-        }
-        break;
-    }
-    case 22: {
-        const int i = MenuItemAt(rc, s.menu, mx, pt);
-        if (i >= 0) {
-            s.menu.selected = i;
-            status = L"Menu：选择 " + s.menu.items[static_cast<size_t>(i)].text;
-        }
-        break;
-    }
-    case 24: {
-        const int i = MultiSelectAt(rc, s.multi, mx, pt);
-        if (i >= 0 && i < static_cast<int>(s.multi.checked.size())) {
-            s.multi.checked[static_cast<size_t>(i)] = !s.multi.checked[static_cast<size_t>(i)];
-            status = L"MultiSelect：切换 " + s.multi.options[static_cast<size_t>(i)];
-        }
-        break;
-    }
-    case 25: {
-        const TransferHit h = HitTransfer(rc, s.transfer, mx, pt);
-        if (h.button != 0) {
-            const int row = h.button == 1 ? 0 : 0;
-            MoveTransferItem(s.transfer, h.button == 1 ? 0 : 1, row);
-            status = L"Transfer：移动条目";
-        } else if (h.row >= 0) {
-            if (h.side == 0 && h.row < static_cast<int>(s.transfer.leftChecked.size()))
-                s.transfer.leftChecked[static_cast<size_t>(h.row)] = !s.transfer.leftChecked[static_cast<size_t>(h.row)];
-            if (h.side == 1 && h.row < static_cast<int>(s.transfer.rightChecked.size()))
-                s.transfer.rightChecked[static_cast<size_t>(h.row)] = !s.transfer.rightChecked[static_cast<size_t>(h.row)];
-            status = L"Transfer：勾选条目";
-        }
-        break;
-    }
-    case 27: {
-        const int i = StepAt(rc, s.steps, mx, pt);
-        if (i >= 0) { s.steps.current = i; status = L"Steps：跳到第 " + std::to_wstring(i + 1) + L" 步"; }
-        break;
-    }
-    case 28: {
-        const int d = CalendarDayAt(rc, s.calendar, mx, pt);
-        if (d > 0) { s.calendar.selectedDay = d; status = L"Calendar：选择 " + std::to_wstring(d) + L" 日"; }
-        break;
-    }
-    case 31: {
-        const int i = ChartBarAt(rc, s.chart, mx, pt);
-        if (i >= 0) { s.chart.hovered = i; status = L"Chart：柱 #" + std::to_wstring(i + 1); }
-        break;
-    }
-    case 32: {
-        const CarouselHitResult h = HitCarousel(rc, s.carousel, mx, pt);
-        const int n = static_cast<int>(s.carousel.slides.size());
-        if (h.code == 1) s.carousel.current = (s.carousel.current - 1 + n) % n;
-        else if (h.code == 2) s.carousel.current = (s.carousel.current + 1) % n;
-        else if (h.code == 3 && h.index >= 0) s.carousel.current = h.index % n;
-        if (h.code != 0) status = L"Carousel：第 " + std::to_wstring(s.carousel.current + 1) + L" 页";
-        break;
-    }
-    case 36: {
-        const int b = ModalButtonAt(rc, s.modal, mx, pt);
-        if (b > 0) { s.modal.focused = b; status = b == 1 ? L"Modal：确定" : L"Modal：取消"; }
-        break;
-    }
-    case 39:
-        if (ResultActionHit(rc, s.result, mx, pt))
-            status = L"Result：点击返回首页";
-        break;
-    case 40: {
-        const int i = AccordionHeaderAt(rc, s.accordion, mx, pt);
-        if (i >= 0) {
-            if (i >= static_cast<int>(s.accordion.expanded.size()))
-                s.accordion.expanded.resize(static_cast<size_t>(i + 1), false);
-            s.accordion.expanded[static_cast<size_t>(i)] = !s.accordion.expanded[static_cast<size_t>(i)];
-            status = L"Accordion：展开/折叠 " + s.accordion.panels[static_cast<size_t>(i)].first;
-        }
-        break;
-    }
-    case 41: {
-        const int i = AnchorHit(rc, s.anchor, mx, pt);
-        if (i >= 0) { s.anchor.active = i; status = L"Anchor：跳转 " + s.anchor.items[static_cast<size_t>(i)]; }
-        break;
-    }
-    case 42:
-        if (SplitterHandleHit(rc, s.splitter, mx, pt)) {
-            s.splitter.dragging = !s.splitter.dragging;
-            status = s.splitter.dragging ? L"Splitter：开始拖拽" : L"Splitter：结束拖拽";
-        }
-        break;
-    case 43: {
-        const int i = ColumnResizeHandleAt(rc, s.columnResize, mx, pt);
-        if (i >= 0) {
-            s.columnResize.dragging = i;
-            status = L"ColumnResize：拖拽边界 #" + std::to_wstring(i + 1);
-        }
-        break;
-    }
-    case 44: {
-        const ScrollBarHit h = HitScrollbar(rc, s.demoScroll, mx, pt);
-        if (h == ScrollBarHit::TrackAbove) ScrollPage(s.demoScroll, -1);
-        else if (h == ScrollBarHit::TrackBelow) ScrollPage(s.demoScroll, 1);
-        else if (h == ScrollBarHit::UpButton) ScrollBy(s.demoScroll, -s.demoScroll.lineH);
-        else if (h == ScrollBarHit::DownButton) ScrollBy(s.demoScroll, s.demoScroll.lineH);
-        status = L"Scrollbar：offset=" + std::to_wstring(s.demoScroll.offset);
-        break;
-    }
-    // ---------------- P3 input ----------------
-    case 45: {
-        const TagInputHit h = HitTagInput(rc, s.tagInput, mx, pt);
-        if (h.close && h.tag >= 0 &&
-            h.tag < static_cast<int>(s.tagInput.tags.size())) {
-            const std::wstring removed = s.tagInput.tags[static_cast<size_t>(h.tag)];
-            s.tagInput.tags.erase(s.tagInput.tags.begin() + h.tag);
-            s.tagInput.hoveredTag = -1;
-            status = L"TagInput：移除标签 " + removed;
-        } else if (h.clearAll) {
-            s.tagInput.tags.clear();
-            status = L"TagInput：已清空全部标签";
-        } else if (h.input) {
-            s.tagInput.hasFocus = true;
-            status = L"TagInput：输入区已聚焦";
-        }
-        break;
-    }
-    case 46: {
-        const int thumb = RangeSliderThumbAt(rc, s.rangeSlider, mx, pt);
-        if (thumb == 1 || thumb == 2) {
-            s.rangeSlider.draggingThumb = thumb;
-            s.rangeSlider.hoveredThumb = thumb;
-            status = thumb == 1 ? L"RangeSlider：拖拽下限" : L"RangeSlider：拖拽上限";
-        } else if (thumb != -2) {
-            const int v = RangeSliderValueAt(rc, s.rangeSlider, mx, pt);
-            int dLow = v - s.rangeSlider.low;  if (dLow < 0) dLow = -dLow;
-            int dHigh = v - s.rangeSlider.high; if (dHigh < 0) dHigh = -dHigh;
-            if (dLow <= dHigh) s.rangeSlider.low = (std::min)(v, s.rangeSlider.high);
-            else s.rangeSlider.high = (std::max)(v, s.rangeSlider.low);
-            status = L"RangeSlider：区间 " + std::to_wstring(s.rangeSlider.low) +
-                     L" – " + std::to_wstring(s.rangeSlider.high);
-        }
-        break;
-    }
-    case 47: {
-        const int cell = OtpCellAt(rc, s.otp, mx, pt);
-        if (cell >= 0) {
-            s.otp.focused = cell;
-            status = L"OtpInput：聚焦第 " + std::to_wstring(cell + 1) + L" 格";
-        }
-        break;
-    }
-    case 48: {
-        const CascaderHit h = HitCascader(rc, s.cascader, mx, pt);
-        if (h.column >= 0 && h.row >= 0) {
-            if (static_cast<int>(s.cascader.selected.size()) < h.column + 1)
-                s.cascader.selected.resize(static_cast<size_t>(h.column + 1), -1);
-            s.cascader.selected[static_cast<size_t>(h.column)] = h.row;
-            for (int c = h.column + 1;
-                 c < static_cast<int>(s.cascader.selected.size()); ++c)
-                s.cascader.selected[static_cast<size_t>(c)] = -1;
-            status = L"Cascader：选择 " +
-                     s.cascader.columns[static_cast<size_t>(h.column)]
-                         .items[static_cast<size_t>(h.row)];
-        }
-        break;
-    }
-
-    // ---------------- P3 data ----------------
-    case 49: {
-        const int a = AvatarGroupAt(rc, s.avatars, mx, pt);
-        if (a >= 0) {
-            s.avatars.hovered = a;
-            status = L"AvatarGroup：成员 " +
-                     s.avatars.items[static_cast<size_t>(a)].text;
-        } else if (a == -2) {
-            status = L"AvatarGroup：展开更多成员";
-        }
-        break;
-    }
-    case 50: {
-        const HeatmapCell c = HeatmapCellAt(rc, s.heatmap, mx, pt);
-        if (c.week >= 0) {
-            s.heatmap.hoveredWeek = c.week;
-            s.heatmap.hoveredDay = c.day;
-            const int idx = c.week * 7 + c.day;
-            const int level = (idx < static_cast<int>(s.heatmap.values.size()))
-                            ? s.heatmap.values[static_cast<size_t>(idx)] : 0;
-            status = L"Heatmap：第 " + std::to_wstring(c.week + 1) +
-                     L" 周 · 强度 " + std::to_wstring(level);
-        }
-        break;
-    }
-    case 51:
-        if (CodeBlockCopyHit(rc, s.codeBlock, mx, pt)) {
-            s.codeBlock.copyHover = true;
-            status = L"CodeBlock：已复制代码";
-        }
-        break;
-    case 52: {
-        const KanbanHit h = HitKanban(rc, s.kanban, mx, pt);
-        if (h.column >= 0 && h.card >= 0) {
-            s.kanban.hoveredColumn = h.column;
-            s.kanban.hoveredCard = h.card;
-            status = L"KanbanBoard：选中卡片 " +
-                     s.kanban.columns[static_cast<size_t>(h.column)]
-                         .cards[static_cast<size_t>(h.card)].title;
-        }
-        break;
-    }
-    case 53: {
-        const int t = GanttTaskAt(rc, s.gantt, mx, pt);
-        if (t >= 0) {
-            s.gantt.hoveredTask = t;
-            status = L"GanttChart：任务 " +
-                     s.gantt.tasks[static_cast<size_t>(t)].name;
-        }
-        break;
-    }
-
-    // ---------------- P3 overlay ----------------
-    case 54: {
-        const SnackbarHit h = HitSnackbar(rc, s.snackbar, mx, pt);
-        if (h == SnackbarHit::Action) {
-            s.snackbar.actionHover = true;
-            status = L"Snackbar：已撤销删除";
-        } else if (h == SnackbarHit::Close) {
-            s.snackbar.closeHover = true;
-            status = L"Snackbar：关闭提示条";
-        }
-        break;
-    }
-    case 55: {
-        const CommandPaletteHit h = HitCommandPalette(rc, s.palette, mx, pt);
-        if (h.row >= 0 && h.row < static_cast<int>(s.palette.items.size())) {
-            const std::vector<int> matches = CommandPaletteMatches(s.palette);
-            for (size_t k = 0; k < matches.size(); ++k) {
-                if (matches[k] == h.row) s.palette.selected = static_cast<int>(k);
-            }
-            status = L"CommandPalette：执行 " +
-                     s.palette.items[static_cast<size_t>(h.row)].title;
-        } else if (h.search) {
-            status = L"CommandPalette：搜索框（可输入过滤）";
-        }
-        break;
-    }
-    case 56: {
-        const GuideTourHit h = HitGuideTour(rc, GuideAnchorRect(rc, mx),
-                                            s.guide, mx, pt);
-        if (h == GuideTourHit::Next) {
-            s.guide.step = (std::min)(s.guide.total, s.guide.step + 1);
-            status = L"GuideTour：第 " + std::to_wstring(s.guide.step) + L" 步";
-        } else if (h == GuideTourHit::Prev) {
-            s.guide.step = (std::max)(1, s.guide.step - 1);
-            status = L"GuideTour：返回第 " + std::to_wstring(s.guide.step) + L" 步";
-        } else if (h == GuideTourHit::Skip) {
-            s.guide.step = 1;
-            status = L"GuideTour：已跳过引导";
-        }
-        break;
-    }
-    // ---------------- P4 editors ----------------
-    case 57: {
-        const QueryBuilderHit h = HitQueryBuilder(rc, s.query, mx, pt);
-        s.query.hoveredRow = h.row;
-        s.query.addHover = h.kind == QueryHitKind::Add;
-        switch (h.kind) {
-        case QueryHitKind::Logic: {
-            QueryCondition& c = s.query.conditions[static_cast<size_t>(h.row)];
-            c.logic = (c.logic == L"AND") ? L"OR" : L"AND";
-            status = L"QueryBuilder：第 " + std::to_wstring(h.row + 1) +
-                     L" 条切换为 " + c.logic;
-            break;
-        }
-        case QueryHitKind::Field:
-            s.query.hoveredCell = 1;
-            status = L"QueryBuilder：编辑字段";
-            break;
-        case QueryHitKind::Operator:
-            s.query.hoveredCell = 2;
-            status = L"QueryBuilder：切换操作符";
-            break;
-        case QueryHitKind::Value:
-            s.query.hoveredCell = 3;
-            status = L"QueryBuilder：编辑取值";
-            break;
-        case QueryHitKind::Remove:
-            if (h.row >= 0 && h.row < static_cast<int>(s.query.conditions.size())) {
-                s.query.conditions.erase(s.query.conditions.begin() + h.row);
-                status = L"QueryBuilder：已删除第 " +
-                         std::to_wstring(h.row + 1) + L" 条";
-            }
-            break;
-        case QueryHitKind::Add:
-            s.query.conditions.push_back(
-                {L"AND", L"新字段", L"=", L""});
-            status = L"QueryBuilder：新增一条条件";
-            break;
-        default:
-            status = L"QueryBuilder：点击条件行进行编辑";
-            break;
-        }
-        break;
-    }
-    case 58: {
-        const PropertyGridHit h = HitPropertyGrid(rc, s.property, mx, pt);
-        if (h.item >= 0 && h.item < static_cast<int>(s.property.items.size())) {
-            PropertyItem& item = s.property.items[static_cast<size_t>(h.item)];
-            s.property.selected = h.item;
-            s.property.hovered = h.item;
-            if (h.onValue && item.enabled && item.kind == PropertyKind::Bool) {
-                item.value = (item.value == L"true") ? L"false" : L"true";
-                status = L"PropertyGrid：" + item.name + L" → " + item.value;
-            } else if (h.onValue && item.enabled && item.kind == PropertyKind::Choice) {
-                item.value = (item.value == L"浅色") ? L"深色" : L"浅色";
-                status = L"PropertyGrid：" + item.name + L" → " + item.value;
-            } else {
-                status = L"PropertyGrid：选中 " + item.name;
-            }
-        }
-        break;
-    }
-    case 59: {
-        const int hit = ScheduleEventAt(rc, s.schedule, mx, pt);
-        s.schedule.hovered = hit;
-        if (hit >= 0 && hit < static_cast<int>(s.schedule.events.size())) {
-            const ScheduleEvent& ev = s.schedule.events[static_cast<size_t>(hit)];
-            status = L"ScheduleGrid：" + ev.title + L" · " +
-                     std::to_wstring(ev.startHour) + L":00–" +
-                     std::to_wstring(ev.endHour) + L":00";
-        }
-        break;
-    }
-    case 60: {
-        const FileDropZoneHit h = HitFileDropZone(rc, s.dropZone, mx, pt);
-        s.dropZone.hovered = h.file;
-        if (h.remove && h.file >= 0 &&
-            h.file < static_cast<int>(s.dropZone.files.size())) {
-            s.dropZone.files.erase(s.dropZone.files.begin() + h.file);
-            status = L"FileDropZone：已移除文件";
-        } else if (h.drop) {
-            s.dropZone.dragOver = !s.dropZone.dragOver;
-            status = s.dropZone.dragOver ? L"FileDropZone：拖拽悬停态"
-                                         : L"FileDropZone：取消拖拽态";
-        } else if (h.file >= 0 && h.file < static_cast<int>(s.dropZone.files.size())) {
-            UploadFile& f = s.dropZone.files[static_cast<size_t>(h.file)];
-            f.progress = (f.progress >= 100) ? 0 : (std::min)(100, f.progress + 20);
-            status = L"FileDropZone：" + f.name + L" 进度 " +
-                     std::to_wstring(f.progress) + L"%";
-        }
-        break;
-    }
-
-    // ---------------- P4 data ----------------
-    case 61: {
-        const int hit = TreeMapTileAt(rc, s.treeMap, mx, pt);
-        s.treeMap.hovered = hit;
-        if (hit >= 0 && hit < static_cast<int>(s.treeMap.items.size())) {
-            const TileItem& t = s.treeMap.items[static_cast<size_t>(hit)];
-            status = L"TreeMap：" + t.label + L" · 权重 " +
-                     std::to_wstring(t.weight);
-        }
-        break;
-    }
-    case 62: {
-        const int hit = FunnelStageAt(rc, s.funnel, mx, pt);
-        s.funnel.hovered = hit;
-        if (hit >= 0 && hit < static_cast<int>(s.funnel.stages.size())) {
-            const FunnelStage& f = s.funnel.stages[static_cast<size_t>(hit)];
-            status = L"FunnelChart：" + f.label + L" · " +
-                     std::to_wstring(f.value) + L" 人";
-        }
-        break;
-    }
-    case 63: {
-        const int hit = DiffLineAt(rc, s.diff, mx, pt);
-        s.diff.hovered = hit;
-        if (hit >= 0 && hit < static_cast<int>(s.diff.lines.size())) {
-            const DiffLine& line = s.diff.lines[static_cast<size_t>(hit)];
-            const wchar_t* kind = line.kind == DiffKind::Added ? L"新增"
-                                  : line.kind == DiffKind::Removed ? L"删除"
-                                                                   : L"上下文";
-            status = std::wstring(L"DiffView：第 ") +
-                     std::to_wstring(hit + 1) + L" 行 · " + kind;
-        }
-        break;
-    }
-    case 64: {
-        const int hit = ScoreBarAt(rc, s.score, mx, pt);
-        s.score.hovered = hit;
-        if (hit >= 0 && hit < static_cast<int>(s.score.counts.size())) {
-            status = L"ScoreBreakdown：" + std::to_wstring(5 - hit) +
-                     L" 星 · " + std::to_wstring(s.score.counts[static_cast<size_t>(hit)]) +
-                     L" 条";
-        }
-        break;
-    }
-
-    // ---------------- P4 shell ----------------
-    case 65: {
-        const int hit = ChatMessageAt(rc, s.chat, mx, pt);
-        s.chat.hovered = hit;
-        if (hit >= 0 && hit < static_cast<int>(s.chat.messages.size())) {
-            const ChatMessage& m = s.chat.messages[static_cast<size_t>(hit)];
-            status = L"ChatThread：" + m.author + L" · " + m.time;
-        }
-        break;
-    }
-    case 66: {
-        const MultiStatusBarHit h = HitMultiStatusBar(rc, s.multiStatus, mx, pt);
-        s.multiStatus.hovered = h.segment;
-        if (h.segment >= 0 &&
-            h.segment < static_cast<int>(s.multiStatus.segments.size())) {
-            StatusSegment& seg = s.multiStatus.segments[static_cast<size_t>(h.segment)];
-            seg.active = !seg.active;
-            status = L"MultiStatusBar：" + seg.text +
-                     (seg.active ? L" 已激活" : L" 已取消");
-        }
-        break;
-    }
-    case 67: {
-        const RibbonHit h = HitRibbon(rc, s.ribbon, mx, pt);
-        s.ribbon.hoveredGroup = h.group;
-        s.ribbon.hoveredButton = h.button;
-        if (h.group >= 0 && h.group < static_cast<int>(s.ribbon.groups.size()) &&
-            h.button >= 0 &&
-            h.button < static_cast<int>(s.ribbon.groups[static_cast<size_t>(h.group)].buttons.size())) {
-            const RibbonButton& b =
-                s.ribbon.groups[static_cast<size_t>(h.group)].buttons[static_cast<size_t>(h.button)];
-            status = std::wstring(L"RibbonBar：") + b.label +
-                     (b.disabled ? L"（禁用）" : L" 已执行");
-        }
-        break;
-    }
-    case 68: {
-        const NoticeCenterHit h = HitNoticeCenter(rc, s.notice, mx, pt);
-        s.notice.readAllHover = h.readAll;
-        s.notice.hovered = h.item;
-        if (h.readAll) {
-            for (NoticeItem& item : s.notice.items) item.unread = false;
-            status = L"NoticeCenter：全部标为已读";
-        } else if (h.item >= 0 && h.item < static_cast<int>(s.notice.items.size())) {
-            NoticeItem& item = s.notice.items[static_cast<size_t>(h.item)];
-            item.unread = false;
-            status = L"NoticeCenter：" + item.title + L" 已读 · 剩余 " +
-                     std::to_wstring(NoticeUnreadCount(s.notice)) + L" 条未读";
-        }
-        break;
-    }
-    case 69: {
-        const int i = SparklinePointAt(rc, s.spark, mx, pt);
-        s.spark.hovered = i;
-        status = i >= 0 && i < static_cast<int>(s.spark.values.size())
-                     ? L"Sparkline：第 " + std::to_wstring(i + 1) +
-                           L" 个采样点，数值 " +
-                           std::to_wstring(static_cast<int>(s.spark.values[static_cast<size_t>(i)]))
-                     : L"Sparkline：点在绘图区外";
-        break;
-    }
-    case 70: {
-        const int i = WaterfallBarAt(rc, s.waterfall, mx, pt);
-        s.waterfall.hovered = i;
-        status = i >= 0 && i < static_cast<int>(s.waterfall.bars.size())
-                     ? L"WaterfallChart：" +
-                           s.waterfall.bars[static_cast<size_t>(i)].label +
-                           L" · 变化 " +
-                           std::to_wstring(static_cast<int>(
-                               s.waterfall.bars[static_cast<size_t>(i)].delta))
-                     : L"WaterfallChart：点在绘图区外";
-        break;
-    }
-    case 71: {
-        const StackedBarHit h = HitStackedBar(rc, s.stacked, mx, pt);
-        s.stacked.hoveredRow = h.row;
-        s.stacked.hoveredSeg = h.seg;
-        status = (h.row >= 0 && h.seg >= 0 &&
-                  h.row < static_cast<int>(s.stacked.rows.size()))
-                     ? L"StackedBar：" +
-                           s.stacked.rows[static_cast<size_t>(h.row)].label +
-                           L" · " + s.stacked.legend[static_cast<size_t>(
-                               (std::min)(h.seg,
-                                   static_cast<int>(s.stacked.legend.size()) - 1))]
-                     : L"StackedBar：点在条形区外";
-        break;
-    }
-    case 72: {
-        const int i = GaugeSegmentAt(rc, s.gauge, mx, pt);
-        s.gauge.hovered = i;
-        status = i >= 0
-                     ? L"GaugeMeter：第 " + std::to_wstring(i + 1) +
-                           L" 段，当前 " + std::to_wstring(static_cast<int>(s.gauge.value)) + L"%"
-                     : L"GaugeMeter：点在刻度区外";
-        break;
-    }
-    case 73: {
-        const JsonTreeHit h = HitJsonTree(rc, s.jsonTree, mx, pt);
-        s.jsonTree.hovered = h.node;
-        if (h.node < 0 || h.node >= static_cast<int>(s.jsonTree.nodes.size())) {
-            status = L"JsonTree：点在节点区外";
-            break;
-        }
-        JsonNode& node = s.jsonTree.nodes[static_cast<size_t>(h.node)];
-        if (h.toggle && node.expandable) {
-            node.expanded = !node.expanded;
-            status = std::wstring(L"JsonTree：") + node.key +
-                     (node.expanded ? L" 已展开" : L" 已折叠");
-        } else {
-            s.jsonTree.selected = h.node;
-            status = L"JsonTree：选中 " + node.key + L" = " + node.value;
-        }
-        break;
-    }
-    case 74: {
-        const int i = LogLineAt(rc, s.logs, mx, pt);
-        s.logs.selected = i;
-        s.logs.hovered = i;
-        status = i >= 0 && i < static_cast<int>(s.logs.entries.size())
-                     ? L"LogViewer：" +
-                           s.logs.entries[static_cast<size_t>(i)].text
-                     : L"LogViewer：点在日志区外";
-        break;
-    }
-    case 75: {
-        const CronEditorHit h = HitCronEditor(rc, s.cron, mx, pt);
-        s.cron.hoveredField = h.field;
-        s.cron.hoveredPreset = h.preset;
-        if (h.preset >= 0 && h.preset < static_cast<int>(s.cron.presets.size())) {
-            s.cron.selectedPreset = h.preset;
-            s.cron.focused = false;
-            switch (h.preset) {
-            case 0: s.cron.fields = {L"0", L"*", L"*", L"*", L"*"};
-                    s.cron.description = L"每小时整点执行一次"; break;
-            case 1: s.cron.fields = {L"0", L"9", L"*", L"*", L"*"};
-                    s.cron.description = L"每天上午 09:00 执行一次"; break;
-            case 2: s.cron.fields = {L"0", L"9", L"*", L"*", L"1"};
-                    s.cron.description = L"每周一上午 09:00 执行一次"; break;
-            default: s.cron.description = L"自定义表达式，可点击字段编辑"; break;
-            }
-            status = L"CronEditor：已应用预设「" +
-                     s.cron.presets[static_cast<size_t>(h.preset)] + L"」";
-        } else if (h.field >= 0) {
-            s.cron.focused = true;
-            status = L"CronEditor：选中第 " + std::to_wstring(h.field + 1) + L" 段";
-        }
-        break;
-    }
-    case 76: {
-        const MentionInputHit h = HitMentionInput(rc, s.mention, mx, pt);
-        s.mention.hovered = h.candidate;
-        if (h.candidate >= 0 &&
-            h.candidate < static_cast<int>(s.mention.candidates.size())) {
-            const MentionCandidate& c =
-                s.mention.candidates[static_cast<size_t>(h.candidate)];
-            s.mention.text = L"@" + c.name + L" ";
-            s.mention.selected = h.candidate;
-            s.mention.showCandidates = false;
-            status = L"MentionInput：已提及 " + c.name;
-        } else if (h.input) {
-            s.mention.showCandidates = true;
-            s.mention.focused = true;
-            status = L"MentionInput：候选项已展开";
-        }
-        break;
-    }
-    case 77: {
-        const int i = OrgNodeAt(rc, s.org, mx, pt);
-        s.org.selected = i;
-        s.org.hovered = i;
-        status = i >= 0 && i < static_cast<int>(s.org.nodes.size())
-                     ? L"OrgChart：选中 " +
-                           s.org.nodes[static_cast<size_t>(i)].name + L" · " +
-                           s.org.nodes[static_cast<size_t>(i)].role
-                     : L"OrgChart：点在节点外";
-        break;
-    }
-    case 78: {
-        const int i = LeaderRowAt(rc, s.leaders, mx, pt);
-        s.leaders.selected = i;
-        s.leaders.hovered = i;
-        status = i >= 0 && i < static_cast<int>(s.leaders.rows.size())
-                     ? L"Leaderboard：第 " + std::to_wstring(i + 1) + L" 名 " +
-                           s.leaders.rows[static_cast<size_t>(i)].name
-                     : L"Leaderboard：点在榜单外";
-        break;
-    }
-    case 79: {
-        const int i = ActivityItemAt(rc, s.feed, mx, pt);
-        s.feed.hovered = i;
-        if (i >= 0 && i < static_cast<int>(s.feed.items.size())) {
-            ActivityItem& item = s.feed.items[static_cast<size_t>(i)];
-            item.unread = false;
-            status = L"ActivityFeed：" + item.actor + L" " + item.action +
-                     L" " + item.target + L"（已读）";
-        }
-        break;
-    }
-    case 80: {
-        if (WaveformPlayButtonAt(rc, s.wave, mx, pt)) {
-            s.wave.playing = !s.wave.playing;
-            status = s.wave.playing ? L"AudioWaveform：开始播放"
-                                    : L"AudioWaveform：已暂停";
-        } else {
-            const int milli = WaveformPositionAt(rc, s.wave, mx, pt);
-            s.wave.position = static_cast<double>(milli) / 1000.0;
-            status = L"AudioWaveform：跳转到 " +
-                     std::to_wstring(static_cast<int>(
-                         s.wave.duration * s.wave.position)) + L" 秒";
-        }
-        break;
-    }
-    case 81: {
-        const int gap = mx.unit;
-        const int cols = 3;
-        const int cw = (rc.Width() - gap * (cols - 1)) / cols;
-        const int ch = (rc.Height() - gap) / 2;
-        if (cw <= 0 || ch <= 0) break;
-        Control* items[6] = {&s.wButton, &s.wCheckbox, &s.wTextField,
-                             &s.wSlider, &s.wSparkline, &s.wGauge};
-        for (int i = 0; i < 6; ++i) {
-            const int col = i % cols;
-            const int row = i / cols;
-            const Rect tile(rc.left + col * (cw + gap),
-                            rc.top + row * (ch + gap),
-                            rc.left + col * (cw + gap) + cw,
-                            rc.top + row * (ch + gap) + ch);
-            if (!tile.Contains(pt)) continue;
-            PointerEvent ev; ev.pos = pt; ev.down = true;
-            const ControlResult r = items[i]->OnPointer(ev);
-            switch (i) {
-            case 0:
-                s.wButton.style = s.wButton.style == ButtonStyle::Primary
-                                      ? ButtonStyle::Secondary : ButtonStyle::Primary;
-                status = L"widgets::Button：切换按钮样式";
-                break;
-            case 1:
-                s.wCheckbox.state.checked = !s.wCheckbox.state.checked;
-                status = s.wCheckbox.state.checked ? L"widgets::Checkbox：已勾选"
-                                                   : L"widgets::Checkbox：已取消";
-                break;
-            case 2:
-                s.wTextField.state.hasFocus = !s.wTextField.state.hasFocus;
-                status = L"widgets::TextField：切换焦点外观";
-                break;
-            case 3:
-                s.wSlider.state.value = (s.wSlider.state.value + 13) % 101;
-                status = L"widgets::Slider：value = " +
-                         std::to_wstring(s.wSlider.state.value);
-                break;
-            case 4:
-                s.wSparkline.state.hovered =
-                    (s.wSparkline.state.hovered + 1) %
-                    static_cast<int>(s.wSparkline.state.values.size());
-                status = L"widgets::Sparkline：切换高亮数据点";
-                break;
-            default:
-                s.wGauge.state.value = s.wGauge.state.value + 9 > 100
-                                           ? 10 : s.wGauge.state.value + 9;
-                status = L"widgets::Gauge：value = " +
-                         std::to_wstring(static_cast<int>(s.wGauge.state.value));
-                break;
-            }
-            status += r.handled ? L"（事件已处理）" : L"（未处理）";
-            break;
-        }
-        break;
-    }
-    default: {
+    const auto& v = Demos();
+    if (idx < 0 || idx >= static_cast<int>(v.size())) return;
+    if (v[idx].click) {
+        v[idx].click(idx, pt, rc, s, mx, status);
+    } else {
         const ExtraDef& d = Defs()[static_cast<size_t>(idx)];
         status = std::wstring(L"已点击 ") + d.label;
-        break;
-    }
     }
 }
 
 inline bool ExtraWheel(int idx, int delta, ExtraDemoState& s,
                        const Metrics& mx)
 {
-    if (idx == 1 || idx == 13) {
-        ListDataState& target = idx == 1 ? s.virtualList : s.listData;
-        target.scroll.contentH = ListDataContentHeight(target, mx);
-        ScrollBy(target.scroll, delta);
-        return true;
-    }
-    if (idx == 44) {
-        ScrollBy(s.demoScroll, delta);
-        return true;
-    }
-    return false;
+    const auto& v = Demos();
+    if (idx < 0 || idx >= static_cast<int>(v.size()) || !v[idx].wheel) return false;
+    return v[idx].wheel(idx, delta, s, mx);
 }
 
 } // namespace extragallery
