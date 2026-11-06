@@ -99,6 +99,15 @@ echo "LINK test_controls_core"
 echo "RUN test_controls_core"
 "$out/test_controls_core"
 
+# ---- PaintRecorder golden: platform-free DrawCall consistency base (G5) ----
+echo "CXX test_paint_recorder"
+"$cxx" -std=c++17 $warnflags -c \
+    -I "$core/include" "$root/tests/test_paint_recorder.cpp" -o "$out/test_paint_recorder.o"
+echo "LINK test_paint_recorder"
+"$cxx" "$out/test_paint_recorder.o" "$out/libairui-core.a" -o "$out/test_paint_recorder"
+echo "RUN test_paint_recorder"
+"$out/test_paint_recorder"
+
 echo "--- artifacts ---"
 ls -l "$out"
 echo "linux-smoke: PASSED (airui-core built with $cxx, no platform headers)"

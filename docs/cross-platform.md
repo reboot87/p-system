@@ -5,6 +5,12 @@
 作者：AirUI 组  
 目标读者：AirUI 维护者、评审人、实施人员
 
+> **实施状态补记（2026-11-07，Phase 1 完成后）**
+> - 本文 §2.2 把 `DrawCall.h` / `TestShell` 列为「平台无关、必须复用的资产」，那是**迁移前评估**：实际二者位于 `platform/win32/`，`DrawCall.h` 直接 `#include <windows.h>` 并使用 `RECT / COLORREF / swprintf_s`，`TestShell` 依赖 `HDC / HBITMAP / Canvas`，均无法在 Linux / macOS 编译。
+> - 现已在 `core` 新增平台无关的 `PaintRecorder`（`airui/PaintRecorder.h` + `core/src/PaintRecorder.cpp`）：把 `IPainter` 调用录成可比较、可 ASCII 序列化的 `PaintOp` 序列（`Matches` / `SequenceEquals` / `Diff` / `ToString`）。它统一取代各测试里的 ad-hoc 录制器，作为 **G5 跨后端一致性断言的金样基座**；`test_paint_recorder` 在 Windows / Linux / macOS 三平台 CI 产出同一份序列。
+> - **Skia 后端仍未实施**；§10 的开放问题（Skia 引入方式、Linux 窗口壳等）仍需评审拍板。真正的「Win GDI vs Skia 双后端 diff」要等第二个后端接入后才能执行，当前提供的是确定性金样与比对机制。
+> - Phase 1 的三项 HAL 工作（`GdiPainter` / `Win32Window` 生产化、`IWindow` 完整事件注入、`Shell` 迁入 `ShellCore`）已完成，进展见 `docs/ROADMAP.md` §4。
+
 ---
 
 ## 0. TL;DR

@@ -50,6 +50,7 @@ set(AIRUI_CORE_SOURCES
     src/airui/core/src/ControlsStudioShell.cpp
     src/airui/core/src/ControlsClasses.cpp
     src/airui/core/src/ShellCore.cpp
+    src/airui/core/src/PaintRecorder.cpp
 )
 add_library(airui-core STATIC ${AIRUI_CORE_SOURCES})
 target_include_directories(airui-core PUBLIC
@@ -345,6 +346,19 @@ if(MSVC)
     set_target_properties(test_shell_hal PROPERTIES LINK_FLAGS "/SUBSYSTEM:CONSOLE")
 endif()
 
+# PaintRecorder golden test - platform-free DrawCall consistency base (G5)
+add_executable(test_paint_recorder
+    tests/test_paint_recorder.cpp
+)
+target_link_libraries(test_paint_recorder airui-core)
+set_target_properties(test_paint_recorder PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
+)
+if(MSVC)
+    set_target_properties(test_paint_recorder PROPERTIES LINK_FLAGS "/SUBSYSTEM:CONSOLE")
+endif()
+
 # AirUI reuse demo (examples/DemoWindow.cpp) — minimal Shell+Page example
 add_executable(airui_demo
     examples/DemoWindow.cpp
@@ -402,7 +416,7 @@ endif()
 # test_ui is an end-to-end script that drives a *running* airecord.exe
 # (window lookup + IPC), so it is not registered as a ctest case.
 enable_testing()
-foreach(_t test_core_layout test_controls_core test_shell_hal test_data_controls test_overlay_core test_framework_extra test_advanced_controls test_enterprise_controls test_studio_controls test_control_classes test_theme_manager test_draw_calls test_locale test_component_gallery test_ipc_pipe)
+foreach(_t test_core_layout test_controls_core test_shell_hal test_paint_recorder test_data_controls test_overlay_core test_framework_extra test_advanced_controls test_enterprise_controls test_studio_controls test_control_classes test_theme_manager test_draw_calls test_locale test_component_gallery test_ipc_pipe)
     if(TARGET ${_t})
         add_test(NAME ${_t} COMMAND ${_t})
     endif()

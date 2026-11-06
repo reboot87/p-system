@@ -15,7 +15,7 @@
   - Windows：唯一官方 = CMake + Visual Studio 2017（`build.bat`）。
   - Linux：CMake + Unix Makefiles/Ninja，**仅构建 `airui-core`**（`build.sh`）。
   - 绝不使用 MinGW 构建完整项目（g++ 仅用于核心 CI 冒烟）。
-- **测试**：`ctest -C Release` **15/15 通过**（含 Phase 1 新增的 `test_shell_hal`）；`test_ui` 为端到端脚本，仍需手工跑。
+- **测试**：`ctest -C Release` **16/16 通过**（含 `test_shell_hal` 与平台无关金样 `test_paint_recorder`）；`test_ui` 为端到端脚本，仍需手工跑。
 
 ---
 
@@ -29,6 +29,7 @@
 | `GdiPainter` / `Win32Window` 生产级 HAL | ✅ 已完成 (1) | 真圆角/虚线/alpha/FontRole 字体/裁剪栈；`SetNavBadge` 落库、`WM_GETMINMAXINFO` 强制最小尺寸、滚轮屏幕坐标转客户区 |
 | `IWindow` 完整事件注入 | ✅ 已完成 (2) | 平台无关 `IWindow` 补齐 enter/leave/char/focus/blur/DPI 六个事件（默认 no-op，不破坏其他后端），`Win32Window::PumpEvent` 全量转发 |
 | `NavBar` / `Caption` / `StatusBar` 迁入 ShellCore HAL | ✅ 已完成 (3) | 按 `ShellCore.h` 的设计契约「core owns state & layout, backend owns pixels」：`Shell` 删除重复状态字段、全部读写 `ShellCore`；后端把真实几何喂给 `SetShellGeometry()`，使平台无关命中与像素对齐；`ShellOptions.coreShell` 提供可选的 `GdiPainter + ShellCore::Paint` 渲染路径（默认关，富渲染零回归） |
+| 平台无关 DrawCall 录制器（G5 金样基座） | ✅ 已完成 | 旧 `DrawCall.h`/`TestShell` 绑死 `<windows.h>`（`RECT/COLORREF/swprintf_s/HDC`），无法在 Linux/macOS 编译；新增 core 层 `PaintRecorder`，把 `IPainter` 调用录成可比较/可 ASCII 序列化的 `PaintOp`，三平台 CI 产出同一金样（`test_paint_recorder`）。纠正了设计稿 §2.2 的过时描述 |
 
 ### B. App 业务模块（产品功能）
 | 模块 | 状态 | 证据 |
@@ -47,7 +48,7 @@
 | 项 | 状态 | 说明 / 证据 |
 |---|---|---|
 | `test_ui` 接入 ctest | 未接入 | 端到端需 `airecord.exe` + IPC，只能手工跑（`phase0-signoff.md:37`） |
-| 跨后端 DrawCall 一致性断言 | 设计中 | 目前仅 Windows 端录制，Skia 后端不存在则无处断言（`docs/cross-platform.md` G5） |
+| 跨后端 DrawCall 一致性断言 | 金样基座已就位 | `PaintRecorder` 的 `SequenceEquals/Diff/ToString` 已可用、三平台 CI 跑同一份确定性金样；但**真实双后端 diff** 仍需等 Skia 后端接入后才能执行（`docs/cross-platform.md` G5 / §10） |
 
 ---
 
@@ -65,7 +66,7 @@
 ### Phase 2 —— Skia 与跨平台
 1. 引入 Skia 后端实现 `IPainter` / `IFont` / `IWindow`。
 2. 在 Linux / macOS 跑通 AirUI 核心 + 示例（`airui_demo` / `airui_gallery`）。
-3. 实现跨后端 DrawCall 一致性断言（复用 `TestShell` + DrawCall 录制）。
+3. 实现跨后端 DrawCall 一致性断言（复用 core 的 `PaintRecorder` 金样 + `Diff()`，不再用 Win32 专属的 `TestShell`）。
 4. p-system 业务层 Win32 部分（托盘、注册表、性能计数器）保持 Windows 专属，不跨平台。
 
 ---
@@ -95,3 +96,11 @@
   - **验证**：VS2017 `cmake --build build --config Release` 全绿；新增平台无关 `test_shell_hal`（状态/布局/命中/IPainter 驱动），`ctest -C Release` **15/15 通过**；该测试已接入 GitHub Actions 的 ubuntu / macOS 作业。
   - **顺带修复**：`build.bat` 三处 cmd 批处理陷阱（UTF-8 中文 `rem`、生成器名未加引号、块内 echo 括号提前闭合），脚本现在能端到端跑 CMake + VS2017。
   - **边界**：像素级"富渲染整体委托给 core"**不属于** step 3 —— 设计契约明确是 core 拥有状态/布局、后端拥有像素；三键/Logo/键位提示等平台装饰保留在 Win32 层。Skia 后端与 Linux/macOS 应用本体仍是 Phase 2。
+
+- **2026-11-07 — A 续：平台无关 DrawCall 金样（G5 基座）**
+  - 用户定调「业务最后做」，本轮继续 A，不碰业务插件。
+  - **发现**：设计稿 `cross-platform.md` §2.2 把 `DrawCall.h`/`TestShell` 称为平台无关资产，实际二者在 `platform/win32/`，`DrawCall.h` 含 `<windows.h>` + `RECT/COLORREF/swprintf_s`，`TestShell` 依赖 `HDC/HBITMAP/Canvas` —— 这就是 G5 一直停在「设计中」的根因。
+  - **落地**：新增 core 层 `PaintRecorder.h/.cpp`，把 `IPainter` 调用录为 `PaintOp`（`Matches` 通配 / `SequenceEquals` 严格比较 / `FirstDiff` / `Diff` / ASCII `ToString`），统一取代各测试里的 ad-hoc 录制器；`test_paint_recorder.cpp` 覆盖控件录制、通配匹配、确定性金样、差异定位、全操作捕获、`ShellCore::Paint` 金样。
+  - **CI**：`test_paint_recorder` 加入 CMake + ctest，并在 GitHub Actions 的 ubuntu/macOS 用 CMake 与裸 g++ 冒烟两条路径运行；`scripts/check-core-linux-smoke.sh` 增加该用例。
+  - **验证**：g++ 冒烟 `-Wall -Wextra -Werror` PASSED；VS2017 编译 EXIT=0；`ctest -C Release` **16/16**。
+  - **边界**：这是「确定性金样 + 比对机制」，**不是**已经完成双后端 diff；真实 Win GDI vs Skia 比对要等 Skia 后端接入。`docs/cross-platform.md` 顶部已加实施状态补记，纠正 §2.2 过时描述，并保留 §10 待评审的开放问题（Skia 引入方式、Linux 窗口壳等）。
