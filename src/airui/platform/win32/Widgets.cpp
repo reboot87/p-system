@@ -222,7 +222,7 @@ void ListBox::CreateNative()
     HWND parent = m_shell->Hwnd();
     m_fallbackH = m_desc.fallbackItemHeight;
 
-    m_hwnd = CreateWindowExW(0, L"LISTBOX", L"",
+    m_hwnd = CreateWindowExW(WS_EX_COMPOSITED, L"LISTBOX", L"",
         WS_CHILD | WS_VSCROLL | WS_TABSTOP |
         LBS_NOTIFY | LBS_NOINTEGRALHEIGHT | LBS_OWNERDRAWVARIABLE,
         0, 0, 0, 0, parent, (HMENU)(INT_PTR)m_id, nullptr, nullptr);
@@ -240,6 +240,16 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
     auto* self = (ListBox*)ref;
 
     switch (msg) {
+    case WM_ERASEBKGND: {
+        // LISTBOX 标准类背景刷是白色：滚动/失效时系统先白擦再画条目，
+        // 造成滚动闪烁。改为填一层与条目打底一致的页面灰（WS_EX_COMPOSITED
+        // 下此填充与条目绘制合成在同一缓冲帧，不产生中间态）。
+        HDC dc = (HDC)wParam;
+        RECT rc;
+        GetClientRect(hwnd, &rc);
+        gfx::Fill(dc, rc, Pal().bg);
+        return 1;
+    }
     case WM_LBUTTONDOWN: {
         if (!self) break;
         POINT pt = { (short)LOWORD(lParam), (short)HIWORD(lParam) };
@@ -262,12 +272,12 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
             if (old >= 0) {
                 RECT rc;
                 SendMessageW(hwnd, LB_GETITEMRECT, old, (LPARAM)&rc);
-                InvalidateRect(hwnd, &rc, TRUE);
+                InvalidateRect(hwnd, &rc, FALSE);
             }
             if (item >= 0) {
                 RECT rc;
                 SendMessageW(hwnd, LB_GETITEMRECT, item, (LPARAM)&rc);
-                InvalidateRect(hwnd, &rc, TRUE);
+                InvalidateRect(hwnd, &rc, FALSE);
             }
         }
         TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hwnd, 0 };
@@ -281,7 +291,7 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
         if (old >= 0) {
             RECT rc;
             SendMessageW(hwnd, LB_GETITEMRECT, old, (LPARAM)&rc);
-            InvalidateRect(hwnd, &rc, TRUE);
+            InvalidateRect(hwnd, &rc, FALSE);
         }
         break;
     }
