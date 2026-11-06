@@ -11,6 +11,7 @@
 #include "airui/ControlsExtra.h"
 #include "airui/ControlsAdvanced.h"
 #include "airui/ControlsEnterprise.h"
+#include "airui/ControlsStudio.h"
 #include "airui/FrameworkCore.h"
 
 #include <algorithm>
@@ -102,6 +103,19 @@ inline const std::vector<ExtraDef>& Defs()
         {L"P4 外壳", L"MultiStatusBar",  60},
         {L"P4 外壳", L"RibbonBar",      120},
         {L"P4 外壳", L"NoticeCenter",   270},
+
+        {L"P5 图表", L"Sparkline",      150},
+        {L"P5 图表", L"WaterfallChart", 210},
+        {L"P5 图表", L"StackedBar",     190},
+        {L"P5 图表", L"GaugeMeter",     160},
+        {L"P5 编辑", L"JsonTree",       230},
+        {L"P5 编辑", L"LogViewer",      230},
+        {L"P5 编辑", L"CronEditor",     190},
+        {L"P5 编辑", L"MentionInput",   210},
+        {L"P5 协同", L"OrgChart",       240},
+        {L"P5 协同", L"Leaderboard",    240},
+        {L"P5 协同", L"ActivityFeed",   230},
+        {L"P5 协同", L"AudioWaveform",  160},
     };
     return defs;
 }
@@ -211,6 +225,20 @@ struct ExtraDemoState
     MultiStatusBarState   multiStatus;
     RibbonState           ribbon;
     NoticeCenterState     notice;
+
+    // P5 studio
+    SparklineState        spark;
+    WaterfallState        waterfall;
+    StackedBarState       stacked;
+    GaugeState            gauge;
+    JsonTreeState         jsonTree;
+    LogViewerState        logs;
+    CronEditorState       cron;
+    MentionInputState     mention;
+    OrgChartState         org;
+    LeaderboardState      leaders;
+    ActivityFeedState     feed;
+    AudioWaveformState    wave;
 };
 
 inline void InitExtraDemo(ExtraDemoState& s)
@@ -518,6 +546,84 @@ inline void InitExtraDemo(ExtraDemoState& s)
         {L"新增评论", L"控件契约头已审阅", L"1 小时前", L"评审", false, AlertKind::Info},
         {L"磁盘空间", L"剩余空间低于 20%", L"昨天", L"系统", false, AlertKind::Warning},
     };
+
+    // --- P5 charts ---
+    s.spark.values = {12.4, 13.1, 12.8, 14.6, 15.2, 14.9, 16.8,
+                      17.5, 17.1, 18.6, 19.4, 20.2};
+    s.spark.change = 8.4;
+    s.waterfall.bars = {
+        {L"期初", 120.0, true}, {L"新增", 45.0, false},
+        {L"退款", -18.0, false}, {L"续费", 30.0, false},
+        {L"期末", 177.0, true},
+    };
+    s.stacked.legend = {L"直营", L"渠道", L"线上", L"其他"};
+    s.stacked.rows = {
+        {L"华东", {42, 28, 20, 10}}, {L"华南", {35, 30, 25, 10}},
+        {L"华北", {50, 20, 18, 12}}, {L"西南", {25, 35, 30, 10}},
+    };
+    s.gauge.value = 84.0;
+    s.gauge.warnAt = 80.0;
+    s.gauge.segments = 24;
+
+    // --- P5 editors ---
+    s.jsonTree.root = L"response";
+    s.jsonTree.nodes = {
+        {L"code", L"200", 1, false, true},
+        {L"data", L"{...}", 1, true, true},
+        {L"items", L"[3]", 2, true, true},
+        {L"id", L"1001", 3, false, true},
+        {L"name", L"控件库", 3, false, true},
+        {L"enabled", L"true", 3, false, true},
+        {L"message", L"ok", 1, false, true},
+    };
+    s.logs.filter = L"缓存";
+    s.logs.entries = {
+        {L"09:12:01", LogLevel::Info, L"app", L"启动完成，加载配置"},
+        {L"09:12:03", LogLevel::Debug, L"db", L"连接池初始化 8 个连接"},
+        {L"09:13:20", LogLevel::Info, L"cache", L"缓存预热完成"},
+        {L"09:14:05", LogLevel::Warning, L"net", L"请求重试 2 次"},
+        {L"09:15:41", LogLevel::Error, L"db", L"缓存写入超时"},
+        {L"09:16:02", LogLevel::Info, L"app", L"恢复正常运行"},
+    };
+    s.cron.fields = {L"*/5", L"*", L"*", L"*", L"1-5"};
+    s.cron.captions = {L"分", L"时", L"日", L"月", L"周"};
+    s.cron.description = L"每 5 分钟执行一次，仅工作日生效";
+    s.cron.presets = {L"每小时", L"每天", L"每周", L"自定义"};
+    s.cron.selectedPreset = 0;
+    s.mention.text = L"@";
+    s.mention.showCandidates = true;
+    s.mention.focused = true;
+    s.mention.candidates = {
+        {L"张伟", L"产品 · 在线"}, {L"李娜", L"设计 · 忙碌"},
+        {L"王强", L"研发 · 在线"}, {L"赵敏", L"测试 · 离开"},
+    };
+
+    // --- P5 collaboration ---
+    s.org.nodes = {
+        {L"周明", L"负责人", -1}, {L"张伟", L"产品组", 0},
+        {L"李娜", L"设计组", 0}, {L"王强", L"研发组", 0},
+        {L"赵敏", L"测试", 3}, {L"陈晨", L"前端", 3},
+    };
+    s.leaders.rows = {
+        {L"张伟", L"提交 48 次", 980, 2}, {L"李娜", L"提交 41 次", 875, -1},
+        {L"王强", L"提交 39 次", 810, 1}, {L"赵敏", L"提交 32 次", 690, 0},
+        {L"陈晨", L"提交 27 次", 605, -2},
+    };
+    s.feed.items = {
+        {L"张伟", L"合并了", L"控件库 PR #42", L"2 分钟前", AlertKind::Success, true},
+        {L"李娜", L"评论了", L"视觉走查", L"18 分钟前", AlertKind::Info, true},
+        {L"王强", L"修复了", L"滚动闪烁", L"1 小时前", AlertKind::Warning, false},
+        {L"赵敏", L"报告了", L"构建失败", L"昨天", AlertKind::Error, false},
+    };
+    s.wave.peaks.clear();
+    for (int i = 0; i < 48; ++i) {
+        const double v = 0.25 + 0.7 *
+            (static_cast<double>((i * 7) % 11) / 10.0);
+        s.wave.peaks.push_back(v > 1.0 ? 1.0 : v);
+    }
+    s.wave.position = 0.42;
+    s.wave.duration = 184.0;
+    s.wave.playing = true;
 }
 
 inline Rect GuideAnchorRect(const Rect& rc, const Metrics& mx)
@@ -728,6 +834,24 @@ inline void DrawExtraControl(IPainter& g, const Rect& rc, int idx,
     case 66: PaintMultiStatusBar(g, rc, s.multiStatus, pal, mx); break;
     case 67: PaintRibbon(g, rc, s.ribbon, pal, mx); break;
     case 68: PaintNoticeCenter(g, rc, s.notice, pal, mx); break;
+
+    // ---------------- P5 charts ----------------
+    case 69: PaintSparkline(g, rc, s.spark, pal, mx); break;
+    case 70: PaintWaterfall(g, rc, s.waterfall, pal, mx); break;
+    case 71: PaintStackedBar(g, rc, s.stacked, pal, mx); break;
+    case 72: PaintGauge(g, rc, s.gauge, pal, mx); break;
+
+    // ---------------- P5 editors ----------------
+    case 73: PaintJsonTree(g, rc, s.jsonTree, pal, mx); break;
+    case 74: PaintLogViewer(g, rc, s.logs, pal, mx); break;
+    case 75: PaintCronEditor(g, rc, s.cron, pal, mx); break;
+    case 76: PaintMentionInput(g, rc, s.mention, pal, mx); break;
+
+    // ---------------- P5 collaboration ----------------
+    case 77: PaintOrgChart(g, rc, s.org, pal, mx); break;
+    case 78: PaintLeaderboard(g, rc, s.leaders, pal, mx); break;
+    case 79: PaintActivityFeed(g, rc, s.feed, pal, mx); break;
+    case 80: PaintWaveform(g, rc, s.wave, pal, mx); break;
     default: break;
     }
 }
@@ -1281,6 +1405,167 @@ inline void ExtraClick(int idx, Point pt, const Rect& rc, ExtraDemoState& s,
             item.unread = false;
             status = L"NoticeCenter：" + item.title + L" 已读 · 剩余 " +
                      std::to_wstring(NoticeUnreadCount(s.notice)) + L" 条未读";
+        }
+        break;
+    }
+    case 69: {
+        const int i = SparklinePointAt(rc, s.spark, mx, pt);
+        s.spark.hovered = i;
+        status = i >= 0 && i < static_cast<int>(s.spark.values.size())
+                     ? L"Sparkline：第 " + std::to_wstring(i + 1) +
+                           L" 个采样点，数值 " +
+                           std::to_wstring(static_cast<int>(s.spark.values[static_cast<size_t>(i)]))
+                     : L"Sparkline：点在绘图区外";
+        break;
+    }
+    case 70: {
+        const int i = WaterfallBarAt(rc, s.waterfall, mx, pt);
+        s.waterfall.hovered = i;
+        status = i >= 0 && i < static_cast<int>(s.waterfall.bars.size())
+                     ? L"WaterfallChart：" +
+                           s.waterfall.bars[static_cast<size_t>(i)].label +
+                           L" · 变化 " +
+                           std::to_wstring(static_cast<int>(
+                               s.waterfall.bars[static_cast<size_t>(i)].delta))
+                     : L"WaterfallChart：点在绘图区外";
+        break;
+    }
+    case 71: {
+        const StackedBarHit h = HitStackedBar(rc, s.stacked, mx, pt);
+        s.stacked.hoveredRow = h.row;
+        s.stacked.hoveredSeg = h.seg;
+        status = (h.row >= 0 && h.seg >= 0 &&
+                  h.row < static_cast<int>(s.stacked.rows.size()))
+                     ? L"StackedBar：" +
+                           s.stacked.rows[static_cast<size_t>(h.row)].label +
+                           L" · " + s.stacked.legend[static_cast<size_t>(
+                               (std::min)(h.seg,
+                                   static_cast<int>(s.stacked.legend.size()) - 1))]
+                     : L"StackedBar：点在条形区外";
+        break;
+    }
+    case 72: {
+        const int i = GaugeSegmentAt(rc, s.gauge, mx, pt);
+        s.gauge.hovered = i;
+        status = i >= 0
+                     ? L"GaugeMeter：第 " + std::to_wstring(i + 1) +
+                           L" 段，当前 " + std::to_wstring(static_cast<int>(s.gauge.value)) + L"%"
+                     : L"GaugeMeter：点在刻度区外";
+        break;
+    }
+    case 73: {
+        const JsonTreeHit h = HitJsonTree(rc, s.jsonTree, mx, pt);
+        s.jsonTree.hovered = h.node;
+        if (h.node < 0 || h.node >= static_cast<int>(s.jsonTree.nodes.size())) {
+            status = L"JsonTree：点在节点区外";
+            break;
+        }
+        JsonNode& node = s.jsonTree.nodes[static_cast<size_t>(h.node)];
+        if (h.toggle && node.expandable) {
+            node.expanded = !node.expanded;
+            status = std::wstring(L"JsonTree：") + node.key +
+                     (node.expanded ? L" 已展开" : L" 已折叠");
+        } else {
+            s.jsonTree.selected = h.node;
+            status = L"JsonTree：选中 " + node.key + L" = " + node.value;
+        }
+        break;
+    }
+    case 74: {
+        const int i = LogLineAt(rc, s.logs, mx, pt);
+        s.logs.selected = i;
+        s.logs.hovered = i;
+        status = i >= 0 && i < static_cast<int>(s.logs.entries.size())
+                     ? L"LogViewer：" +
+                           s.logs.entries[static_cast<size_t>(i)].text
+                     : L"LogViewer：点在日志区外";
+        break;
+    }
+    case 75: {
+        const CronEditorHit h = HitCronEditor(rc, s.cron, mx, pt);
+        s.cron.hoveredField = h.field;
+        s.cron.hoveredPreset = h.preset;
+        if (h.preset >= 0 && h.preset < static_cast<int>(s.cron.presets.size())) {
+            s.cron.selectedPreset = h.preset;
+            s.cron.focused = false;
+            switch (h.preset) {
+            case 0: s.cron.fields = {L"0", L"*", L"*", L"*", L"*"};
+                    s.cron.description = L"每小时整点执行一次"; break;
+            case 1: s.cron.fields = {L"0", L"9", L"*", L"*", L"*"};
+                    s.cron.description = L"每天上午 09:00 执行一次"; break;
+            case 2: s.cron.fields = {L"0", L"9", L"*", L"*", L"1"};
+                    s.cron.description = L"每周一上午 09:00 执行一次"; break;
+            default: s.cron.description = L"自定义表达式，可点击字段编辑"; break;
+            }
+            status = L"CronEditor：已应用预设「" +
+                     s.cron.presets[static_cast<size_t>(h.preset)] + L"」";
+        } else if (h.field >= 0) {
+            s.cron.focused = true;
+            status = L"CronEditor：选中第 " + std::to_wstring(h.field + 1) + L" 段";
+        }
+        break;
+    }
+    case 76: {
+        const MentionInputHit h = HitMentionInput(rc, s.mention, mx, pt);
+        s.mention.hovered = h.candidate;
+        if (h.candidate >= 0 &&
+            h.candidate < static_cast<int>(s.mention.candidates.size())) {
+            const MentionCandidate& c =
+                s.mention.candidates[static_cast<size_t>(h.candidate)];
+            s.mention.text = L"@" + c.name + L" ";
+            s.mention.selected = h.candidate;
+            s.mention.showCandidates = false;
+            status = L"MentionInput：已提及 " + c.name;
+        } else if (h.input) {
+            s.mention.showCandidates = true;
+            s.mention.focused = true;
+            status = L"MentionInput：候选项已展开";
+        }
+        break;
+    }
+    case 77: {
+        const int i = OrgNodeAt(rc, s.org, mx, pt);
+        s.org.selected = i;
+        s.org.hovered = i;
+        status = i >= 0 && i < static_cast<int>(s.org.nodes.size())
+                     ? L"OrgChart：选中 " +
+                           s.org.nodes[static_cast<size_t>(i)].name + L" · " +
+                           s.org.nodes[static_cast<size_t>(i)].role
+                     : L"OrgChart：点在节点外";
+        break;
+    }
+    case 78: {
+        const int i = LeaderRowAt(rc, s.leaders, mx, pt);
+        s.leaders.selected = i;
+        s.leaders.hovered = i;
+        status = i >= 0 && i < static_cast<int>(s.leaders.rows.size())
+                     ? L"Leaderboard：第 " + std::to_wstring(i + 1) + L" 名 " +
+                           s.leaders.rows[static_cast<size_t>(i)].name
+                     : L"Leaderboard：点在榜单外";
+        break;
+    }
+    case 79: {
+        const int i = ActivityItemAt(rc, s.feed, mx, pt);
+        s.feed.hovered = i;
+        if (i >= 0 && i < static_cast<int>(s.feed.items.size())) {
+            ActivityItem& item = s.feed.items[static_cast<size_t>(i)];
+            item.unread = false;
+            status = L"ActivityFeed：" + item.actor + L" " + item.action +
+                     L" " + item.target + L"（已读）";
+        }
+        break;
+    }
+    case 80: {
+        if (WaveformPlayButtonAt(rc, s.wave, mx, pt)) {
+            s.wave.playing = !s.wave.playing;
+            status = s.wave.playing ? L"AudioWaveform：开始播放"
+                                    : L"AudioWaveform：已暂停";
+        } else {
+            const int milli = WaveformPositionAt(rc, s.wave, mx, pt);
+            s.wave.position = static_cast<double>(milli) / 1000.0;
+            status = L"AudioWaveform：跳转到 " +
+                     std::to_wstring(static_cast<int>(
+                         s.wave.duration * s.wave.position)) + L" 秒";
         }
         break;
     }
