@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------
+  # A. 跨平台后端层（进行中）
+  # 本地编不了的平台（Linux / macOS）统一交给 GitHub Actions 编译。
+  # airui-core 是平台无关核心，三平台均通过 CMake + 生成器构建。
+  # ---------------------------------------------------------------
+  core-unix:
+    name: airui-core (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (CMake + Unix Makefiles)
+        run: cmake -S . -B build-core -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build airui-core
+        run: cmake --build build-core --config Release --target airui-core
+
+      - name: Core smoke test (compile + link + run core tests)
+        run: bash scripts/check-core-linux-smoke.sh
+
+  windows:
+    name: airui-core (windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # NOTE: GitHub-hosted Windows runners ship VS2022, not VS2017.
+      # This job is a cross-platform compile gate; the official local
+      # build remains CMake + VS2017 via build.bat (see README).
+      - name: Configure (CMake + MSVC)
+        run: cmake -S . -B build-core -G "Visual Studio 17 2022" -A x64
+
+      - name: Build airui-core
+        run: cmake --build build-core --config Release --target airui-core

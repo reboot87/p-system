@@ -17,6 +17,14 @@ here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/.." && pwd)"
 core="$root/src/airui/core"
 cxx="${CXX:-g++}"
+# g++: treat warnings as errors; clang (e.g. macOS, where g++ is clang)
+# keeps them non-fatal because its -W set differs and would otherwise
+# break the smoke gate spuriously.
+warnflags="-Wall -Wextra"
+case "$cxx" in
+  *clang*) ;;
+  *) warnflags="$warnflags -Werror" ;;
+esac
 out="$root/build-linux-smoke"
 
 echo "compiler: $("$cxx" --version | head -1)"
@@ -27,7 +35,7 @@ mkdir -p "$out"
 for src in "$core"/src/*.cpp; do
     obj="$out/$(basename "${src%.cpp}").o"
     echo "CXX $(basename "$src")"
-    "$cxx" -std=c++17 -Wall -Wextra -Werror -c \
+    "$cxx" -std=c++17 $warnflags -c \
         -I "$core/include" "$src" -o "$obj"
 done
 
@@ -72,7 +80,7 @@ int main()
 }
 CPP
 echo "CXX hal_check.cpp (HAL header usability)"
-"$cxx" -std=c++17 -Wall -Wextra -Werror -c \
+"$cxx" -std=c++17 $warnflags -c \
     -I "$core/include" "$out/hal_check.cpp" -o "$out/hal_check.o"
 
 echo "LINK hal_check"
@@ -84,7 +92,7 @@ echo "RUN hal_check (layout + HAL behaviour)"
 
 # ---- Core controls smoke: PaintButton / PaintCheckbox / PaintRadio ----
 echo "CXX test_controls_core (core controls)"
-"$cxx" -std=c++17 -Wall -Wextra -Werror -c \
+"$cxx" -std=c++17 $warnflags -c \
     -I "$core/include" "$root/tests/test_controls_core.cpp" -o "$out/test_controls_core.o"
 echo "LINK test_controls_core"
 "$cxx" "$out/test_controls_core.o" "$out/libairui-core.a" -o "$out/test_controls_core"
