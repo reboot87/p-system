@@ -1,3 +1,4 @@
+#include "airui/WidgetControls.h"
 // ============================================================
 // AirUI - ControlsInput.cpp
 // Platform-free P2 input controls: SearchBox, PasswordBox,
@@ -226,126 +227,22 @@ ColorLayout MeasureColorPicker(const Rect& rc, const ColorPickerState& st,
 } // namespace
 
 // ---- SearchBox ----
-SearchBoxHit HitSearchBox(const Rect& rc, const SearchBoxState& st,
-                          const Metrics& mx, Point pt)
-{
-    if (rc.Empty() || !rc.Contains(pt)) return SearchBoxHit::None;
-    const FieldLayout lay = MeasureSearchBox(rc, st, mx);
-    if (lay.hasAction && lay.action.Contains(pt)) return SearchBoxHit::Clear;
-    return SearchBoxHit::Body;
-}
 
-void PaintSearchBox(IPainter& g, const Rect& rc, const SearchBoxState& st,
-                    const Palette& pal, const Metrics& mx)
-{
-    if (rc.Empty()) return;
-    const FieldLayout lay = MeasureSearchBox(rc, st, mx);
-    PaintFieldFrame(g, rc, st.base, st.hasFocus, pal, mx);
-    g.PushClip(Rect(rc.left + 1, rc.top + 1, rc.right - 1, rc.bottom - 1));
-    g.Text(lay.glyph, L"\xE721", FontRole::Icon,
-           st.base.disabled ? pal.textDisabled : pal.textSub, kCenterText);
-    const bool empty = st.text.empty();
-    const std::wstring& shown = empty ? st.placeholder : st.text;
-    const Color textCol = st.base.disabled ? pal.textDisabled
-                        : empty ? pal.textFaint : pal.text;
-    g.Text(lay.text, shown, FontRole::Body, textCol, kLeftText);
-    if (lay.hasAction) {
-        if (st.clearHover && !st.base.disabled)
-            g.FillRound(lay.action, mx.radiusSm, pal.hover);
-        g.Text(lay.action, L"\u00D7", FontRole::Body,
-               st.base.disabled ? pal.textDisabled : pal.textSub, kCenterText);
-    }
-    g.PopClip();
-}
+
+
 
 // ---- PasswordBox ----
-PasswordBoxHit HitPasswordBox(const Rect& rc, const PasswordBoxState& st,
-                              const Metrics& mx, Point pt)
-{
-    (void)st;
-    if (rc.Empty() || !rc.Contains(pt)) return PasswordBoxHit::None;
-    const FieldLayout lay = MeasurePasswordBox(rc, mx);
-    if (lay.action.Contains(pt)) return PasswordBoxHit::Reveal;
-    return PasswordBoxHit::Body;
-}
 
-void PaintPasswordBox(IPainter& g, const Rect& rc, const PasswordBoxState& st,
-                      const Palette& pal, const Metrics& mx)
-{
-    if (rc.Empty()) return;
-    const FieldLayout lay = MeasurePasswordBox(rc, mx);
-    PaintFieldFrame(g, rc, st.base, st.hasFocus, pal, mx);
-    g.PushClip(Rect(rc.left + 1, rc.top + 1, rc.right - 1, rc.bottom - 1));
-    const bool empty = st.text.empty();
-    std::wstring shown;
-    if (empty) shown = st.placeholder;
-    else if (st.revealed) shown = st.text;
-    else shown.assign(st.text.size(), L'\u2022');
-    const Color textCol = st.base.disabled ? pal.textDisabled
-                        : empty ? pal.textFaint : pal.text;
-    g.Text(lay.text, shown, FontRole::Body, textCol, kLeftText);
-    if (st.toggleHover && !st.base.disabled)
-        g.FillRound(lay.action, mx.radiusSm, pal.hover);
-    const Color revealCol = st.base.disabled ? pal.textDisabled
-                          : st.revealed ? pal.primaryText : pal.textSub;
-    g.Text(lay.action, L"\xE890", FontRole::Icon, revealCol, kCenterText);
-    g.PopClip();
-}
+
+
 
 // ---- TextArea ----
-void PaintTextArea(IPainter& g, const Rect& rc, const TextAreaState& st,
-                   const Palette& pal, const Metrics& mx)
-{
-    if (rc.Empty()) return;
-    PaintFieldFrame(g, rc, st.base, st.hasFocus, pal, mx);
-    const int pad = mx.unit;
-    const Rect inner(rc.left + pad, rc.top + pad / 2,
-                     rc.right - pad, rc.bottom - pad / 2);
-    if (inner.Empty()) return;
-    g.PushClip(inner);
-    if (st.text.empty())
-        g.Text(inner, st.placeholder, FontRole::Body,
-               st.base.disabled ? pal.textDisabled : pal.textFaint, kLeftText);
-    else
-        g.TextBlock(inner, st.text, FontRole::Body,
-                    BodyText(st.base, pal), (std::max)(1, st.maxLines));
-    g.PopClip();
-}
+
 
 // ---- NumberInput ----
-NumberInputHit HitNumberInput(const Rect& rc, const NumberInputState& st,
-                              const Metrics& mx, Point pt)
-{
-    (void)st;
-    if (rc.Empty() || !rc.Contains(pt)) return NumberInputHit::None;
-    const NumberLayout lay = MeasureNumberInput(rc, mx);
-    if (lay.minus.Contains(pt)) return NumberInputHit::Minus;
-    if (lay.plus.Contains(pt)) return NumberInputHit::Plus;
-    return NumberInputHit::Body;
-}
 
-void PaintNumberInput(IPainter& g, const Rect& rc, const NumberInputState& st,
-                      const Palette& pal, const Metrics& mx)
-{
-    if (rc.Empty()) return;
-    const NumberLayout lay = MeasureNumberInput(rc, mx);
-    PaintFieldFrame(g, rc, st.base, st.base.focused, pal, mx);
-    g.PushClip(Rect(rc.left + 1, rc.top + 1, rc.right - 1, rc.bottom - 1));
-    const Color glyphCol = st.base.disabled ? pal.textDisabled : pal.textSub;
-    if (st.minusHover && !st.base.disabled)
-        g.FillRound(lay.minus, mx.radiusSm, pal.hover);
-    g.Text(lay.minus, L"\u2212", FontRole::Body, glyphCol, kCenterText);
-    if (st.plusHover && !st.base.disabled)
-        g.FillRound(lay.plus, mx.radiusSm, pal.hover);
-    g.Text(lay.plus, L"+", FontRole::Body, glyphCol, kCenterText);
-    g.Text(lay.value, std::to_wstring(st.value), FontRole::Body,
-           BodyText(st.base, pal), kCenterEllipsis);
-    g.FillRect(Rect(lay.minus.right, rc.top,
-                    lay.minus.right + 1, rc.bottom), pal.split);
-    g.FillRect(Rect(lay.plus.left - 1, rc.top,
-                    lay.plus.left, rc.bottom), pal.split);
-    g.PopClip();
-}
+
+
 
 // ---- calendar arithmetic (platform free) ----
 int DaysInMonth(int year, int month)
@@ -371,9 +268,183 @@ int FirstWeekday(int year, int month)
 }
 
 // ---- DatePicker ----
-int DatePickerDayAt(const Rect& rc, const DatePickerState& st,
-                    const Metrics& mx, Point pt)
+
+
+
+
+// ---- ColorPicker ----
+
+
+
+
+} // namespace ui
+} // namespace air
+
+// ============================================================
+// Object layer: widget member functions migrated from the
+// free-function drawing kernel above.
+// ============================================================
+namespace air {
+namespace ui {
+namespace widgets {
+
+SearchBoxHit SearchBox::HitAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const SearchBoxState& st = state;
+    (void)mx;
+    (void)pt;
+    if (rc.Empty() || !rc.Contains(pt)) return SearchBoxHit::None;
+    const FieldLayout lay = MeasureSearchBox(rc, st, mx);
+    if (lay.hasAction && lay.action.Contains(pt)) return SearchBoxHit::Clear;
+    return SearchBoxHit::Body;
+}
+
+void SearchBox::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
+{
+    const Rect& rc = Bounds();
+    SearchBoxState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
+    if (rc.Empty()) return;
+    const FieldLayout lay = MeasureSearchBox(rc, st, mx);
+    PaintFieldFrame(g, rc, st.base, st.hasFocus, pal, mx);
+    g.PushClip(Rect(rc.left + 1, rc.top + 1, rc.right - 1, rc.bottom - 1));
+    g.Text(lay.glyph, L"\xE721", FontRole::Icon,
+           st.base.disabled ? pal.textDisabled : pal.textSub, kCenterText);
+    const bool empty = st.text.empty();
+    const std::wstring& shown = empty ? st.placeholder : st.text;
+    const Color textCol = st.base.disabled ? pal.textDisabled
+                        : empty ? pal.textFaint : pal.text;
+    g.Text(lay.text, shown, FontRole::Body, textCol, kLeftText);
+    if (lay.hasAction) {
+        if (st.clearHover && !st.base.disabled)
+            g.FillRound(lay.action, mx.radiusSm, pal.hover);
+        g.Text(lay.action, L"\u00D7", FontRole::Body,
+               st.base.disabled ? pal.textDisabled : pal.textSub, kCenterText);
+    }
+    g.PopClip();
+}
+
+PasswordBoxHit PasswordBox::HitAt(const Metrics& mx, Point pt) const
+{
+    const Rect& rc = Bounds();
+    const PasswordBoxState& st = state;
+    (void)mx;
+    (void)pt;
+    (void)st;
+    if (rc.Empty() || !rc.Contains(pt)) return PasswordBoxHit::None;
+    const FieldLayout lay = MeasurePasswordBox(rc, mx);
+    if (lay.action.Contains(pt)) return PasswordBoxHit::Reveal;
+    return PasswordBoxHit::Body;
+}
+
+void PasswordBox::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
+{
+    const Rect& rc = Bounds();
+    PasswordBoxState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
+    if (rc.Empty()) return;
+    const FieldLayout lay = MeasurePasswordBox(rc, mx);
+    PaintFieldFrame(g, rc, st.base, st.hasFocus, pal, mx);
+    g.PushClip(Rect(rc.left + 1, rc.top + 1, rc.right - 1, rc.bottom - 1));
+    const bool empty = st.text.empty();
+    std::wstring shown;
+    if (empty) shown = st.placeholder;
+    else if (st.revealed) shown = st.text;
+    else shown.assign(st.text.size(), L'\u2022');
+    const Color textCol = st.base.disabled ? pal.textDisabled
+                        : empty ? pal.textFaint : pal.text;
+    g.Text(lay.text, shown, FontRole::Body, textCol, kLeftText);
+    if (st.toggleHover && !st.base.disabled)
+        g.FillRound(lay.action, mx.radiusSm, pal.hover);
+    const Color revealCol = st.base.disabled ? pal.textDisabled
+                          : st.revealed ? pal.primaryText : pal.textSub;
+    g.Text(lay.action, L"\xE890", FontRole::Icon, revealCol, kCenterText);
+    g.PopClip();
+}
+
+void TextArea::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
+{
+    const Rect& rc = Bounds();
+    TextAreaState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
+    if (rc.Empty()) return;
+    PaintFieldFrame(g, rc, st.base, st.hasFocus, pal, mx);
+    const int pad = mx.unit;
+    const Rect inner(rc.left + pad, rc.top + pad / 2,
+                     rc.right - pad, rc.bottom - pad / 2);
+    if (inner.Empty()) return;
+    g.PushClip(inner);
+    if (st.text.empty())
+        g.Text(inner, st.placeholder, FontRole::Body,
+               st.base.disabled ? pal.textDisabled : pal.textFaint, kLeftText);
+    else
+        g.TextBlock(inner, st.text, FontRole::Body,
+                    BodyText(st.base, pal), (std::max)(1, st.maxLines));
+    g.PopClip();
+}
+
+NumberInputHit NumberInput::HitAt(const Metrics& mx, Point pt) const
+{
+    const Rect& rc = Bounds();
+    const NumberInputState& st = state;
+    (void)mx;
+    (void)pt;
+    (void)st;
+    if (rc.Empty() || !rc.Contains(pt)) return NumberInputHit::None;
+    const NumberLayout lay = MeasureNumberInput(rc, mx);
+    if (lay.minus.Contains(pt)) return NumberInputHit::Minus;
+    if (lay.plus.Contains(pt)) return NumberInputHit::Plus;
+    return NumberInputHit::Body;
+}
+
+void NumberInput::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
+{
+    const Rect& rc = Bounds();
+    NumberInputState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
+    if (rc.Empty()) return;
+    const NumberLayout lay = MeasureNumberInput(rc, mx);
+    PaintFieldFrame(g, rc, st.base, st.base.focused, pal, mx);
+    g.PushClip(Rect(rc.left + 1, rc.top + 1, rc.right - 1, rc.bottom - 1));
+    const Color glyphCol = st.base.disabled ? pal.textDisabled : pal.textSub;
+    if (st.minusHover && !st.base.disabled)
+        g.FillRound(lay.minus, mx.radiusSm, pal.hover);
+    g.Text(lay.minus, L"\u2212", FontRole::Body, glyphCol, kCenterText);
+    if (st.plusHover && !st.base.disabled)
+        g.FillRound(lay.plus, mx.radiusSm, pal.hover);
+    g.Text(lay.plus, L"+", FontRole::Body, glyphCol, kCenterText);
+    g.Text(lay.value, std::to_wstring(st.value), FontRole::Body,
+           BodyText(st.base, pal), kCenterEllipsis);
+    g.FillRect(Rect(lay.minus.right, rc.top,
+                    lay.minus.right + 1, rc.bottom), pal.split);
+    g.FillRect(Rect(lay.plus.left - 1, rc.top,
+                    lay.plus.left, rc.bottom), pal.split);
+    g.PopClip();
+}
+
+int DatePicker::DayAt(const Metrics& mx, Point pt) const
+{
+    const Rect& rc = Bounds();
+    const DatePickerState& st = state;
+    (void)mx;
+    (void)pt;
     if (rc.Empty() || !rc.Contains(pt)) return -1;
     const DateLayout lay = MeasureDatePicker(rc, mx);
     if (lay.prev.Contains(pt)) return -2;
@@ -389,9 +460,15 @@ int DatePickerDayAt(const Rect& rc, const DatePickerState& st,
     return day;
 }
 
-void PaintDatePicker(IPainter& g, const Rect& rc, const DatePickerState& st,
-                     const Palette& pal, const Metrics& mx)
+void DatePicker::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    DatePickerState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const DateLayout lay = MeasureDatePicker(rc, mx);
     g.FillRound(rc, mx.radiusMd, st.base.disabled ? pal.sunken : pal.surface);
@@ -445,10 +522,12 @@ void PaintDatePicker(IPainter& g, const Rect& rc, const DatePickerState& st,
     g.PopClip();
 }
 
-// ---- ColorPicker ----
-int ColorPickerSwatchAt(const Rect& rc, const ColorPickerState& st,
-                        const Metrics& mx, Point pt)
+int ColorPicker::SwatchAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const ColorPickerState& st = state;
+    (void)mx;
+    (void)pt;
     if (rc.Empty() || !rc.Contains(pt)) return -1;
     const ColorLayout lay = MeasureColorPicker(rc, st, mx);
     for (std::size_t i = 0; i < lay.cells.size(); ++i)
@@ -456,9 +535,15 @@ int ColorPickerSwatchAt(const Rect& rc, const ColorPickerState& st,
     return -1;
 }
 
-void PaintColorPicker(IPainter& g, const Rect& rc, const ColorPickerState& st,
-                      const Palette& pal, const Metrics& mx)
+void ColorPicker::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    ColorPickerState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const ColorLayout lay = MeasureColorPicker(rc, st, mx);
     g.FillRound(rc, mx.radiusMd, st.base.disabled ? pal.sunken : pal.surface);
@@ -484,5 +569,6 @@ void PaintColorPicker(IPainter& g, const Rect& rc, const ColorPickerState& st,
     g.PopClip();
 }
 
+} // namespace widgets
 } // namespace ui
 } // namespace air

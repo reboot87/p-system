@@ -1,3 +1,4 @@
+#include "airui/WidgetControls.h"
 // AirUI - ControlsStudioShell.cpp : platform-free collaboration widgets.
 // Fifth wave: OrgChart, Leaderboard, ActivityFeed, AudioWaveform.
 #include "airui/ControlsStudio.h"
@@ -174,15 +175,181 @@ OrgChartLayout GeoOrg(const Rect& rc, const OrgChartState& st,
 
 } // namespace
 
-OrgChartLayout MeasureOrgChart(const Rect& rc, const OrgChartState& st,
-                               const Metrics& mx)
+
+
+
+
+
+
+namespace {
+
+// ============================================================
+// Leaderboard
+// ============================================================
+LeaderboardLayout GeoLeaders(const Rect& rc, const LeaderboardState& st,
+                             const Metrics& mx)
 {
+    LeaderboardLayout o;
+    if (rc.Empty() || st.rows.empty()) return o;
+    const Rect inner = Inset(rc, mx.unit / 2);
+    if (inner.Empty() || inner.Height() < mx.rowH * 2) return o;
+    o.header = Rect(inner.left, inner.top, inner.right,
+                    inner.top + mx.rowH);
+    o.body = Rect(inner.left, o.header.bottom, inner.right, inner.bottom);
+    if (o.body.Empty()) return o;
+    o.rowH = (std::min)(mx.itemH,
+                        o.body.Height() /
+                            (std::max)(1, static_cast<int>(st.rows.size())));
+    if (o.rowH <= 0) o.rowH = mx.rowH;
+    for (std::size_t i = 0; i < st.rows.size(); ++i) {
+        const int y = o.body.top + static_cast<int>(i) * o.rowH;
+        if (y + o.rowH > o.body.bottom) break;
+        o.rows.push_back(Rect(o.body.left, y, o.body.right, y + o.rowH));
+    }
+    return o;
+}
+
+} // namespace
+
+
+
+
+
+
+
+namespace {
+
+// ============================================================
+// ActivityFeed
+// ============================================================
+ActivityFeedLayout GeoFeed(const Rect& rc, const ActivityFeedState& st,
+                           const Metrics& mx)
+{
+    ActivityFeedLayout o;
+    if (rc.Empty() || st.items.empty()) return o;
+    const Rect inner = Inset(rc, mx.unit / 2);
+    if (inner.Empty() || inner.Height() < mx.rowH * 2) return o;
+    o.header = Rect(inner.left, inner.top, inner.right,
+                    inner.top + mx.rowH);
+    const Rect body(inner.left, o.header.bottom, inner.right, inner.bottom);
+    if (body.Empty()) return o;
+    o.rowH = (std::min)(mx.itemH,
+                        body.Height() /
+                            (std::max)(1, static_cast<int>(st.items.size())));
+    if (o.rowH <= 0) o.rowH = mx.rowH;
+    const int avatarW = (std::min)(mx.rowH, o.rowH - mx.unit / 2);
+    for (std::size_t i = 0; i < st.items.size(); ++i) {
+        const int y = body.top + static_cast<int>(i) * o.rowH;
+        if (y + o.rowH > body.bottom) break;
+        o.rows.push_back(Rect(body.left, y, body.right, y + o.rowH));
+        o.avatars.push_back(Rect(body.left + mx.unit / 2,
+                                 y + (o.rowH - avatarW) / 2,
+                                 body.left + mx.unit / 2 + avatarW,
+                                 y + (o.rowH - avatarW) / 2 + avatarW));
+    }
+    return o;
+}
+
+} // namespace
+
+
+
+
+
+
+
+namespace {
+
+// ============================================================
+// AudioWaveform
+// ============================================================
+WaveformLayout GeoWave(const Rect& rc, const AudioWaveformState& st,
+                       const Metrics& mx)
+{
+    WaveformLayout o;
+    if (rc.Empty()) return o;
+    const Rect inner = Inset(rc, mx.unit / 2);
+    if (inner.Empty() || inner.Height() < mx.rowH * 3) return o;
+    o.header = Rect(inner.left, inner.top, inner.right,
+                    inner.top + mx.rowH);
+    o.timeRc = Rect(inner.left, inner.bottom - mx.tagH,
+                    inner.right, inner.bottom);
+    const int btnW = mx.rowH;
+    const int btnTop = o.header.bottom + mx.unit;
+    o.playBtn = Rect(inner.left, btnTop,
+                     inner.left + btnW,
+                     (std::min)(btnTop + mx.rowH, o.timeRc.top - mx.unit));
+    o.track = Rect(o.playBtn.right + mx.unit / 2,
+                   o.header.bottom + mx.unit / 2,
+                   inner.right, o.timeRc.top - mx.unit / 2);
+    if (o.track.Empty()) return o;
+
+    const int n = static_cast<int>(st.peaks.size());
+    if (n > 0) {
+        const int gap = (std::max)(1, mx.unit / 8);
+        const int slot = o.track.Width() / n;
+        if (slot > gap) {
+            const int centerY = (o.track.top + o.track.bottom) / 2;
+            for (int i = 0; i < n; ++i) {
+                const double peak = ClampD(st.peaks[static_cast<std::size_t>(i)],
+                                           0.05, 1.0);
+                const int half = (std::max)(1,
+                    static_cast<int>(o.track.Height() / 2 * peak));
+                const int x = o.track.left + i * slot;
+                o.bars.push_back(Rect(x + gap / 2,
+                                      ClampI(centerY - half, o.track.top,
+                                             o.track.bottom - 1),
+                                      x + slot - gap / 2,
+                                      ClampI(centerY + half, o.track.top + 1,
+                                             o.track.bottom)));
+            }
+        }
+    }
+    const double t = ClampD(st.position, 0.0, 1.0);
+    const int px = o.track.left + static_cast<int>(t * o.track.Width());
+    o.playhead = Rect(ClampI(px, o.track.left, o.track.right - 1),
+                      o.track.top,
+                      ClampI(px + (std::max)(1, mx.unit / 4),
+                             o.track.left + 1, o.track.right),
+                      o.track.bottom);
+    return o;
+}
+
+} // namespace
+
+
+
+
+
+
+
+
+
+} // namespace ui
+} // namespace air
+
+// ============================================================
+// Object layer: widget member functions migrated from the
+// free-function drawing kernel above.
+// ============================================================
+namespace air {
+namespace ui {
+namespace widgets {
+
+OrgChartLayout OrgChart::Measure(const Metrics& mx) const
+{
+    const Rect& rc = Bounds();
+    const OrgChartState& st = state;
+    (void)mx;
     return GeoOrg(rc, st, mx);
 }
 
-int OrgNodeAt(const Rect& rc, const OrgChartState& st,
-              const Metrics& mx, Point pt)
+int OrgChart::OrgNodeAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const OrgChartState& st = state;
+    (void)mx;
+    (void)pt;
     const OrgChartLayout o = GeoOrg(rc, st, mx);
     for (std::size_t i = 0; i < o.boxes.size(); ++i) {
         if (Has(o.boxes[i], pt)) return static_cast<int>(i);
@@ -190,9 +357,15 @@ int OrgNodeAt(const Rect& rc, const OrgChartState& st,
     return -1;
 }
 
-void PaintOrgChart(IPainter& g, const Rect& rc, const OrgChartState& st,
-                   const Palette& pal, const Metrics& mx)
+void OrgChart::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    OrgChartState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const OrgChartLayout o = GeoOrg(rc, st, mx);
     if (o.boxes.empty()) return;
@@ -230,46 +403,20 @@ void PaintOrgChart(IPainter& g, const Rect& rc, const OrgChartState& st,
     g.PopClip();
 }
 
-namespace {
-
-// ============================================================
-// Leaderboard
-// ============================================================
-LeaderboardLayout GeoLeaders(const Rect& rc, const LeaderboardState& st,
-                             const Metrics& mx)
+LeaderboardLayout Leaderboard::Measure(const Metrics& mx) const
 {
-    LeaderboardLayout o;
-    if (rc.Empty() || st.rows.empty()) return o;
-    const Rect inner = Inset(rc, mx.unit / 2);
-    if (inner.Empty() || inner.Height() < mx.rowH * 2) return o;
-    o.header = Rect(inner.left, inner.top, inner.right,
-                    inner.top + mx.rowH);
-    o.body = Rect(inner.left, o.header.bottom, inner.right, inner.bottom);
-    if (o.body.Empty()) return o;
-    o.rowH = (std::min)(mx.itemH,
-                        o.body.Height() /
-                            (std::max)(1, static_cast<int>(st.rows.size())));
-    if (o.rowH <= 0) o.rowH = mx.rowH;
-    for (std::size_t i = 0; i < st.rows.size(); ++i) {
-        const int y = o.body.top + static_cast<int>(i) * o.rowH;
-        if (y + o.rowH > o.body.bottom) break;
-        o.rows.push_back(Rect(o.body.left, y, o.body.right, y + o.rowH));
-    }
-    return o;
-}
-
-} // namespace
-
-LeaderboardLayout MeasureLeaderboard(const Rect& rc,
-                                     const LeaderboardState& st,
-                                     const Metrics& mx)
-{
+    const Rect& rc = Bounds();
+    const LeaderboardState& st = state;
+    (void)mx;
     return GeoLeaders(rc, st, mx);
 }
 
-int LeaderRowAt(const Rect& rc, const LeaderboardState& st,
-                const Metrics& mx, Point pt)
+int Leaderboard::LeaderRowAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const LeaderboardState& st = state;
+    (void)mx;
+    (void)pt;
     const LeaderboardLayout o = GeoLeaders(rc, st, mx);
     for (std::size_t i = 0; i < o.rows.size(); ++i) {
         if (Has(o.rows[i], pt)) return static_cast<int>(i);
@@ -277,10 +424,15 @@ int LeaderRowAt(const Rect& rc, const LeaderboardState& st,
     return -1;
 }
 
-void PaintLeaderboard(IPainter& g, const Rect& rc,
-                      const LeaderboardState& st,
-                      const Palette& pal, const Metrics& mx)
+void Leaderboard::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    LeaderboardState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const LeaderboardLayout o = GeoLeaders(rc, st, mx);
     if (o.header.Empty()) return;
@@ -356,51 +508,20 @@ void PaintLeaderboard(IPainter& g, const Rect& rc,
     g.PopClip();
 }
 
-namespace {
-
-// ============================================================
-// ActivityFeed
-// ============================================================
-ActivityFeedLayout GeoFeed(const Rect& rc, const ActivityFeedState& st,
-                           const Metrics& mx)
+ActivityFeedLayout ActivityFeed::Measure(const Metrics& mx) const
 {
-    ActivityFeedLayout o;
-    if (rc.Empty() || st.items.empty()) return o;
-    const Rect inner = Inset(rc, mx.unit / 2);
-    if (inner.Empty() || inner.Height() < mx.rowH * 2) return o;
-    o.header = Rect(inner.left, inner.top, inner.right,
-                    inner.top + mx.rowH);
-    const Rect body(inner.left, o.header.bottom, inner.right, inner.bottom);
-    if (body.Empty()) return o;
-    o.rowH = (std::min)(mx.itemH,
-                        body.Height() /
-                            (std::max)(1, static_cast<int>(st.items.size())));
-    if (o.rowH <= 0) o.rowH = mx.rowH;
-    const int avatarW = (std::min)(mx.rowH, o.rowH - mx.unit / 2);
-    for (std::size_t i = 0; i < st.items.size(); ++i) {
-        const int y = body.top + static_cast<int>(i) * o.rowH;
-        if (y + o.rowH > body.bottom) break;
-        o.rows.push_back(Rect(body.left, y, body.right, y + o.rowH));
-        o.avatars.push_back(Rect(body.left + mx.unit / 2,
-                                 y + (o.rowH - avatarW) / 2,
-                                 body.left + mx.unit / 2 + avatarW,
-                                 y + (o.rowH - avatarW) / 2 + avatarW));
-    }
-    return o;
-}
-
-} // namespace
-
-ActivityFeedLayout MeasureActivityFeed(const Rect& rc,
-                                       const ActivityFeedState& st,
-                                       const Metrics& mx)
-{
+    const Rect& rc = Bounds();
+    const ActivityFeedState& st = state;
+    (void)mx;
     return GeoFeed(rc, st, mx);
 }
 
-int ActivityItemAt(const Rect& rc, const ActivityFeedState& st,
-                   const Metrics& mx, Point pt)
+int ActivityFeed::ActivityItemAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const ActivityFeedState& st = state;
+    (void)mx;
+    (void)pt;
     const ActivityFeedLayout o = GeoFeed(rc, st, mx);
     for (std::size_t i = 0; i < o.rows.size(); ++i) {
         if (Has(o.rows[i], pt)) return static_cast<int>(i);
@@ -408,10 +529,15 @@ int ActivityItemAt(const Rect& rc, const ActivityFeedState& st,
     return -1;
 }
 
-void PaintActivityFeed(IPainter& g, const Rect& rc,
-                       const ActivityFeedState& st,
-                       const Palette& pal, const Metrics& mx)
+void ActivityFeed::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    ActivityFeedState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const ActivityFeedLayout o = GeoFeed(rc, st, mx);
     if (o.header.Empty()) return;
@@ -478,75 +604,20 @@ void PaintActivityFeed(IPainter& g, const Rect& rc,
     g.PopClip();
 }
 
-namespace {
-
-// ============================================================
-// AudioWaveform
-// ============================================================
-WaveformLayout GeoWave(const Rect& rc, const AudioWaveformState& st,
-                       const Metrics& mx)
+WaveformLayout AudioWaveform::Measure(const Metrics& mx) const
 {
-    WaveformLayout o;
-    if (rc.Empty()) return o;
-    const Rect inner = Inset(rc, mx.unit / 2);
-    if (inner.Empty() || inner.Height() < mx.rowH * 3) return o;
-    o.header = Rect(inner.left, inner.top, inner.right,
-                    inner.top + mx.rowH);
-    o.timeRc = Rect(inner.left, inner.bottom - mx.tagH,
-                    inner.right, inner.bottom);
-    const int btnW = mx.rowH;
-    const int btnTop = o.header.bottom + mx.unit;
-    o.playBtn = Rect(inner.left, btnTop,
-                     inner.left + btnW,
-                     (std::min)(btnTop + mx.rowH, o.timeRc.top - mx.unit));
-    o.track = Rect(o.playBtn.right + mx.unit / 2,
-                   o.header.bottom + mx.unit / 2,
-                   inner.right, o.timeRc.top - mx.unit / 2);
-    if (o.track.Empty()) return o;
-
-    const int n = static_cast<int>(st.peaks.size());
-    if (n > 0) {
-        const int gap = (std::max)(1, mx.unit / 8);
-        const int slot = o.track.Width() / n;
-        if (slot > gap) {
-            const int centerY = (o.track.top + o.track.bottom) / 2;
-            for (int i = 0; i < n; ++i) {
-                const double peak = ClampD(st.peaks[static_cast<std::size_t>(i)],
-                                           0.05, 1.0);
-                const int half = (std::max)(1,
-                    static_cast<int>(o.track.Height() / 2 * peak));
-                const int x = o.track.left + i * slot;
-                o.bars.push_back(Rect(x + gap / 2,
-                                      ClampI(centerY - half, o.track.top,
-                                             o.track.bottom - 1),
-                                      x + slot - gap / 2,
-                                      ClampI(centerY + half, o.track.top + 1,
-                                             o.track.bottom)));
-            }
-        }
-    }
-    const double t = ClampD(st.position, 0.0, 1.0);
-    const int px = o.track.left + static_cast<int>(t * o.track.Width());
-    o.playhead = Rect(ClampI(px, o.track.left, o.track.right - 1),
-                      o.track.top,
-                      ClampI(px + (std::max)(1, mx.unit / 4),
-                             o.track.left + 1, o.track.right),
-                      o.track.bottom);
-    return o;
-}
-
-} // namespace
-
-WaveformLayout MeasureWaveform(const Rect& rc,
-                               const AudioWaveformState& st,
-                               const Metrics& mx)
-{
+    const Rect& rc = Bounds();
+    const AudioWaveformState& st = state;
+    (void)mx;
     return GeoWave(rc, st, mx);
 }
 
-int WaveformPositionAt(const Rect& rc, const AudioWaveformState& st,
-                       const Metrics& mx, Point pt)
+int AudioWaveform::WaveformPositionAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const AudioWaveformState& st = state;
+    (void)mx;
+    (void)pt;
     const WaveformLayout o = GeoWave(rc, st, mx);
     if (o.track.Empty() || o.track.Width() <= 0) return 0;
     const int x = ClampI(pt.x, o.track.left, o.track.right - 1);
@@ -554,17 +625,25 @@ int WaveformPositionAt(const Rect& rc, const AudioWaveformState& st,
     return ClampI(milli, 0, 1000);
 }
 
-bool WaveformPlayButtonAt(const Rect& rc, const AudioWaveformState& st,
-                          const Metrics& mx, Point pt)
+bool AudioWaveform::WaveformPlayButtonAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const AudioWaveformState& st = state;
+    (void)mx;
+    (void)pt;
     const WaveformLayout o = GeoWave(rc, st, mx);
     return Has(o.playBtn, pt);
 }
 
-void PaintWaveform(IPainter& g, const Rect& rc,
-                   const AudioWaveformState& st,
-                   const Palette& pal, const Metrics& mx)
+void AudioWaveform::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    AudioWaveformState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const WaveformLayout o = GeoWave(rc, st, mx);
     if (o.header.Empty()) return;
@@ -605,5 +684,6 @@ void PaintWaveform(IPainter& g, const Rect& rc,
     }
 }
 
+} // namespace widgets
 } // namespace ui
 } // namespace air

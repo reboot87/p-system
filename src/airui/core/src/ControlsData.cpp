@@ -1,3 +1,4 @@
+#include "airui/WidgetControls.h"
 // ============================================================
 // AirUI - ControlsData.cpp
 // Platform-free data & navigation controls.
@@ -89,8 +90,149 @@ Color BodyText(const ControlState& st, const Palette& pal)
 // Table
 // ============================================================
 
-TableLayout MeasureTable(const Rect& rc, const TableState& st, const Metrics& mx)
+
+
+
+
+
+
+
+
+// ============================================================
+// List
+// ============================================================
+
+int ListRowHeight(const ListState& st, const Metrics& mx)
 {
+    for (const ListItem& item : st.items) {
+        if (!item.subtitle.empty()) return mx.itemH;
+    }
+    return mx.rowH + 12;
+}
+
+
+
+
+
+// ============================================================
+// Tree
+// ============================================================
+
+std::vector<int> TreeVisibleNodes(const TreeState& st)
+{
+    std::vector<int> visible;
+    std::vector<bool> ancestor(8, false);  // indexed by depth
+    ancestor[0] = true;                    // root level is always visible
+
+    for (std::size_t i = 0; i < st.nodes.size(); ++i) {
+        const TreeNode& node = st.nodes[i];
+        const int depth = std::max(0, node.depth);
+        if (depth + 2 >= static_cast<int>(ancestor.size())) {
+            ancestor.resize(static_cast<std::size_t>(depth) + 3, false);
+        }
+        if (!ancestor[static_cast<std::size_t>(depth)]) continue;
+
+        visible.push_back(static_cast<int>(i));
+        ancestor[static_cast<std::size_t>(depth) + 1] =
+            node.hasChildren && node.expanded && !node.disabled;
+        for (int d = depth + 2; d < static_cast<int>(ancestor.size()); ++d) {
+            ancestor[static_cast<std::size_t>(d)] = false;
+        }
+    }
+    return visible;
+}
+
+int TreeRowHeight(const Metrics& mx)
+{
+    return mx.rowH;
+}
+
+
+
+
+
+
+
+// ============================================================
+// Breadcrumb
+// ============================================================
+
+int BreadcrumbHit(const Rect& rc, const BreadcrumbState& st,
+                  const Metrics& mx, Point pt)
+{
+    const int n = static_cast<int>(st.items.size());
+    if (n == 0 || rc.Empty() || !rc.Contains(pt)) return -1;
+    const int inner = rc.Width() - mx.unit * 2;
+    if (inner <= 0) return -1;
+    const int cellW = inner / n;
+    if (cellW <= 0) return -1;
+    const int left = rc.left + mx.unit;
+    // Guard the padding explicitly: C++ integer division truncates
+    // toward zero, so a negative offset would otherwise map to 0.
+    if (pt.x < left || pt.x >= left + cellW * n) return -1;
+    const int index = (pt.x - left) / cellW;
+    if (index < 0 || index >= n) return -1;
+    return index;
+}
+
+
+
+// ============================================================
+// Pagination
+// ============================================================
+
+
+
+int PaginationHit(const Rect& rc, const PaginationState& st,
+                  const Metrics& mx, Point pt)
+{
+    if (st.pageCount < 1) return 0;
+    const std::vector<PaginationSlot> slots = MeasurePagination(rc, st, mx);
+    const int page = Clamp(st.page, 1, st.pageCount);
+    for (const PaginationSlot& slot : slots) {
+        if (!slot.rect.Contains(pt)) continue;
+        if (slot.page == 0) return 0;                     // ellipsis
+        if (slot.page == -2) return page > 1 ? -2 : 0;   // previous
+        if (slot.page == -1) return page < st.pageCount ? -1 : 0;
+        return slot.page;
+    }
+    return 0;
+}
+
+
+
+// ============================================================
+// Toast
+// ============================================================
+
+bool ToastCloseHit(const Rect& rc, const ToastState& st,
+                   const Metrics& mx, Point pt)
+{
+    if (!st.closable || rc.Empty()) return false;
+    const int box = mx.rowH - 8;
+    const int left = rc.right - mx.unit - box;
+    const int top  = rc.top + (rc.Height() - box) / 2;
+    return Rect(left, top, left + box, top + box).Contains(pt);
+}
+
+
+
+} // namespace ui
+} // namespace air
+
+// ============================================================
+// Object layer: widget member functions migrated from the
+// free-function drawing kernel above.
+// ============================================================
+namespace air {
+namespace ui {
+namespace widgets {
+
+TableLayout Table::Measure(const Metrics& mx) const
+{
+    const Rect& rc = Bounds();
+    const TableState& st = state;
+    (void)mx;
     TableLayout out;
     const int pad = mx.unit;
     const int n = static_cast<int>(st.columns.size());
@@ -133,8 +275,12 @@ TableLayout MeasureTable(const Rect& rc, const TableState& st, const Metrics& mx
     return out;
 }
 
-int TableRowAt(const Rect& rc, const TableState& st, const Metrics& mx, Point pt)
+int Table::RowAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const TableState& st = state;
+    (void)mx;
+    (void)pt;
     const TableLayout lay = MeasureTable(rc, st, mx);
     if (lay.columns.empty()) return -2;
     if (pt.x < rc.left || pt.x >= rc.right || pt.y < lay.headerTop || pt.y >= rc.bottom) return -2;
@@ -146,8 +292,12 @@ int TableRowAt(const Rect& rc, const TableState& st, const Metrics& mx, Point pt
     return row;
 }
 
-int TableColumnAt(const Rect& rc, const TableState& st, const Metrics& mx, Point pt)
+int Table::ColumnAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const TableState& st = state;
+    (void)mx;
+    (void)pt;
     const TableLayout lay = MeasureTable(rc, st, mx);
     if (lay.columns.empty()) return -1;
     if (pt.y < rc.top || pt.y >= rc.bottom) return -1;
@@ -159,12 +309,15 @@ int TableColumnAt(const Rect& rc, const TableState& st, const Metrics& mx, Point
     return -1;
 }
 
-void PaintTable(IPainter& g,
-                const Rect& rc,
-                const TableState& st,
-                const Palette& pal,
-                const Metrics& mx)
+void Table::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    TableState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     const TableLayout lay = MeasureTable(rc, st, mx);
     if (lay.columns.empty()) return;
 
@@ -231,20 +384,12 @@ void PaintTable(IPainter& g,
     g.PopClip();
 }
 
-// ============================================================
-// List
-// ============================================================
-
-int ListRowHeight(const ListState& st, const Metrics& mx)
+int List::RowAt(const Metrics& mx, Point pt) const
 {
-    for (const ListItem& item : st.items) {
-        if (!item.subtitle.empty()) return mx.itemH;
-    }
-    return mx.rowH + 12;
-}
-
-int ListRowAt(const Rect& rc, const ListState& st, const Metrics& mx, Point pt)
-{
+    const Rect& rc = Bounds();
+    const ListState& st = state;
+    (void)mx;
+    (void)pt;
     if (rc.Empty() || st.items.empty()) return -1;
     if (!rc.Contains(pt)) return -1;
     const int rowH = ListRowHeight(st, mx);
@@ -255,12 +400,15 @@ int ListRowAt(const Rect& rc, const ListState& st, const Metrics& mx, Point pt)
     return row;
 }
 
-void PaintList(IPainter& g,
-               const Rect& rc,
-               const ListState& st,
-               const Palette& pal,
-               const Metrics& mx)
+void List::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    ListState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const int pad = mx.unit;
     const int rowH = ListRowHeight(st, mx);
@@ -351,41 +499,12 @@ void PaintList(IPainter& g,
     g.PopClip();
 }
 
-// ============================================================
-// Tree
-// ============================================================
-
-std::vector<int> TreeVisibleNodes(const TreeState& st)
+int Tree::RowAt(const Metrics& mx, Point pt) const
 {
-    std::vector<int> visible;
-    std::vector<bool> ancestor(8, false);  // indexed by depth
-    ancestor[0] = true;                    // root level is always visible
-
-    for (std::size_t i = 0; i < st.nodes.size(); ++i) {
-        const TreeNode& node = st.nodes[i];
-        const int depth = std::max(0, node.depth);
-        if (depth + 2 >= static_cast<int>(ancestor.size())) {
-            ancestor.resize(static_cast<std::size_t>(depth) + 3, false);
-        }
-        if (!ancestor[static_cast<std::size_t>(depth)]) continue;
-
-        visible.push_back(static_cast<int>(i));
-        ancestor[static_cast<std::size_t>(depth) + 1] =
-            node.hasChildren && node.expanded && !node.disabled;
-        for (int d = depth + 2; d < static_cast<int>(ancestor.size()); ++d) {
-            ancestor[static_cast<std::size_t>(d)] = false;
-        }
-    }
-    return visible;
-}
-
-int TreeRowHeight(const Metrics& mx)
-{
-    return mx.rowH;
-}
-
-int TreeRowAt(const Rect& rc, const TreeState& st, const Metrics& mx, Point pt)
-{
+    const Rect& rc = Bounds();
+    const TreeState& st = state;
+    (void)mx;
+    (void)pt;
     if (rc.Empty()) return -1;
     if (!rc.Contains(pt)) return -1;
     const int rowH = TreeRowHeight(mx);
@@ -397,8 +516,12 @@ int TreeRowAt(const Rect& rc, const TreeState& st, const Metrics& mx, Point pt)
     return visible[static_cast<std::size_t>(row)];
 }
 
-int TreeToggleAt(const Rect& rc, const TreeState& st, const Metrics& mx, Point pt)
+int Tree::ToggleAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const TreeState& st = state;
+    (void)mx;
+    (void)pt;
     const int nodeIndex = TreeRowAt(rc, st, mx, pt);
     if (nodeIndex < 0) return -1;
     const TreeNode& node = st.nodes[static_cast<std::size_t>(nodeIndex)];
@@ -409,12 +532,15 @@ int TreeToggleAt(const Rect& rc, const TreeState& st, const Metrics& mx, Point p
     return -1;
 }
 
-void PaintTree(IPainter& g,
-               const Rect& rc,
-               const TreeState& st,
-               const Palette& pal,
-               const Metrics& mx)
+void Tree::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    TreeState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const int pad = mx.unit;
     const int rowH = TreeRowHeight(mx);
@@ -461,34 +587,15 @@ void PaintTree(IPainter& g,
     g.PopClip();
 }
 
-// ============================================================
-// Breadcrumb
-// ============================================================
-
-int BreadcrumbHit(const Rect& rc, const BreadcrumbState& st,
-                  const Metrics& mx, Point pt)
+void Breadcrumb::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
-    const int n = static_cast<int>(st.items.size());
-    if (n == 0 || rc.Empty() || !rc.Contains(pt)) return -1;
-    const int inner = rc.Width() - mx.unit * 2;
-    if (inner <= 0) return -1;
-    const int cellW = inner / n;
-    if (cellW <= 0) return -1;
-    const int left = rc.left + mx.unit;
-    // Guard the padding explicitly: C++ integer division truncates
-    // toward zero, so a negative offset would otherwise map to 0.
-    if (pt.x < left || pt.x >= left + cellW * n) return -1;
-    const int index = (pt.x - left) / cellW;
-    if (index < 0 || index >= n) return -1;
-    return index;
-}
-
-void PaintBreadcrumb(IPainter& g,
-                     const Rect& rc,
-                     const BreadcrumbState& st,
-                     const Palette& pal,
-                     const Metrics& mx)
-{
+    const Rect& rc = Bounds();
+    BreadcrumbState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     const int n = static_cast<int>(st.items.size());
     if (n == 0 || rc.Empty()) return;
 
@@ -522,20 +629,17 @@ void PaintBreadcrumb(IPainter& g,
     }
 }
 
-// ============================================================
-// Pagination
-// ============================================================
-
-std::vector<PaginationSlot> MeasurePagination(const Rect& rc,
-                                             const PaginationState& st,
-                                             const Metrics& mx)
+std::vector<PaginationSlot> Pagination::Measure(const Metrics& mx) const
 {
+    const Rect& rc = Bounds();
+    const PaginationState& st = state;
+    (void)mx;
     std::vector<PaginationSlot> slots;
     const int count = st.pageCount;
     if (count < 1 || rc.Empty()) return slots;
 
     const int page  = Clamp(st.page, 1, count);
-    const int btn   = mx.rowH;
+    int btn         = mx.rowH;
     const int gap   = 4;
     constexpr int kMaxPages = 7;
 
@@ -555,11 +659,21 @@ std::vector<PaginationSlot> MeasurePagination(const Rect& rc,
     const bool tailGap = last < count;
     const int slotCount = 2 + (last - first + 1)
                         + (headGap ? 2 : 0) + (tailGap ? 2 : 0);
-    const int totalW = slotCount * btn + (slotCount - 1) * gap;
+    int totalW = slotCount * btn + (slotCount - 1) * gap;
+    // At high DPI the row can grow wider than the control. Shrink the
+    // buttons instead of letting the row spill outside the bounds.
+    const int avail = rc.Width();
+    if (slotCount > 0 && totalW > avail) {
+        btn = (avail - (slotCount - 1) * gap) / slotCount;
+        if (btn < 1) btn = 1;
+        totalW = slotCount * btn + (slotCount - 1) * gap;
+    }
 
-    int x = rc.left + (rc.Width() - totalW) / 2;
+    int x = rc.left + (avail - totalW) / 2;
     int y = rc.top + (rc.Height() - btn) / 2;
     if (y < rc.top) y = rc.top;
+    if (y + btn > rc.bottom) btn = rc.bottom - y;
+    if (btn < 1) return slots;
 
     auto add = [&](int p) {
         slots.push_back(PaginationSlot{ Rect(x, y, x + btn, y + btn), p });
@@ -574,28 +688,15 @@ std::vector<PaginationSlot> MeasurePagination(const Rect& rc,
     return slots;
 }
 
-int PaginationHit(const Rect& rc, const PaginationState& st,
-                  const Metrics& mx, Point pt)
+void Pagination::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
-    if (st.pageCount < 1) return 0;
-    const std::vector<PaginationSlot> slots = MeasurePagination(rc, st, mx);
-    const int page = Clamp(st.page, 1, st.pageCount);
-    for (const PaginationSlot& slot : slots) {
-        if (!slot.rect.Contains(pt)) continue;
-        if (slot.page == 0) return 0;                     // ellipsis
-        if (slot.page == -2) return page > 1 ? -2 : 0;   // previous
-        if (slot.page == -1) return page < st.pageCount ? -1 : 0;
-        return slot.page;
-    }
-    return 0;
-}
-
-void PaintPagination(IPainter& g,
-                     const Rect& rc,
-                     const PaginationState& st,
-                     const Palette& pal,
-                     const Metrics& mx)
-{
+    const Rect& rc = Bounds();
+    PaginationState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     const std::vector<PaginationSlot> slots = MeasurePagination(rc, st, mx);
     const int page = st.pageCount > 0 ? Clamp(st.page, 1, st.pageCount) : 1;
 
@@ -633,26 +734,15 @@ void PaintPagination(IPainter& g,
     }
 }
 
-// ============================================================
-// Toast
-// ============================================================
-
-bool ToastCloseHit(const Rect& rc, const ToastState& st,
-                   const Metrics& mx, Point pt)
+void Toast::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
-    if (!st.closable || rc.Empty()) return false;
-    const int box = mx.rowH - 8;
-    const int left = rc.right - mx.unit - box;
-    const int top  = rc.top + (rc.Height() - box) / 2;
-    return Rect(left, top, left + box, top + box).Contains(pt);
-}
-
-void PaintToast(IPainter& g,
-                const Rect& rc,
-                const ToastState& st,
-                const Palette& pal,
-                const Metrics& mx)
-{
+    const Rect& rc = Bounds();
+    ToastState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const int pad = mx.unit;
     const AlertColors colors = ColorsFor(st.kind, pal);
@@ -693,5 +783,6 @@ void PaintToast(IPainter& g,
     }
 }
 
+} // namespace widgets
 } // namespace ui
 } // namespace air

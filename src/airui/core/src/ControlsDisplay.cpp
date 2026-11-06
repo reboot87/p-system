@@ -1,3 +1,4 @@
+#include "airui/WidgetControls.h"
 // AirUI - ControlsDisplay.cpp : platform-free display controls.
 // Pure functions of (rect, state, palette, metrics); rect-only drawing
 // (thin filled rects for lines, small rounded rects for dots) because
@@ -190,8 +191,53 @@ CarouselGeo MeasureCarousel(const Rect& rc, const CarouselState& st, const Metri
 } // namespace
 
 // ---- Timeline ----
-void PaintTimeline(IPainter& g, const Rect& rc, const TimelineState& st,
-                   const Palette& pal, const Metrics& mx) {
+
+
+// ---- Steps ----
+
+
+
+// ---- Calendar ----
+
+
+
+
+// ---- DescriptionList ----
+
+
+// ---- StatCard ----
+
+
+
+
+// ---- Chart ----
+
+
+
+// ---- Carousel ----
+
+
+
+} // namespace ui
+} // namespace air
+
+// ============================================================
+// Object layer: widget member functions migrated from the
+// free-function drawing kernel above.
+// ============================================================
+namespace air {
+namespace ui {
+namespace widgets {
+
+void Timeline::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
+{
+    const Rect& rc = Bounds();
+    TimelineState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const int n = static_cast<int>(st.events.size()), eventH = mx.itemH;
     if (n == 0 || eventH <= 0) return;
@@ -228,8 +274,12 @@ void PaintTimeline(IPainter& g, const Rect& rc, const TimelineState& st,
     g.PopClip();
 }
 
-// ---- Steps ----
-int StepAt(const Rect& rc, const StepsState& st, const Metrics& mx, Point pt) {
+int Steps::StepAt(const Metrics& mx, Point pt) const
+{
+    const Rect& rc = Bounds();
+    const StepsState& st = state;
+    (void)mx;
+    (void)pt;
     if (rc.Empty() || !rc.Contains(pt)) return -1;
     const StepsGeo geo = MeasureSteps(rc, st, mx);
     for (int i = 0; i < geo.n; ++i) {
@@ -237,8 +287,16 @@ int StepAt(const Rect& rc, const StepsState& st, const Metrics& mx, Point pt) {
     }
     return -1;
 }
-void PaintSteps(IPainter& g, const Rect& rc, const StepsState& st,
-                const Palette& pal, const Metrics& mx) {
+
+void Steps::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
+{
+    const Rect& rc = Bounds();
+    StepsState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const StepsGeo geo = MeasureSteps(rc, st, mx);
     if (geo.n == 0) return;
@@ -272,9 +330,11 @@ void PaintSteps(IPainter& g, const Rect& rc, const StepsState& st,
     g.PopClip();
 }
 
-// ---- Calendar ----
-CalendarLayout MeasureCalendar(const Rect& rc, const CalendarState& st,
-                               const Metrics& mx) {
+CalendarLayout Calendar::Measure(const Metrics& mx) const
+{
+    const Rect& rc = Bounds();
+    const CalendarState& st = state;
+    (void)mx;
     CalendarLayout out;
     if (rc.Empty()) return out;
     const int pad = mx.unit;
@@ -287,8 +347,13 @@ CalendarLayout MeasureCalendar(const Rect& rc, const CalendarState& st,
     out.cellH = out.grid.Height() / 6;
     return out;
 }
-int CalendarDayAt(const Rect& rc, const CalendarState& st,
-                  const Metrics& mx, Point pt) {
+
+int Calendar::DayAt(const Metrics& mx, Point pt) const
+{
+    const Rect& rc = Bounds();
+    const CalendarState& st = state;
+    (void)mx;
+    (void)pt;
     if (rc.Empty() || !rc.Contains(pt)) return -1;
     const CalendarLayout lay = MeasureCalendar(rc, st, mx);
     if (lay.grid.Empty() || lay.cellW <= 0 || lay.cellH <= 0) return -1;
@@ -298,8 +363,16 @@ int CalendarDayAt(const Rect& rc, const CalendarState& st,
     if (col < 0 || col >= 7 || row < 0 || row >= 6) return -1;
     return DayAtCell((std::max)(1, st.year), Clamp(st.month, 1, 12), row, col);
 }
-void PaintCalendar(IPainter& g, const Rect& rc, const CalendarState& st,
-                   const Palette& pal, const Metrics& mx) {
+
+void Calendar::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
+{
+    const Rect& rc = Bounds();
+    CalendarState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const CalendarLayout lay = MeasureCalendar(rc, st, mx);
     const int pad = mx.unit;
@@ -352,10 +425,15 @@ void PaintCalendar(IPainter& g, const Rect& rc, const CalendarState& st,
     g.PopClip();
 }
 
-// ---- DescriptionList ----
-void PaintDescriptionList(IPainter& g, const Rect& rc,
-                          const DescriptionListState& st,
-                          const Palette& pal, const Metrics& mx) {
+void DescriptionList::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
+{
+    const Rect& rc = Bounds();
+    DescriptionListState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const int cols = (std::max)(1, st.columns), pad = mx.pagePad;
     const int n = static_cast<int>(st.items.size());
@@ -400,8 +478,11 @@ void PaintDescriptionList(IPainter& g, const Rect& rc,
     g.PopClip();
 }
 
-// ---- StatCard ----
-StatCardLayout MeasureStatCard(const Rect& rc, const StatCardState& st, const Metrics& mx) {
+StatCardLayout StatCard::Measure(const Metrics& mx) const
+{
+    const Rect& rc = Bounds();
+    const StatCardState& st = state;
+    (void)mx;
     StatCardLayout out;
     if (rc.Empty()) return out;
     const int pad = mx.pagePad, innerW = rc.Width() - pad * 2;
@@ -426,15 +507,28 @@ StatCardLayout MeasureStatCard(const Rect& rc, const StatCardState& st, const Me
     }
     return out;
 }
-StatCardHit HitStatCard(const Rect& rc, const StatCardState& st,
-                        const Metrics& mx, Point pt) {
+
+StatCardHit StatCard::HitAt(const Metrics& mx, Point pt) const
+{
+    const Rect& rc = Bounds();
+    const StatCardState& st = state;
+    (void)mx;
+    (void)pt;
     if (rc.Empty() || !rc.Contains(pt)) return StatCardHit::None;
     const StatCardLayout lay = MeasureStatCard(rc, st, mx);
     if (!lay.deltaRc.Empty() && lay.deltaRc.Contains(pt)) return StatCardHit::Delta;
     return StatCardHit::Body;
 }
-void PaintStatCard(IPainter& g, const Rect& rc, const StatCardState& st,
-                   const Palette& pal, const Metrics& mx) {
+
+void StatCard::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
+{
+    const Rect& rc = Bounds();
+    StatCardState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const StatCardLayout lay = MeasureStatCard(rc, st, mx);
     const bool highlight = st.base.hover || st.base.pressed || st.base.checked;
@@ -478,8 +572,12 @@ void PaintStatCard(IPainter& g, const Rect& rc, const StatCardState& st,
     g.PopClip();
 }
 
-// ---- Chart ----
-int ChartBarAt(const Rect& rc, const ChartState& st, const Metrics& mx, Point pt) {
+int Chart::BarAt(const Metrics& mx, Point pt) const
+{
+    const Rect& rc = Bounds();
+    const ChartState& st = state;
+    (void)mx;
+    (void)pt;
     if (rc.Empty() || !rc.Contains(pt)) return -1;
     const ChartGeo geo = MeasureChart(rc, st, mx);
     for (int i = 0; i < geo.n; ++i) {
@@ -487,8 +585,16 @@ int ChartBarAt(const Rect& rc, const ChartState& st, const Metrics& mx, Point pt
     }
     return -1;
 }
-void PaintChart(IPainter& g, const Rect& rc, const ChartState& st,
-                const Palette& pal, const Metrics& mx) {
+
+void Chart::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
+{
+    const Rect& rc = Bounds();
+    ChartState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const ChartGeo geo = MeasureChart(rc, st, mx);
     PaintCardFrame(g, rc, pal, mx);
@@ -550,9 +656,12 @@ void PaintChart(IPainter& g, const Rect& rc, const ChartState& st,
     g.PopClip();
 }
 
-// ---- Carousel ----
-CarouselHitResult HitCarousel(const Rect& rc, const CarouselState& st,
-                              const Metrics& mx, Point pt) {
+CarouselHitResult Carousel::HitAt(const Metrics& mx, Point pt) const
+{
+    const Rect& rc = Bounds();
+    const CarouselState& st = state;
+    (void)mx;
+    (void)pt;
     CarouselHitResult out;
     if (rc.Empty() || !rc.Contains(pt)) return out;
     const CarouselGeo geo = MeasureCarousel(rc, st, mx);
@@ -566,8 +675,16 @@ CarouselHitResult HitCarousel(const Rect& rc, const CarouselState& st,
     }
     return out;
 }
-void PaintCarousel(IPainter& g, const Rect& rc, const CarouselState& st,
-                   const Palette& pal, const Metrics& mx) {
+
+void Carousel::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
+{
+    const Rect& rc = Bounds();
+    CarouselState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const CarouselGeo geo = MeasureCarousel(rc, st, mx);
     PaintCardFrame(g, rc, pal, mx);
@@ -597,5 +714,6 @@ void PaintCarousel(IPainter& g, const Rect& rc, const CarouselState& st,
     g.PopClip();
 }
 
+} // namespace widgets
 } // namespace ui
 } // namespace air

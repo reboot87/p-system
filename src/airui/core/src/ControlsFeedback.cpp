@@ -1,3 +1,4 @@
+#include "airui/WidgetControls.h"
 // ============================================================
 // AirUI - ControlsFeedback.cpp
 // Platform-free feedback / overlay controls.
@@ -158,9 +159,82 @@ ResultGeom MeasureResult(const Rect& rc, const ResultState& st, const Metrics& m
 // Spinner
 // ============================================================
 
-void PaintSpinner(IPainter& g, const Rect& rc, const SpinnerState& st,
-                  const Palette& pal, const Metrics& mx)
+
+
+// ============================================================
+// Tooltip / Popover
+// ============================================================
+
+
+
+
+
+// ============================================================
+// Modal
+// ============================================================
+
+
+
+
+
+
+
+// ============================================================
+// Drawer
+// ============================================================
+
+
+
+bool DrawerCloseHit(const Rect& client, const DrawerState& st,
+                    const Metrics& mx, Point pt)
 {
+    const DrawerLayout lay = MeasureDrawer(client, st, mx);
+    if (lay.panel.Empty()) return false;
+    return lay.closeRc.Contains(pt);
+}
+
+
+
+// ============================================================
+// Notification queue
+// ============================================================
+
+
+
+// ============================================================
+// Result
+// ============================================================
+
+bool ResultActionHit(const Rect& rc, const ResultState& st,
+                     const Metrics& mx, Point pt)
+{
+    const ResultGeom gm = MeasureResult(rc, st, mx);
+    if (gm.action.Empty()) return false;
+    return gm.action.Contains(pt);
+}
+
+
+
+} // namespace ui
+} // namespace air
+
+// ============================================================
+// Object layer: widget member functions migrated from the
+// free-function drawing kernel above.
+// ============================================================
+namespace air {
+namespace ui {
+namespace widgets {
+
+void Spinner::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
+{
+    const Rect& rc = Bounds();
+    SpinnerState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
 
     int n = st.dots;
@@ -211,13 +285,13 @@ void PaintSpinner(IPainter& g, const Rect& rc, const SpinnerState& st,
     }
 }
 
-// ============================================================
-// Tooltip / Popover
-// ============================================================
-
-void PaintTooltip(IPainter& g, const Rect& anchor, const Rect& client,
-                  const TooltipState& st, const Palette& pal, const Metrics& mx)
+void Tooltip::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& anchor = Bounds();
+    TooltipState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
     if (client.Empty()) return;
     // Size the tooltip to its text so long hints are not ellipsised.
     const int measured = g.MeasureText(st.text, FontRole::Body);
@@ -236,9 +310,13 @@ void PaintTooltip(IPainter& g, const Rect& anchor, const Rect& client,
         g.Text(textRc, st.text, FontRole::Body, pal.text, kLeftText);
 }
 
-void PaintPopover(IPainter& g, const Rect& anchor, const Rect& client,
-                  const PopoverState& st, const Palette& pal, const Metrics& mx)
+void Popover::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& anchor = Bounds();
+    PopoverState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
     if (client.Empty()) return;
     const int w = (std::min)(client.Width(), mx.unit * 34);
     const int h = mx.rowH * 4 + mx.unit * 2;
@@ -266,12 +344,11 @@ void PaintPopover(IPainter& g, const Rect& anchor, const Rect& client,
     g.PopClip();
 }
 
-// ============================================================
-// Modal
-// ============================================================
-
-ModalLayout MeasureModal(const Rect& client, const ModalState& st, const Metrics& mx)
+ModalLayout Modal::Measure(const Metrics& mx) const
 {
+    const Rect& client = Bounds();
+    const ModalState& st = state;
+    (void)mx;
     ModalLayout out;
     if (client.Empty()) return out;
     const int pad = mx.unit;
@@ -310,9 +387,12 @@ ModalLayout MeasureModal(const Rect& client, const ModalState& st, const Metrics
     return out;
 }
 
-int ModalButtonAt(const Rect& client, const ModalState& st,
-                  const Metrics& mx, Point pt)
+int Modal::ButtonAt(const Metrics& mx, Point pt) const
 {
+    const Rect& client = Bounds();
+    const ModalState& st = state;
+    (void)mx;
+    (void)pt;
     const ModalLayout lay = MeasureModal(client, st, mx);
     if (lay.card.Empty()) return 0;
     if (lay.confirmRc.Contains(pt)) return 1;
@@ -320,9 +400,13 @@ int ModalButtonAt(const Rect& client, const ModalState& st,
     return 0;
 }
 
-void PaintModal(IPainter& g, const Rect& client, const ModalState& st,
-                const Palette& pal, const Metrics& mx)
+void Modal::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& client = Bounds();
+    ModalState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
     if (client.Empty()) return;
     const ModalLayout lay = MeasureModal(client, st, mx);
     if (lay.card.Empty()) return;
@@ -355,12 +439,11 @@ void PaintModal(IPainter& g, const Rect& client, const ModalState& st,
     g.PopClip();
 }
 
-// ============================================================
-// Drawer
-// ============================================================
-
-DrawerLayout MeasureDrawer(const Rect& client, const DrawerState& st, const Metrics& mx)
+DrawerLayout Drawer::Measure(const Metrics& mx) const
 {
+    const Rect& client = Bounds();
+    const DrawerState& st = state;
+    (void)mx;
     DrawerLayout out;
     if (client.Empty()) return out;
     const int pad = mx.unit;
@@ -389,17 +472,13 @@ DrawerLayout MeasureDrawer(const Rect& client, const DrawerState& st, const Metr
     return out;
 }
 
-bool DrawerCloseHit(const Rect& client, const DrawerState& st,
-                    const Metrics& mx, Point pt)
+void Drawer::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
-    const DrawerLayout lay = MeasureDrawer(client, st, mx);
-    if (lay.panel.Empty()) return false;
-    return lay.closeRc.Contains(pt);
-}
-
-void PaintDrawer(IPainter& g, const Rect& client, const DrawerState& st,
-                 const Palette& pal, const Metrics& mx)
-{
+    const Rect& client = Bounds();
+    DrawerState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
     if (client.Empty()) return;
     const DrawerLayout lay = MeasureDrawer(client, st, mx);
     if (lay.panel.Empty()) return;
@@ -432,14 +511,13 @@ void PaintDrawer(IPainter& g, const Rect& client, const DrawerState& st,
     g.PopClip();
 }
 
-// ============================================================
-// Notification queue
-// ============================================================
-
-void PaintNotificationQueue(IPainter& g, const Rect& client,
-                            const NotificationState& st,
-                            const Palette& pal, const Metrics& mx)
+void Notification::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& client = Bounds();
+    NotificationState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
     if (client.Empty()) return;
     const int count = (std::min)((std::max)(st.maxVisible, 0),
                                  static_cast<int>(st.items.size()));
@@ -464,21 +542,13 @@ void PaintNotificationQueue(IPainter& g, const Rect& client,
     g.PopClip();
 }
 
-// ============================================================
-// Result
-// ============================================================
-
-bool ResultActionHit(const Rect& rc, const ResultState& st,
-                     const Metrics& mx, Point pt)
+void Result::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
-    const ResultGeom gm = MeasureResult(rc, st, mx);
-    if (gm.action.Empty()) return false;
-    return gm.action.Contains(pt);
-}
-
-void PaintResult(IPainter& g, const Rect& rc, const ResultState& st,
-                 const Palette& pal, const Metrics& mx)
-{
+    const Rect& rc = Bounds();
+    ResultState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
     if (rc.Empty()) return;
     const ResultGeom gm = MeasureResult(rc, st, mx);
     if (gm.glyph.Empty()) return;
@@ -505,5 +575,6 @@ void PaintResult(IPainter& g, const Rect& rc, const ResultState& st,
     g.PopClip();
 }
 
+} // namespace widgets
 } // namespace ui
 } // namespace air

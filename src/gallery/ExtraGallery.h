@@ -13,6 +13,7 @@
 #include "airui/ControlsEnterprise.h"
 #include "airui/ControlsStudio.h"
 #include "airui/FrameworkCore.h"
+#include "airui/WidgetControls.h"
 
 #include <algorithm>
 #include <memory>
@@ -116,6 +117,7 @@ inline const std::vector<ExtraDef>& Defs()
         {L"P5 协同", L"Leaderboard",    240},
         {L"P5 协同", L"ActivityFeed",   230},
         {L"P5 协同", L"AudioWaveform",  160},
+        {L"P6 类体系", L"WidgetClasses", 250},
     };
     return defs;
 }
@@ -239,22 +241,32 @@ struct ExtraDemoState
     LeaderboardState      leaders;
     ActivityFeedState     feed;
     AudioWaveformState    wave;
+
+    // --- P6: object layer, each widget owns its own state ---
+    widgets::Button       wButton;
+    widgets::Checkbox     wCheckbox;
+    widgets::TextField    wTextField;
+    widgets::Slider       wSlider;
+    widgets::Sparkline    wSparkline;
+    widgets::Gauge        wGauge;
 };
 
 inline void InitExtraDemo(ExtraDemoState& s)
 {
-    // --- P0: object/event layer with z-order ---
+    // --- P0: object/event layer with z-order, now hosting real widgets ---
     if (!s.hostReady) {
-        auto a = std::make_unique<Control>();
-        a->SetName(L"按钮 A"); a->SetRole(ControlRole::Button);
+        auto a = std::make_unique<widgets::Button>();
+        a->SetName(L"保存"); a->text = L"保存";
+        a->style = ButtonStyle::Primary;
         a->SetBounds(Rect(12, 12, 132, 44)); a->SetZ(1); a->SetTabIndex(10);
         s.host.Add(std::move(a));
-        auto b = std::make_unique<Control>();
-        b->SetName(L"输入框 B"); b->SetRole(ControlRole::TextBox);
+        auto b = std::make_unique<widgets::TextField>();
+        b->SetName(L"输入框 B"); b->state.text = L"对象持有的状态";
         b->SetBounds(Rect(80, 28, 220, 60)); b->SetZ(2); b->SetTabIndex(20);
         s.host.Add(std::move(b));
-        auto c = std::make_unique<Control>();
-        c->SetName(L"禁用 C"); c->SetRole(ControlRole::Button);
+        auto c = std::make_unique<widgets::Button>();
+        c->SetName(L"禁用 C"); c->text = L"禁用";
+        c->style = ButtonStyle::Danger;
         c->SetBounds(Rect(240, 12, 340, 44)); c->SetZ(0); c->SetTabIndex(30);
         c->SetEnabled(false);
         s.host.Add(std::move(c));
@@ -624,6 +636,20 @@ inline void InitExtraDemo(ExtraDemoState& s)
     s.wave.position = 0.42;
     s.wave.duration = 184.0;
     s.wave.playing = true;
+
+    // --- P6: widgets own their state; no caller-held XxxState ---
+    s.wButton.text = L"类化按钮";
+    s.wButton.style = ButtonStyle::Primary;
+    s.wButton.SetName(L"保存当前设置");
+    s.wCheckbox.text = L"启用自动同步";
+    s.wCheckbox.state.checked = true;
+    s.wTextField.state.text = L"状态由对象持有";
+    s.wSlider.state.value = 65;
+    s.wSparkline.state.title = L"对象化走势";
+    s.wSparkline.state.values = {12, 15, 13, 18, 17, 22, 20, 26, 24, 30};
+    s.wSparkline.state.change = 12.5;
+    s.wGauge.state.title = L"资源占用";
+    s.wGauge.state.value = 62;
 }
 
 inline Rect GuideAnchorRect(const Rect& rc, const Metrics& mx)
@@ -852,6 +878,39 @@ inline void DrawExtraControl(IPainter& g, const Rect& rc, int idx,
     case 78: PaintLeaderboard(g, rc, s.leaders, pal, mx); break;
     case 79: PaintActivityFeed(g, rc, s.feed, pal, mx); break;
     case 80: PaintWaveform(g, rc, s.wave, pal, mx); break;
+    case 81: {
+        const int gap = mx.unit;
+        const int cols = 3;
+        const int cw = (rc.Width() - gap * (cols - 1)) / cols;
+        const int ch = (rc.Height() - gap) / 2;
+        if (cw <= 0 || ch <= 0) break;
+        Control* items[6] = {&s.wButton, &s.wCheckbox, &s.wTextField,
+                             &s.wSlider, &s.wSparkline, &s.wGauge};
+        const wchar_t* names[6] = {
+            L"widgets::Button", L"widgets::Checkbox", L"widgets::TextField",
+            L"widgets::Slider", L"widgets::Sparkline", L"widgets::Gauge"};
+        const TextFormat tf = dt::SingleLine | dt::Left | dt::VCenter |
+                              dt::NoPrefix | dt::EndEllipsis;
+        for (int i = 0; i < 6; ++i) {
+            const int col = i % cols;
+            const int row = i / cols;
+            const Rect tile(rc.left + col * (cw + gap),
+                            rc.top + row * (ch + gap),
+                            rc.left + col * (cw + gap) + cw,
+                            rc.top + row * (ch + gap) + ch);
+            g.FillRound(tile, mx.radiusMd, pal.surface);
+            g.StrokeRound(tile, mx.radiusMd, pal.border, 1);
+            const int labelH = (std::min)(mx.rowH, ch / 3);
+            g.Text(Rect(tile.left + gap, tile.top + 2,
+                        tile.right - gap, tile.top + labelH),
+                   names[i], FontRole::Meta, pal.textSub, tf);
+            const Rect body(tile.left + gap, tile.top + labelH,
+                            tile.right - gap, tile.bottom - gap);
+            items[i]->SetBounds(body);
+            items[i]->Paint(g, pal, mx);
+        }
+        break;
+    }
     default: break;
     }
 }
@@ -1566,6 +1625,62 @@ inline void ExtraClick(int idx, Point pt, const Rect& rc, ExtraDemoState& s,
             status = L"AudioWaveform：跳转到 " +
                      std::to_wstring(static_cast<int>(
                          s.wave.duration * s.wave.position)) + L" 秒";
+        }
+        break;
+    }
+    case 81: {
+        const int gap = mx.unit;
+        const int cols = 3;
+        const int cw = (rc.Width() - gap * (cols - 1)) / cols;
+        const int ch = (rc.Height() - gap) / 2;
+        if (cw <= 0 || ch <= 0) break;
+        Control* items[6] = {&s.wButton, &s.wCheckbox, &s.wTextField,
+                             &s.wSlider, &s.wSparkline, &s.wGauge};
+        for (int i = 0; i < 6; ++i) {
+            const int col = i % cols;
+            const int row = i / cols;
+            const Rect tile(rc.left + col * (cw + gap),
+                            rc.top + row * (ch + gap),
+                            rc.left + col * (cw + gap) + cw,
+                            rc.top + row * (ch + gap) + ch);
+            if (!tile.Contains(pt)) continue;
+            PointerEvent ev; ev.pos = pt; ev.down = true;
+            const ControlResult r = items[i]->OnPointer(ev);
+            switch (i) {
+            case 0:
+                s.wButton.style = s.wButton.style == ButtonStyle::Primary
+                                      ? ButtonStyle::Secondary : ButtonStyle::Primary;
+                status = L"widgets::Button：切换按钮样式";
+                break;
+            case 1:
+                s.wCheckbox.state.checked = !s.wCheckbox.state.checked;
+                status = s.wCheckbox.state.checked ? L"widgets::Checkbox：已勾选"
+                                                   : L"widgets::Checkbox：已取消";
+                break;
+            case 2:
+                s.wTextField.state.hasFocus = !s.wTextField.state.hasFocus;
+                status = L"widgets::TextField：切换焦点外观";
+                break;
+            case 3:
+                s.wSlider.state.value = (s.wSlider.state.value + 13) % 101;
+                status = L"widgets::Slider：value = " +
+                         std::to_wstring(s.wSlider.state.value);
+                break;
+            case 4:
+                s.wSparkline.state.hovered =
+                    (s.wSparkline.state.hovered + 1) %
+                    static_cast<int>(s.wSparkline.state.values.size());
+                status = L"widgets::Sparkline：切换高亮数据点";
+                break;
+            default:
+                s.wGauge.state.value = s.wGauge.state.value + 9 > 100
+                                           ? 10 : s.wGauge.state.value + 9;
+                status = L"widgets::Gauge：value = " +
+                         std::to_wstring(static_cast<int>(s.wGauge.state.value));
+                break;
+            }
+            status += r.handled ? L"（事件已处理）" : L"（未处理）";
+            break;
         }
         break;
     }

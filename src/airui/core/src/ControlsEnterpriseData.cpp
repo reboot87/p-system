@@ -1,3 +1,4 @@
+#include "airui/WidgetControls.h"
 // AirUI - ControlsEnterpriseData.cpp : platform-free data widgets.
 // Fourth wave: TreeMap, Funnel, Diff, ScoreBreakdown.
 #include "airui/ControlsEnterprise.h"
@@ -23,7 +24,7 @@ int ClampI(int v, int lo, int hi)
     return (std::min)((std::max)(v, lo), hi);
 }
 
-bool Hit(const Rect& r, Point p)
+bool RectHit(const Rect& r, Point p)
 {
     return !r.Empty() && r.Contains(p);
 }
@@ -237,26 +238,81 @@ ScoreLayout GeoScore(const Rect& rc, const ScoreState& st, const Metrics& mx)
 // ============================================================
 // TreeMap
 // ============================================================
-TreeMapLayout MeasureTreeMap(const Rect& rc, const TreeMapState& st,
-                             const Metrics& mx)
+
+
+
+
+
+
+// ============================================================
+// Funnel
+// ============================================================
+
+
+
+
+
+
+// ============================================================
+// Diff
+// ============================================================
+
+
+
+
+
+
+// ============================================================
+// Score
+// ============================================================
+
+
+
+
+
+
+} // namespace ui
+} // namespace air
+
+// ============================================================
+// Object layer: widget member functions migrated from the
+// free-function drawing kernel above.
+// ============================================================
+namespace air {
+namespace ui {
+namespace widgets {
+
+TreeMapLayout TreeMap::Measure(const Metrics& mx) const
 {
+    const Rect& rc = Bounds();
+    const TreeMapState& st = state;
+    (void)mx;
     return GeoTreeMap(rc, st, mx);
 }
 
-int TreeMapTileAt(const Rect& rc, const TreeMapState& st,
-                  const Metrics& mx, Point pt)
+int TreeMap::TileAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const TreeMapState& st = state;
+    (void)mx;
+    (void)pt;
     if (rc.Empty() || !rc.Contains(pt)) return -1;
     const TreeMapLayout lay = GeoTreeMap(rc, st, mx);
     for (std::size_t i = 0; i < lay.tiles.size(); ++i) {
-        if (Hit(lay.tiles[i], pt)) return static_cast<int>(i);
+        if (RectHit(lay.tiles[i], pt)) return static_cast<int>(i);
     }
     return -1;
 }
 
-void PaintTreeMap(IPainter& g, const Rect& rc, const TreeMapState& st,
-                  const Palette& pal, const Metrics& mx)
+void TreeMap::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    TreeMapState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const TreeMapLayout lay = GeoTreeMap(rc, st, mx);
     g.FillRound(rc, mx.radiusMd, pal.surface);
@@ -287,29 +343,37 @@ void PaintTreeMap(IPainter& g, const Rect& rc, const TreeMapState& st,
     g.PopClip();
 }
 
-// ============================================================
-// Funnel
-// ============================================================
-FunnelLayout MeasureFunnel(const Rect& rc, const FunnelState& st,
-                           const Metrics& mx)
+FunnelLayout Funnel::Measure(const Metrics& mx) const
 {
+    const Rect& rc = Bounds();
+    const FunnelState& st = state;
+    (void)mx;
     return GeoFunnel(rc, st, mx);
 }
 
-int FunnelStageAt(const Rect& rc, const FunnelState& st,
-                  const Metrics& mx, Point pt)
+int Funnel::StageAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const FunnelState& st = state;
+    (void)mx;
+    (void)pt;
     if (rc.Empty() || !rc.Contains(pt)) return -1;
     const FunnelLayout lay = GeoFunnel(rc, st, mx);
     for (std::size_t i = 0; i < lay.bars.size(); ++i) {
-        if (Hit(lay.bars[i], pt)) return static_cast<int>(i);
+        if (RectHit(lay.bars[i], pt)) return static_cast<int>(i);
     }
     return -1;
 }
 
-void PaintFunnel(IPainter& g, const Rect& rc, const FunnelState& st,
-                 const Palette& pal, const Metrics& mx)
+void Funnel::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    FunnelState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const FunnelLayout lay = GeoFunnel(rc, st, mx);
     g.FillRound(rc, mx.radiusMd, pal.surface);
@@ -350,28 +414,37 @@ void PaintFunnel(IPainter& g, const Rect& rc, const FunnelState& st,
     g.PopClip();
 }
 
-// ============================================================
-// Diff
-// ============================================================
-DiffLayout MeasureDiff(const Rect& rc, const DiffState& st, const Metrics& mx)
+DiffLayout Diff::Measure(const Metrics& mx) const
 {
+    const Rect& rc = Bounds();
+    const DiffState& st = state;
+    (void)mx;
     return GeoDiff(rc, st, mx);
 }
 
-int DiffLineAt(const Rect& rc, const DiffState& st,
-               const Metrics& mx, Point pt)
+int Diff::LineAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const DiffState& st = state;
+    (void)mx;
+    (void)pt;
     if (rc.Empty() || !rc.Contains(pt)) return -1;
     const DiffLayout lay = GeoDiff(rc, st, mx);
     for (std::size_t i = 0; i < lay.rows.size(); ++i) {
-        if (Hit(lay.rows[i], pt)) return static_cast<int>(i);
+        if (RectHit(lay.rows[i], pt)) return static_cast<int>(i);
     }
     return -1;
 }
 
-void PaintDiff(IPainter& g, const Rect& rc, const DiffState& st,
-               const Palette& pal, const Metrics& mx)
+void Diff::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    DiffState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const DiffLayout lay = GeoDiff(rc, st, mx);
     g.FillRound(rc, mx.radiusMd, pal.surface);
@@ -435,29 +508,37 @@ void PaintDiff(IPainter& g, const Rect& rc, const DiffState& st,
     g.PopClip();
 }
 
-// ============================================================
-// Score
-// ============================================================
-ScoreLayout MeasureScore(const Rect& rc, const ScoreState& st,
-                         const Metrics& mx)
+ScoreLayout Score::Measure(const Metrics& mx) const
 {
+    const Rect& rc = Bounds();
+    const ScoreState& st = state;
+    (void)mx;
     return GeoScore(rc, st, mx);
 }
 
-int ScoreBarAt(const Rect& rc, const ScoreState& st,
-               const Metrics& mx, Point pt)
+int Score::BarAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const ScoreState& st = state;
+    (void)mx;
+    (void)pt;
     if (rc.Empty() || !rc.Contains(pt)) return -1;
     const ScoreLayout lay = GeoScore(rc, st, mx);
     for (std::size_t i = 0; i < lay.bars.size(); ++i) {
-        if (Hit(lay.bars[i], pt)) return static_cast<int>(i);
+        if (RectHit(lay.bars[i], pt)) return static_cast<int>(i);
     }
     return -1;
 }
 
-void PaintScore(IPainter& g, const Rect& rc, const ScoreState& st,
-                const Palette& pal, const Metrics& mx)
+void Score::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    ScoreState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const ScoreLayout lay = GeoScore(rc, st, mx);
     g.FillRound(rc, mx.radiusMd, pal.surface);
@@ -521,5 +602,6 @@ void PaintScore(IPainter& g, const Rect& rc, const ScoreState& st,
     g.PopClip();
 }
 
+} // namespace widgets
 } // namespace ui
 } // namespace air

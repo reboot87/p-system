@@ -1,3 +1,4 @@
+#include "airui/WidgetControls.h"
 // ============================================================
 // AirUI - ControlsLayout.cpp
 // Platform-free layout controls: Accordion / Anchor / Splitter /
@@ -164,16 +165,7 @@ void PaintHandleGrip(IPainter& g, const Rect& handle, bool vertical, Color c)
 // Accordion
 // ============================================================
 
-int AccordionHeaderAt(const Rect& rc, const AccordionState& st,
-                      const Metrics& mx, Point pt)
-{
-    if (rc.Empty() || st.panels.empty() || !rc.Contains(pt)) return -1;
-    const AccordionGeom geom = MeasureAccordion(rc, st, mx);
-    for (int i = 0; i < static_cast<int>(geom.headers.size()); ++i) {
-        if (geom.headers[static_cast<std::size_t>(i)].Contains(pt)) return i;
-    }
-    return -1;
-}
+
 
 int AccordionContentHeight(const AccordionState& st, const Metrics& mx)
 {
@@ -188,9 +180,95 @@ int AccordionContentHeight(const AccordionState& st, const Metrics& mx)
     return total;
 }
 
-void PaintAccordion(IPainter& g, const Rect& rc, const AccordionState& st,
-                    const Palette& pal, const Metrics& mx)
+
+
+// ============================================================
+// Anchor
+// ============================================================
+
+int AnchorHit(const Rect& rc, const AnchorState& st,
+              const Metrics& mx, Point pt)
 {
+    if (rc.Empty() || st.items.empty() || !rc.Contains(pt)) return -1;
+    const AnchorGeom geom = MeasureAnchor(rc, st, mx);
+    if (geom.rowH <= 0) return -1;
+    const int row = (pt.y - rc.top) / geom.rowH;
+    if (row < 0 || row >= static_cast<int>(geom.rows.size())) return -1;
+    if (!geom.rows[static_cast<std::size_t>(row)].Contains(pt)) return -1;
+    return row;
+}
+
+
+
+// ============================================================
+// Splitter
+//
+// st.position is the distance from the leading edge (left for a
+// vertical split, top for a horizontal one) to the divider centre;
+// 0 means "centred". The handle is a narrow band between the two
+// panes and is clamped so it always stays fully inside rc.
+// ============================================================
+
+
+
+bool SplitterHandleHit(const Rect& rc, const SplitterState& st,
+                       const Metrics& mx, Point pt)
+{
+    if (rc.Empty() || !rc.Contains(pt)) return false;
+    const SplitterLayout lay = MeasureSplitter(rc, st, mx);
+    return lay.handle.Contains(pt);
+}
+
+
+
+// ============================================================
+// ColumnResize
+//
+// st.widths are relative weights. Columns are laid out across the
+// full width of rc (the last one absorbs rounding error) and a narrow
+// drag handle is centred on each internal boundary.
+// ============================================================
+
+
+
+
+
+
+
+} // namespace ui
+} // namespace air
+
+// ============================================================
+// Object layer: widget member functions migrated from the
+// free-function drawing kernel above.
+// ============================================================
+namespace air {
+namespace ui {
+namespace widgets {
+
+int Accordion::HeaderAt(const Metrics& mx, Point pt) const
+{
+    const Rect& rc = Bounds();
+    const AccordionState& st = state;
+    (void)mx;
+    (void)pt;
+    if (rc.Empty() || st.panels.empty() || !rc.Contains(pt)) return -1;
+    const AccordionGeom geom = MeasureAccordion(rc, st, mx);
+    for (int i = 0; i < static_cast<int>(geom.headers.size()); ++i) {
+        if (geom.headers[static_cast<std::size_t>(i)].Contains(pt)) return i;
+    }
+    return -1;
+}
+
+void Accordion::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
+{
+    const Rect& rc = Bounds();
+    AccordionState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const AccordionGeom geom = MeasureAccordion(rc, st, mx);
     const int pad = mx.unit;
@@ -234,25 +312,15 @@ void PaintAccordion(IPainter& g, const Rect& rc, const AccordionState& st,
     g.PopClip();
 }
 
-// ============================================================
-// Anchor
-// ============================================================
-
-int AnchorHit(const Rect& rc, const AnchorState& st,
-              const Metrics& mx, Point pt)
+void Anchor::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
-    if (rc.Empty() || st.items.empty() || !rc.Contains(pt)) return -1;
-    const AnchorGeom geom = MeasureAnchor(rc, st, mx);
-    if (geom.rowH <= 0) return -1;
-    const int row = (pt.y - rc.top) / geom.rowH;
-    if (row < 0 || row >= static_cast<int>(geom.rows.size())) return -1;
-    if (!geom.rows[static_cast<std::size_t>(row)].Contains(pt)) return -1;
-    return row;
-}
-
-void PaintAnchor(IPainter& g, const Rect& rc, const AnchorState& st,
-                 const Palette& pal, const Metrics& mx)
-{
+    const Rect& rc = Bounds();
+    AnchorState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const AnchorGeom geom = MeasureAnchor(rc, st, mx);
     const Color normal = MutedColor(st.base, pal);
@@ -288,18 +356,11 @@ void PaintAnchor(IPainter& g, const Rect& rc, const AnchorState& st,
     g.PopClip();
 }
 
-// ============================================================
-// Splitter
-//
-// st.position is the distance from the leading edge (left for a
-// vertical split, top for a horizontal one) to the divider centre;
-// 0 means "centred". The handle is a narrow band between the two
-// panes and is clamped so it always stays fully inside rc.
-// ============================================================
-
-SplitterLayout MeasureSplitter(const Rect& rc, const SplitterState& st,
-                               const Metrics& mx)
+SplitterLayout Splitter::Measure(const Metrics& mx) const
 {
+    const Rect& rc = Bounds();
+    const SplitterState& st = state;
+    (void)mx;
     SplitterLayout out;
     if (rc.Empty()) return out;
 
@@ -332,17 +393,13 @@ SplitterLayout MeasureSplitter(const Rect& rc, const SplitterState& st,
     return out;
 }
 
-bool SplitterHandleHit(const Rect& rc, const SplitterState& st,
-                       const Metrics& mx, Point pt)
+void Splitter::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
-    if (rc.Empty() || !rc.Contains(pt)) return false;
-    const SplitterLayout lay = MeasureSplitter(rc, st, mx);
-    return lay.handle.Contains(pt);
-}
-
-void PaintSplitter(IPainter& g, const Rect& rc, const SplitterState& st,
-                   const Palette& pal, const Metrics& mx)
-{
+    const Rect& rc = Bounds();
+    SplitterState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
     if (rc.Empty()) return;
     const SplitterLayout lay = MeasureSplitter(rc, st, mx);
 
@@ -363,18 +420,11 @@ void PaintSplitter(IPainter& g, const Rect& rc, const SplitterState& st,
     g.PopClip();
 }
 
-// ============================================================
-// ColumnResize
-//
-// st.widths are relative weights. Columns are laid out across the
-// full width of rc (the last one absorbs rounding error) and a narrow
-// drag handle is centred on each internal boundary.
-// ============================================================
-
-ColumnResizeLayout MeasureColumnResize(const Rect& rc,
-                                       const ColumnResizeState& st,
-                                       const Metrics& mx)
+ColumnResizeLayout ColumnResize::Measure(const Metrics& mx) const
 {
+    const Rect& rc = Bounds();
+    const ColumnResizeState& st = state;
+    (void)mx;
     ColumnResizeLayout out;
     const int n = static_cast<int>(st.widths.size());
     if (n == 0 || rc.Empty()) return out;
@@ -405,9 +455,12 @@ ColumnResizeLayout MeasureColumnResize(const Rect& rc,
     return out;
 }
 
-int ColumnResizeHandleAt(const Rect& rc, const ColumnResizeState& st,
-                         const Metrics& mx, Point pt)
+int ColumnResize::HandleAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const ColumnResizeState& st = state;
+    (void)mx;
+    (void)pt;
     if (rc.Empty() || st.widths.empty() || !rc.Contains(pt)) return -1;
     const ColumnResizeLayout lay = MeasureColumnResize(rc, st, mx);
     for (int i = 0; i < static_cast<int>(lay.handles.size()); ++i) {
@@ -416,10 +469,13 @@ int ColumnResizeHandleAt(const Rect& rc, const ColumnResizeState& st,
     return -1;
 }
 
-void PaintColumnResize(IPainter& g, const Rect& rc,
-                       const ColumnResizeState& st,
-                       const Palette& pal, const Metrics& mx)
+void ColumnResize::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    ColumnResizeState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
     if (rc.Empty()) return;
     const ColumnResizeLayout lay = MeasureColumnResize(rc, st, mx);
     if (lay.columns.empty()) return;
@@ -443,5 +499,6 @@ void PaintColumnResize(IPainter& g, const Rect& rc,
     g.PopClip();
 }
 
+} // namespace widgets
 } // namespace ui
 } // namespace air

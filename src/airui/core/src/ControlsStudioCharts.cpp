@@ -1,3 +1,4 @@
+#include "airui/WidgetControls.h"
 // AirUI - ControlsStudioCharts.cpp : platform-free compact charts.
 // Fifth wave: Sparkline, Waterfall, StackedBar, GaugeMeter.
 #include "airui/ControlsStudio.h"
@@ -137,76 +138,11 @@ SparklineLayout GeoSpark(const Rect& rc, const SparklineState& st,
 
 } // namespace
 
-SparklineLayout MeasureSparkline(const Rect& rc, const SparklineState& st,
-                                 const Metrics& mx)
-{
-    return GeoSpark(rc, st, mx);
-}
 
-int SparklinePointAt(const Rect& rc, const SparklineState& st,
-                     const Metrics& mx, Point pt)
-{
-    const SparklineLayout o = GeoSpark(rc, st, mx);
-    if (o.plot.Empty() || !o.plot.Contains(pt)) return -1;
-    const int n = static_cast<int>(o.points.size());
-    for (int i = 0; i < n; ++i) {
-        if (Has(o.points[static_cast<std::size_t>(i)], pt)) return i;
-    }
-    if (n <= 0 || o.plot.Width() <= 0) return -1;
-    const int idx = (pt.x - o.plot.left) * (n - 1) / o.plot.Width();
-    return ClampI(idx, 0, n - 1);
-}
 
-void PaintSparkline(IPainter& g, const Rect& rc, const SparklineState& st,
-                    const Palette& pal, const Metrics& mx)
-{
-    if (rc.Empty()) return;
-    const SparklineLayout o = GeoSpark(rc, st, mx);
-    if (o.header.Empty()) return;
-    const TrendColors tc = Trend(st.change, pal);
-    const bool disabled = st.base.disabled;
 
-    g.Text(o.header, st.title, FontRole::Section, pal.textSub, kLeft);
-    g.Text(o.header, SignedPercent(st.change), FontRole::Body,
-           disabled ? pal.textDisabled : tc.text, kRight);
 
-    if (!st.values.empty()) {
-        const double last = st.values.back();
-        g.Text(o.valueRc, st.unit + Whole(last), FontRole::Display,
-               disabled ? pal.textDisabled : pal.text, kLeft);
-    }
 
-    if (o.plot.Empty()) return;
-    g.FillRect(o.plot, pal.sunken);
-    g.PushClip(o.plot);
-    if (st.showArea) {
-        const int n = static_cast<int>(o.points.size());
-        for (int i = 0; i < n; ++i) {
-            const Rect& p = o.points[static_cast<std::size_t>(i)];
-            const Rect area(p.left, (std::min)(p.top, o.baseY - 1),
-                            p.right, o.baseY);
-            if (!area.Empty()) {
-                g.FillRect(area, disabled ? pal.sunken : tc.soft);
-            }
-        }
-    }
-    for (std::size_t i = 0; i < o.steps.size(); ++i) {
-        if (!o.steps[i].Empty()) {
-            g.FillRect(o.steps[i], disabled ? pal.textDisabled : tc.line);
-        }
-    }
-    for (std::size_t i = 0; i < o.points.size(); ++i) {
-        const Rect& p = o.points[i];
-        if (p.Empty()) continue;
-        const int idx = static_cast<int>(i);
-        if (idx == st.hovered) {
-            g.StrokeRound(p, mx.radiusSm, pal.selectRing, 1);
-        } else if (idx + 1 == static_cast<int>(o.points.size())) {
-            g.FillRound(p, mx.radiusSm, tc.line);
-        }
-    }
-    g.PopClip();
-}
 
 namespace {
 
@@ -293,64 +229,11 @@ WaterfallLayout GeoWaterfall(const Rect& rc, const WaterfallState& st,
 
 } // namespace
 
-WaterfallLayout MeasureWaterfall(const Rect& rc, const WaterfallState& st,
-                                 const Metrics& mx)
-{
-    return GeoWaterfall(rc, st, mx);
-}
 
-int WaterfallBarAt(const Rect& rc, const WaterfallState& st,
-                   const Metrics& mx, Point pt)
-{
-    const WaterfallLayout o = GeoWaterfall(rc, st, mx);
-    if (o.plot.Empty() || !o.plot.Contains(pt)) return -1;
-    for (std::size_t i = 0; i < o.bars.size(); ++i) {
-        if (Has(o.bars[i], pt)) return static_cast<int>(i);
-    }
-    if (o.labels.empty()) return -1;
-    for (std::size_t i = 0; i < o.labels.size(); ++i) {
-        const Rect column(o.labels[i].left, o.plot.top,
-                          o.labels[i].right, o.plot.bottom);
-        if (Has(column, pt)) return static_cast<int>(i);
-    }
-    return -1;
-}
 
-void PaintWaterfall(IPainter& g, const Rect& rc, const WaterfallState& st,
-                    const Palette& pal, const Metrics& mx)
-{
-    if (rc.Empty()) return;
-    const WaterfallLayout o = GeoWaterfall(rc, st, mx);
-    if (o.titleRc.Empty()) return;
-    const bool disabled = st.base.disabled;
-    g.Text(o.titleRc, st.title, FontRole::Section, pal.text, kLeft);
-    if (o.plot.Empty()) return;
 
-    g.FillRect(Rect(o.plot.left, o.zeroY, o.plot.right,
-                    (std::min)(o.zeroY + 1, o.plot.bottom)), pal.split);
-    g.PushClip(o.plot);
-    for (std::size_t i = 0; i < o.connectors.size(); ++i) {
-        if (!o.connectors[i].Empty()) g.FillRect(o.connectors[i], pal.split);
-    }
-    for (std::size_t i = 0; i < o.bars.size(); ++i) {
-        const Rect& bar = o.bars[i];
-        if (bar.Empty()) continue;
-        const WaterfallBar& item = st.bars[i];
-        Color fill = pal.primary;
-        if (!item.total) fill = item.delta >= 0 ? pal.error : pal.ok;
-        if (disabled) fill = pal.textDisabled;
-        g.FillRound(bar, mx.radiusSm, fill);
-        if (static_cast<int>(i) == st.hovered) {
-            g.StrokeRound(bar, mx.radiusSm, pal.selectRing, 1);
-        }
-    }
-    g.PopClip();
-    for (std::size_t i = 0; i < o.labels.size(); ++i) {
-        if (o.labels[i].Empty()) continue;
-        g.Text(o.labels[i], st.bars[i].label, FontRole::Meta,
-               pal.textFaint, kCenter);
-    }
-}
+
+
 
 namespace {
 
@@ -422,16 +305,242 @@ StackedBarLayout GeoStacked(const Rect& rc, const StackedBarState& st,
 
 } // namespace
 
-StackedBarLayout MeasureStackedBar(const Rect& rc,
-                                   const StackedBarState& st,
-                                   const Metrics& mx)
+
+
+
+
+
+
+namespace {
+
+// ============================================================
+// GaugeMeter
+// ============================================================
+GaugeLayout GeoGauge(const Rect& rc, const GaugeState& st, const Metrics& mx)
 {
+    GaugeLayout o;
+    if (rc.Empty()) return o;
+    const Rect inner = Inset(rc, mx.unit / 2);
+    if (inner.Empty() || inner.Height() < mx.rowH * 3) return o;
+    o.header = Rect(inner.left, inner.top, inner.right,
+                    inner.top + mx.rowH);
+    o.valueRc = Rect(inner.left, o.header.bottom, inner.right,
+                     o.header.bottom + mx.rowH + mx.unit);
+    o.scale = Rect(inner.left, inner.bottom - mx.tagH,
+                   inner.right, inner.bottom);
+    o.band = Rect(inner.left, o.valueRc.bottom + mx.unit / 2,
+                  inner.right, o.scale.top - mx.unit / 2);
+    if (o.band.Empty()) return o;
+
+    const int n = ClampI(st.segments, 4, 48);
+    const int gap = (std::max)(1, mx.unit / 8);
+    const int slot = o.band.Width() / n;
+    if (slot <= gap) return o;
+    for (int i = 0; i < n; ++i) {
+        const int x = o.band.left + i * slot;
+        const double d = (std::max)(0.0,
+            (static_cast<double>(i) - (n - 1) / 2.0) /
+                (std::max)(1.0, n / 2.0));
+        const int h = (std::max)(mx.unit,
+            o.band.Height() - static_cast<int>(o.band.Height() * 0.35 * d));
+        o.segments.push_back(Rect(x + gap / 2, o.band.bottom - h,
+                                  x + slot - gap / 2, o.band.bottom));
+    }
+    const double span = (std::max)(1.0, st.max - st.min);
+    const double t = ClampD((st.warnAt - st.min) / span, 0.0, 1.0);
+    const int tx = o.band.left + static_cast<int>(t * o.band.Width());
+    o.threshold = Rect(ClampI(tx, o.band.left, o.band.right - 1),
+                       o.band.top,
+                       ClampI(tx + 1, o.band.left + 1, o.band.right),
+                       o.band.bottom);
+    return o;
+}
+
+} // namespace
+
+
+
+
+
+
+
+} // namespace ui
+} // namespace air
+
+// ============================================================
+// Object layer: widget member functions migrated from the
+// free-function drawing kernel above.
+// ============================================================
+namespace air {
+namespace ui {
+namespace widgets {
+
+SparklineLayout Sparkline::Measure(const Metrics& mx) const
+{
+    const Rect& rc = Bounds();
+    const SparklineState& st = state;
+    (void)mx;
+    return GeoSpark(rc, st, mx);
+}
+
+int Sparkline::PointAt(const Metrics& mx, Point pt) const
+{
+    const Rect& rc = Bounds();
+    const SparklineState& st = state;
+    (void)mx;
+    (void)pt;
+    const SparklineLayout o = GeoSpark(rc, st, mx);
+    if (o.plot.Empty() || !o.plot.Contains(pt)) return -1;
+    const int n = static_cast<int>(o.points.size());
+    for (int i = 0; i < n; ++i) {
+        if (Has(o.points[static_cast<std::size_t>(i)], pt)) return i;
+    }
+    if (n <= 0 || o.plot.Width() <= 0) return -1;
+    const int idx = (pt.x - o.plot.left) * (n - 1) / o.plot.Width();
+    return ClampI(idx, 0, n - 1);
+}
+
+void Sparkline::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
+{
+    const Rect& rc = Bounds();
+    SparklineState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
+    if (rc.Empty()) return;
+    const SparklineLayout o = GeoSpark(rc, st, mx);
+    if (o.header.Empty()) return;
+    const TrendColors tc = Trend(st.change, pal);
+    const bool disabled = st.base.disabled;
+
+    g.Text(o.header, st.title, FontRole::Section, pal.textSub, kLeft);
+    g.Text(o.header, SignedPercent(st.change), FontRole::Body,
+           disabled ? pal.textDisabled : tc.text, kRight);
+
+    if (!st.values.empty()) {
+        const double last = st.values.back();
+        g.Text(o.valueRc, st.unit + Whole(last), FontRole::Display,
+               disabled ? pal.textDisabled : pal.text, kLeft);
+    }
+
+    if (o.plot.Empty()) return;
+    g.FillRect(o.plot, pal.sunken);
+    g.PushClip(o.plot);
+    if (st.showArea) {
+        const int n = static_cast<int>(o.points.size());
+        for (int i = 0; i < n; ++i) {
+            const Rect& p = o.points[static_cast<std::size_t>(i)];
+            const Rect area(p.left, (std::min)(p.top, o.baseY - 1),
+                            p.right, o.baseY);
+            if (!area.Empty()) {
+                g.FillRect(area, disabled ? pal.sunken : tc.soft);
+            }
+        }
+    }
+    for (std::size_t i = 0; i < o.steps.size(); ++i) {
+        if (!o.steps[i].Empty()) {
+            g.FillRect(o.steps[i], disabled ? pal.textDisabled : tc.line);
+        }
+    }
+    for (std::size_t i = 0; i < o.points.size(); ++i) {
+        const Rect& p = o.points[i];
+        if (p.Empty()) continue;
+        const int idx = static_cast<int>(i);
+        if (idx == st.hovered) {
+            g.StrokeRound(p, mx.radiusSm, pal.selectRing, 1);
+        } else if (idx + 1 == static_cast<int>(o.points.size())) {
+            g.FillRound(p, mx.radiusSm, tc.line);
+        }
+    }
+    g.PopClip();
+}
+
+WaterfallLayout Waterfall::Measure(const Metrics& mx) const
+{
+    const Rect& rc = Bounds();
+    const WaterfallState& st = state;
+    (void)mx;
+    return GeoWaterfall(rc, st, mx);
+}
+
+int Waterfall::BarAt(const Metrics& mx, Point pt) const
+{
+    const Rect& rc = Bounds();
+    const WaterfallState& st = state;
+    (void)mx;
+    (void)pt;
+    const WaterfallLayout o = GeoWaterfall(rc, st, mx);
+    if (o.plot.Empty() || !o.plot.Contains(pt)) return -1;
+    for (std::size_t i = 0; i < o.bars.size(); ++i) {
+        if (Has(o.bars[i], pt)) return static_cast<int>(i);
+    }
+    if (o.labels.empty()) return -1;
+    for (std::size_t i = 0; i < o.labels.size(); ++i) {
+        const Rect column(o.labels[i].left, o.plot.top,
+                          o.labels[i].right, o.plot.bottom);
+        if (Has(column, pt)) return static_cast<int>(i);
+    }
+    return -1;
+}
+
+void Waterfall::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
+{
+    const Rect& rc = Bounds();
+    WaterfallState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
+    if (rc.Empty()) return;
+    const WaterfallLayout o = GeoWaterfall(rc, st, mx);
+    if (o.titleRc.Empty()) return;
+    const bool disabled = st.base.disabled;
+    g.Text(o.titleRc, st.title, FontRole::Section, pal.text, kLeft);
+    if (o.plot.Empty()) return;
+
+    g.FillRect(Rect(o.plot.left, o.zeroY, o.plot.right,
+                    (std::min)(o.zeroY + 1, o.plot.bottom)), pal.split);
+    g.PushClip(o.plot);
+    for (std::size_t i = 0; i < o.connectors.size(); ++i) {
+        if (!o.connectors[i].Empty()) g.FillRect(o.connectors[i], pal.split);
+    }
+    for (std::size_t i = 0; i < o.bars.size(); ++i) {
+        const Rect& bar = o.bars[i];
+        if (bar.Empty()) continue;
+        const WaterfallBar& item = st.bars[i];
+        Color fill = pal.primary;
+        if (!item.total) fill = item.delta >= 0 ? pal.error : pal.ok;
+        if (disabled) fill = pal.textDisabled;
+        g.FillRound(bar, mx.radiusSm, fill);
+        if (static_cast<int>(i) == st.hovered) {
+            g.StrokeRound(bar, mx.radiusSm, pal.selectRing, 1);
+        }
+    }
+    g.PopClip();
+    for (std::size_t i = 0; i < o.labels.size(); ++i) {
+        if (o.labels[i].Empty()) continue;
+        g.Text(o.labels[i], st.bars[i].label, FontRole::Meta,
+               pal.textFaint, kCenter);
+    }
+}
+
+StackedBarLayout StackedBar::Measure(const Metrics& mx) const
+{
+    const Rect& rc = Bounds();
+    const StackedBarState& st = state;
+    (void)mx;
     return GeoStacked(rc, st, mx);
 }
 
-StackedBarHit HitStackedBar(const Rect& rc, const StackedBarState& st,
-                            const Metrics& mx, Point pt)
+StackedBarHit StackedBar::HitAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const StackedBarState& st = state;
+    (void)mx;
+    (void)pt;
     StackedBarHit h;
     const StackedBarLayout o = GeoStacked(rc, st, mx);
     if (o.body.Empty()) return h;
@@ -447,9 +556,15 @@ StackedBarHit HitStackedBar(const Rect& rc, const StackedBarState& st,
     return h;
 }
 
-void PaintStackedBar(IPainter& g, const Rect& rc, const StackedBarState& st,
-                     const Palette& pal, const Metrics& mx)
+void StackedBar::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    StackedBarState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const StackedBarLayout o = GeoStacked(rc, st, mx);
     if (o.header.Empty()) return;
@@ -510,62 +625,20 @@ void PaintStackedBar(IPainter& g, const Rect& rc, const StackedBarState& st,
     g.PopClip();
 }
 
-namespace {
-
-// ============================================================
-// GaugeMeter
-// ============================================================
-GaugeLayout GeoGauge(const Rect& rc, const GaugeState& st, const Metrics& mx)
+GaugeLayout Gauge::Measure(const Metrics& mx) const
 {
-    GaugeLayout o;
-    if (rc.Empty()) return o;
-    const Rect inner = Inset(rc, mx.unit / 2);
-    if (inner.Empty() || inner.Height() < mx.rowH * 3) return o;
-    o.header = Rect(inner.left, inner.top, inner.right,
-                    inner.top + mx.rowH);
-    o.valueRc = Rect(inner.left, o.header.bottom, inner.right,
-                     o.header.bottom + mx.rowH + mx.unit);
-    o.scale = Rect(inner.left, inner.bottom - mx.tagH,
-                   inner.right, inner.bottom);
-    o.band = Rect(inner.left, o.valueRc.bottom + mx.unit / 2,
-                  inner.right, o.scale.top - mx.unit / 2);
-    if (o.band.Empty()) return o;
-
-    const int n = ClampI(st.segments, 4, 48);
-    const int gap = (std::max)(1, mx.unit / 8);
-    const int slot = o.band.Width() / n;
-    if (slot <= gap) return o;
-    for (int i = 0; i < n; ++i) {
-        const int x = o.band.left + i * slot;
-        const double d = (std::max)(0.0,
-            (static_cast<double>(i) - (n - 1) / 2.0) /
-                (std::max)(1.0, n / 2.0));
-        const int h = (std::max)(mx.unit,
-            o.band.Height() - static_cast<int>(o.band.Height() * 0.35 * d));
-        o.segments.push_back(Rect(x + gap / 2, o.band.bottom - h,
-                                  x + slot - gap / 2, o.band.bottom));
-    }
-    const double span = (std::max)(1.0, st.max - st.min);
-    const double t = ClampD((st.warnAt - st.min) / span, 0.0, 1.0);
-    const int tx = o.band.left + static_cast<int>(t * o.band.Width());
-    o.threshold = Rect(ClampI(tx, o.band.left, o.band.right - 1),
-                       o.band.top,
-                       ClampI(tx + 1, o.band.left + 1, o.band.right),
-                       o.band.bottom);
-    return o;
-}
-
-} // namespace
-
-GaugeLayout MeasureGauge(const Rect& rc, const GaugeState& st,
-                         const Metrics& mx)
-{
+    const Rect& rc = Bounds();
+    const GaugeState& st = state;
+    (void)mx;
     return GeoGauge(rc, st, mx);
 }
 
-int GaugeSegmentAt(const Rect& rc, const GaugeState& st,
-                   const Metrics& mx, Point pt)
+int Gauge::SegmentAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const GaugeState& st = state;
+    (void)mx;
+    (void)pt;
     const GaugeLayout o = GeoGauge(rc, st, mx);
     if (o.band.Empty()) return -1;
     for (std::size_t i = 0; i < o.segments.size(); ++i) {
@@ -574,9 +647,15 @@ int GaugeSegmentAt(const Rect& rc, const GaugeState& st,
     return -1;
 }
 
-void PaintGauge(IPainter& g, const Rect& rc, const GaugeState& st,
-                const Palette& pal, const Metrics& mx)
+void Gauge::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    GaugeState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const GaugeLayout o = GeoGauge(rc, st, mx);
     if (o.header.Empty()) return;
@@ -621,5 +700,6 @@ void PaintGauge(IPainter& g, const Rect& rc, const GaugeState& st,
     }
 }
 
+} // namespace widgets
 } // namespace ui
 } // namespace air

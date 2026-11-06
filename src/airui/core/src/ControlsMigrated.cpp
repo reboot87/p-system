@@ -1,3 +1,4 @@
+#include "airui/WidgetControls.h"
 // ============================================================
 // AirUI - ControlsMigrated.cpp
 // Phase 1: composites that used to live behind a native platform
@@ -98,8 +99,158 @@ int RowHeight(bool hasSubtitle, const Metrics& mx)
 // ============================================================
 // Card
 // ============================================================
-CardLayout MeasureCard(const Rect& rc, const CardState& st, const Metrics& mx)
+
+
+
+
+
+
+// ============================================================
+// EmptyView / StatusTag / KbdChip
+// ============================================================
+
+
+void PaintStatusTagColored(IPainter& g, const Rect& rc,
+                           const std::wstring& text, bool showDot,
+                           const StatusTagColors& colors, const Metrics& mx)
 {
+    if (rc.Empty()) return;
+    g.FillRound(rc, mx.radiusPill, colors.bg);
+    g.StrokeRound(rc, mx.radiusPill, colors.border, 1);
+    if (showDot) {
+        const int d = (std::max)(4, mx.unit / 2);
+        const Rect dot(rc.left + mx.unit, rc.top + rc.Height() / 2 - d / 2,
+                       rc.left + mx.unit + d, rc.top + rc.Height() / 2 + d / 2);
+        g.FillRound(dot, d / 2, colors.dot);
+    }
+    const int inset = showDot ? mx.unit * 2 : mx.unit;
+    g.Text(Rect(rc.left + inset, rc.top, rc.right - mx.unit, rc.bottom),
+           text, FontRole::Meta, colors.text, kLeftText);
+}
+
+
+
+int MeasureKbdChip(const KbdChipState& st, const Metrics& mx)
+{
+    const int keyW = static_cast<int>(st.key.size()) * mx.unit + mx.unit * 2;
+    const int labelW = static_cast<int>(st.label.size()) * mx.unit + mx.unit * 2;
+    return keyW + labelW + mx.unit * 2;
+}
+
+
+
+// ============================================================
+// Toolbar
+// ============================================================
+
+
+
+
+
+
+// ============================================================
+// Form
+// ============================================================
+
+
+
+
+int ValidateForm(FormState& st)
+{
+    for (size_t i = 0; i < st.fields.size(); ++i) {
+        FormField& f = st.fields[i];
+        f.invalid = (f.required && f.value.empty());
+        if (f.invalid) return static_cast<int>(i);
+    }
+    return -1;
+}
+
+
+
+// ============================================================
+// DataGrid
+// ============================================================
+
+
+
+
+std::vector<std::vector<std::wstring>> DataGridVisibleRows(const DataGridState& st)
+{
+    std::vector<std::vector<std::wstring>> rows;
+    const std::wstring needle = Fold(st.filter);
+    for (const auto& row : st.rows) {
+        if (needle.empty()) { rows.push_back(row); continue; }
+        bool match = false;
+        for (const auto& cell : row) {
+            if (Fold(cell).find(needle) != std::wstring::npos) { match = true; break; }
+        }
+        if (match) rows.push_back(row);
+    }
+    if (st.sortColumn >= 0 && st.sortColumn < static_cast<int>(st.columns.size())) {
+        const size_t col = static_cast<size_t>(st.sortColumn);
+        std::stable_sort(rows.begin(), rows.end(),
+            [&](const std::vector<std::wstring>& a,
+                const std::vector<std::wstring>& b) {
+                const std::wstring av = col < a.size() ? a[col] : L"";
+                const std::wstring bv = col < b.size() ? b[col] : L"";
+                const int cmp = CompareCells(av, bv);
+                return st.sortAscending ? cmp < 0 : cmp > 0;
+            });
+    }
+    return rows;
+}
+
+
+
+// ============================================================
+// ListData - variable height with virtual scrolling
+// ============================================================
+int ListDataRowHeight(const ListDataRow& row, const Metrics& mx)
+{
+    if (row.height > 0) return row.height;
+    return RowHeight(!row.subtitle.empty(), mx);
+}
+
+std::vector<int> ListDataHeights(const ListDataState& st, const Metrics& mx)
+{
+    std::vector<int> out;
+    out.reserve(st.rows.size());
+    for (const auto& row : st.rows) out.push_back(ListDataRowHeight(row, mx));
+    return out;
+}
+
+int ListDataContentHeight(const ListDataState& st, const Metrics& mx)
+{
+    int total = 0;
+    for (const auto& row : st.rows) total += ListDataRowHeight(row, mx);
+    return total;
+}
+
+
+
+
+
+// ============================================================
+// Custom (owner-draw placeholder)
+// ============================================================
+
+
+} // namespace ui
+} // namespace air
+
+// ============================================================
+// Object layer: widget member functions migrated from the
+// free-function drawing kernel above.
+// ============================================================
+namespace air {
+namespace ui {
+namespace widgets {
+
+CardLayout Card::Measure(const Metrics& mx) const
+{
+    const Rect& rc = Bounds();
+    const CardState& st = state;
+    (void)mx;
     CardLayout L;
     if (rc.Empty()) return L;
     const int pad = mx.unit * 2;
@@ -121,18 +272,27 @@ CardLayout MeasureCard(const Rect& rc, const CardState& st, const Metrics& mx)
     return L;
 }
 
-CardHit HitCard(const Rect& rc, const CardState& st,
-                const Metrics& mx, Point pt)
+CardHit Card::HitAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const CardState& st = state;
+    (void)mx;
+    (void)pt;
     if (!rc.Contains(pt)) return CardHit::None;
     const CardLayout L = MeasureCard(rc, st, mx);
     if (!st.linkText.empty() && L.linkRc.Contains(pt)) return CardHit::Link;
     return CardHit::Body;
 }
 
-void PaintCard(IPainter& g, const Rect& rc, const CardState& st,
-               const Palette& pal, const Metrics& mx)
+void Card::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    CardState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const CardLayout L = MeasureCard(rc, st, mx);
     const bool hover = st.base.hover && st.hoverable && !st.base.disabled;
@@ -168,51 +328,50 @@ void PaintCard(IPainter& g, const Rect& rc, const CardState& st,
     }
 }
 
-// ============================================================
-// EmptyView / StatusTag / KbdChip
-// ============================================================
-void PaintEmptyView(IPainter& g, const Rect& rc, const EmptyViewState& st,
-                    const Palette& pal, const Metrics& mx)
+void EmptyView::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    EmptyViewState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
     if (rc.Empty()) return;
     const int cy = rc.top + rc.Height() / 3;
-    const int box = mx.unit * 6;
-    const Rect icon(rc.left + rc.Width() / 2 - box / 2, cy - box,
-                    rc.left + rc.Width() / 2 + box / 2, cy);
-    g.FillRound(icon, mx.radiusLg, pal.sunken);
-    g.Text(icon, st.glyph, FontRole::IconLarge, pal.textFaint, kCenterText);
-    const int lineH = mx.rowH / 2 + 6;
-    g.Text(Rect(rc.left, cy + mx.unit, rc.right, cy + mx.unit + lineH),
-           st.title, FontRole::Title, pal.text, kCenterText);
-    g.Text(Rect(rc.left, cy + mx.unit + lineH, rc.right,
-                cy + mx.unit + lineH * 2),
-           st.steps, FontRole::Meta, pal.textSub, kCenterText);
-    g.Text(Rect(rc.left, cy + mx.unit + lineH * 2, rc.right,
-                cy + mx.unit + lineH * 3),
-           st.foot, FontRole::Meta, pal.textFaint, kCenterText);
-}
-
-void PaintStatusTagColored(IPainter& g, const Rect& rc,
-                           const std::wstring& text, bool showDot,
-                           const StatusTagColors& colors, const Metrics& mx)
-{
-    if (rc.Empty()) return;
-    g.FillRound(rc, mx.radiusPill, colors.bg);
-    g.StrokeRound(rc, mx.radiusPill, colors.border, 1);
-    if (showDot) {
-        const int d = (std::max)(4, mx.unit / 2);
-        const Rect dot(rc.left + mx.unit, rc.top + rc.Height() / 2 - d / 2,
-                       rc.left + mx.unit + d, rc.top + rc.Height() / 2 + d / 2);
-        g.FillRound(dot, d / 2, colors.dot);
+    int box = mx.unit * 6;
+    const int maxBox = cy - rc.top;
+    if (box > maxBox) box = (std::max)(1, maxBox);
+    if (box > rc.Width()) box = rc.Width();
+    if (box > 0) {
+        const int cx = rc.left + rc.Width() / 2;
+        const Rect icon((std::max)(rc.left, cx - box / 2), cy - box,
+                        (std::min)(rc.right, cx + box / 2), cy);
+        if (!icon.Empty()) {
+            g.FillRound(icon, mx.radiusLg, pal.sunken);
+            g.Text(icon, st.glyph, FontRole::IconLarge,
+                   pal.textFaint, kCenterText);
+        }
     }
-    const int inset = showDot ? mx.unit * 2 : mx.unit;
-    g.Text(Rect(rc.left + inset, rc.top, rc.right - mx.unit, rc.bottom),
-           text, FontRole::Meta, colors.text, kLeftText);
+    // Keep every text line inside the bounds at any DPI or small size.
+    const int lineH = mx.rowH / 2 + 6;
+    int y = cy + (std::min)(mx.unit, (std::max)(0, rc.bottom - cy));
+    const std::wstring* lines[3] = {&st.title, &st.steps, &st.foot};
+    const FontRole roles[3] = {FontRole::Title, FontRole::Meta, FontRole::Meta};
+    const Color colors[3] = {pal.text, pal.textSub, pal.textFaint};
+    for (int i = 0; i < 3; ++i) {
+        const Rect r(rc.left, y, rc.right, (std::min)(y + lineH, rc.bottom));
+        if (r.Empty()) break;
+        g.Text(r, *lines[i], roles[i], colors[i], kCenterText);
+        y += lineH;
+    }
 }
 
-void PaintStatusTag(IPainter& g, const Rect& rc, const StatusTagState& st,
-                    const Palette& pal, const Metrics& mx)
+void StatusTag::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    StatusTagState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
     if (rc.Empty()) return;
     const SemanticColors c = ColorsFor(st.kind, pal);
     StatusTagColors colors;
@@ -223,16 +382,13 @@ void PaintStatusTag(IPainter& g, const Rect& rc, const StatusTagState& st,
     PaintStatusTagColored(g, rc, st.text, st.dot, colors, mx);
 }
 
-int MeasureKbdChip(const KbdChipState& st, const Metrics& mx)
+void KbdChip::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
-    const int keyW = static_cast<int>(st.key.size()) * mx.unit + mx.unit * 2;
-    const int labelW = static_cast<int>(st.label.size()) * mx.unit + mx.unit * 2;
-    return keyW + labelW + mx.unit * 2;
-}
-
-void PaintKbdChip(IPainter& g, const Rect& rc, const KbdChipState& st,
-                  const Palette& pal, const Metrics& mx)
-{
+    const Rect& rc = Bounds();
+    KbdChipState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
     if (rc.Empty()) return;
     const int keyW = static_cast<int>(st.key.size()) * mx.unit + mx.unit * 2;
     const Rect key(rc.left, rc.top, rc.left + keyW, rc.bottom);
@@ -243,12 +399,11 @@ void PaintKbdChip(IPainter& g, const Rect& rc, const KbdChipState& st,
            st.label, FontRole::Meta, pal.textFaint, kLeftText);
 }
 
-// ============================================================
-// Toolbar
-// ============================================================
-ToolbarLayout MeasureToolbar(const Rect& rc, const ToolbarState& st,
-                             const Metrics& mx)
+ToolbarLayout Toolbar::Measure(const Metrics& mx) const
 {
+    const Rect& rc = Bounds();
+    const ToolbarState& st = state;
+    (void)mx;
     ToolbarLayout L;
     if (rc.Empty()) return L;
     L.rowH = rc.Height();
@@ -276,9 +431,12 @@ ToolbarLayout MeasureToolbar(const Rect& rc, const ToolbarState& st,
     return L;
 }
 
-ToolbarHit HitToolbar(const Rect& rc, const ToolbarState& st,
-                      const Metrics& mx, Point pt)
+ToolbarHit Toolbar::HitAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const ToolbarState& st = state;
+    (void)mx;
+    (void)pt;
     ToolbarHit out;
     if (!rc.Contains(pt)) return out;
     const ToolbarLayout L = MeasureToolbar(rc, st, mx);
@@ -292,9 +450,15 @@ ToolbarHit HitToolbar(const Rect& rc, const ToolbarState& st,
     return out;
 }
 
-void PaintToolbar(IPainter& g, const Rect& rc, const ToolbarState& st,
-                  const Palette& pal, const Metrics& mx)
+void Toolbar::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    ToolbarState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const ToolbarLayout L = MeasureToolbar(rc, st, mx);
     g.FillRound(rc, 0, pal.surface);
@@ -335,11 +499,11 @@ void PaintToolbar(IPainter& g, const Rect& rc, const ToolbarState& st,
     }
 }
 
-// ============================================================
-// Form
-// ============================================================
-FormLayout MeasureForm(const Rect& rc, const FormState& st, const Metrics& mx)
+FormLayout Form::Measure(const Metrics& mx) const
 {
+    const Rect& rc = Bounds();
+    const FormState& st = state;
+    (void)mx;
     FormLayout L;
     if (rc.Empty()) return L;
     L.rowH = mx.inputH + mx.unit * 2;
@@ -357,9 +521,12 @@ FormLayout MeasureForm(const Rect& rc, const FormState& st, const Metrics& mx)
     return L;
 }
 
-FormHit HitForm(const Rect& rc, const FormState& st,
-                const Metrics& mx, Point pt)
+FormHit Form::HitAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const FormState& st = state;
+    (void)mx;
+    (void)pt;
     FormHit out;
     if (!rc.Contains(pt)) return out;
     const FormLayout L = MeasureForm(rc, st, mx);
@@ -370,19 +537,15 @@ FormHit HitForm(const Rect& rc, const FormState& st,
     return out;
 }
 
-int ValidateForm(FormState& st)
+void Form::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
-    for (size_t i = 0; i < st.fields.size(); ++i) {
-        FormField& f = st.fields[i];
-        f.invalid = (f.required && f.value.empty());
-        if (f.invalid) return static_cast<int>(i);
-    }
-    return -1;
-}
-
-void PaintForm(IPainter& g, const Rect& rc, const FormState& st,
-               const Palette& pal, const Metrics& mx)
-{
+    const Rect& rc = Bounds();
+    FormState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const FormLayout L = MeasureForm(rc, st, mx);
     for (size_t i = 0; i < st.fields.size(); ++i) {
@@ -410,12 +573,11 @@ void PaintForm(IPainter& g, const Rect& rc, const FormState& st,
     PaintButton(g, L.submit, st.submitText, ButtonStyle::Primary, cs, pal, mx);
 }
 
-// ============================================================
-// DataGrid
-// ============================================================
-DataGridLayout MeasureDataGrid(const Rect& rc, const DataGridState& st,
-                               const Metrics& mx)
+DataGridLayout DataGrid::Measure(const Metrics& mx) const
 {
+    const Rect& rc = Bounds();
+    const DataGridState& st = state;
+    (void)mx;
     DataGridLayout L;
     if (rc.Empty() || st.columns.empty()) return L;
     const int pad = mx.unit;
@@ -445,9 +607,12 @@ DataGridLayout MeasureDataGrid(const Rect& rc, const DataGridState& st,
     return L;
 }
 
-DataGridHit HitDataGrid(const Rect& rc, const DataGridState& st,
-                        const Metrics& mx, Point pt)
+DataGridHit DataGrid::HitAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const DataGridState& st = state;
+    (void)mx;
+    (void)pt;
     DataGridHit out;
     if (!rc.Contains(pt)) return out;
     const DataGridLayout L = MeasureDataGrid(rc, st, mx);
@@ -476,35 +641,15 @@ DataGridHit HitDataGrid(const Rect& rc, const DataGridState& st,
     return out;
 }
 
-std::vector<std::vector<std::wstring>> DataGridVisibleRows(const DataGridState& st)
+void DataGrid::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
-    std::vector<std::vector<std::wstring>> rows;
-    const std::wstring needle = Fold(st.filter);
-    for (const auto& row : st.rows) {
-        if (needle.empty()) { rows.push_back(row); continue; }
-        bool match = false;
-        for (const auto& cell : row) {
-            if (Fold(cell).find(needle) != std::wstring::npos) { match = true; break; }
-        }
-        if (match) rows.push_back(row);
-    }
-    if (st.sortColumn >= 0 && st.sortColumn < static_cast<int>(st.columns.size())) {
-        const size_t col = static_cast<size_t>(st.sortColumn);
-        std::stable_sort(rows.begin(), rows.end(),
-            [&](const std::vector<std::wstring>& a,
-                const std::vector<std::wstring>& b) {
-                const std::wstring av = col < a.size() ? a[col] : L"";
-                const std::wstring bv = col < b.size() ? b[col] : L"";
-                const int cmp = CompareCells(av, bv);
-                return st.sortAscending ? cmp < 0 : cmp > 0;
-            });
-    }
-    return rows;
-}
-
-void PaintDataGrid(IPainter& g, const Rect& rc, const DataGridState& st,
-                   const Palette& pal, const Metrics& mx)
-{
+    const Rect& rc = Bounds();
+    DataGridState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty() || st.columns.empty()) return;
     const DataGridLayout L = MeasureDataGrid(rc, st, mx);
     PaintFrame(g, rc, pal, mx, false);
@@ -554,33 +699,12 @@ void PaintDataGrid(IPainter& g, const Rect& rc, const DataGridState& st,
     }
 }
 
-// ============================================================
-// ListData - variable height with virtual scrolling
-// ============================================================
-int ListDataRowHeight(const ListDataRow& row, const Metrics& mx)
+int ListData::RowAt(const Metrics& mx, Point pt) const
 {
-    if (row.height > 0) return row.height;
-    return RowHeight(!row.subtitle.empty(), mx);
-}
-
-std::vector<int> ListDataHeights(const ListDataState& st, const Metrics& mx)
-{
-    std::vector<int> out;
-    out.reserve(st.rows.size());
-    for (const auto& row : st.rows) out.push_back(ListDataRowHeight(row, mx));
-    return out;
-}
-
-int ListDataContentHeight(const ListDataState& st, const Metrics& mx)
-{
-    int total = 0;
-    for (const auto& row : st.rows) total += ListDataRowHeight(row, mx);
-    return total;
-}
-
-int ListDataRowAt(const Rect& rc, const ListDataState& st,
-                  const Metrics& mx, Point pt)
-{
+    const Rect& rc = Bounds();
+    const ListDataState& st = state;
+    (void)mx;
+    (void)pt;
     if (!rc.Contains(pt)) return -1;
     const std::vector<int> heights = ListDataHeights(st, mx);
     ScrollState scroll = st.scroll;
@@ -597,9 +721,15 @@ int ListDataRowAt(const Rect& rc, const ListDataState& st,
     return -1;
 }
 
-void PaintListData(IPainter& g, const Rect& rc, const ListDataState& st,
-                   const Palette& pal, const Metrics& mx)
+void ListData::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    ListDataState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     PaintFrame(g, rc, pal, mx, false);
     if (st.rows.empty()) {
@@ -649,12 +779,15 @@ void PaintListData(IPainter& g, const Rect& rc, const ListDataState& st,
     PaintScrollbar(g, rc, scroll, pal, mx);
 }
 
-// ============================================================
-// Custom (owner-draw placeholder)
-// ============================================================
-void PaintCustom(IPainter& g, const Rect& rc, const CustomState& st,
-                 const Palette& pal, const Metrics& mx)
+void Custom::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    CustomState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     g.FillRound(rc, mx.radiusMd, st.base.disabled ? pal.sunken : pal.surface);
     g.StrokeDashed(rc, pal.hoverBorder, 1, 4);
@@ -681,5 +814,6 @@ void PaintCustom(IPainter& g, const Rect& rc, const CustomState& st,
            st.base.disabled ? pal.textDisabled : pal.textSub, kCenterText);
 }
 
+} // namespace widgets
 } // namespace ui
 } // namespace air

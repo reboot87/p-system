@@ -1,3 +1,4 @@
+#include "airui/WidgetControls.h"
 // AirUI - ControlsEnterpriseShell.cpp : platform-free shell widgets.
 // Fourth wave: Chat, MultiStatusBar, Ribbon, NotificationCenter.
 #include "airui/ControlsEnterprise.h"
@@ -23,7 +24,7 @@ int ClampI(int v, int lo, int hi)
     return (std::min)((std::max)(v, lo), hi);
 }
 
-bool Hit(const Rect& r, Point p)
+bool RectHit(const Rect& r, Point p)
 {
     return !r.Empty() && r.Contains(p);
 }
@@ -212,25 +213,90 @@ NoticeCenterLayout GeoNotice(const Rect& rc, const NoticeCenterState& st,
 // ============================================================
 // Chat
 // ============================================================
-ChatLayout MeasureChat(const Rect& rc, const ChatState& st, const Metrics& mx)
+
+
+
+
+
+
+// ============================================================
+// MultiStatusBar
+// ============================================================
+
+
+
+
+
+
+// ============================================================
+// Ribbon
+// ============================================================
+
+
+
+
+
+
+// ============================================================
+// NotificationCenter
+// ============================================================
+
+
+
+
+int NoticeUnreadCount(const NoticeCenterState& st)
 {
+    int n = 0;
+    for (const NoticeItem& item : st.items) {
+        if (item.unread) ++n;
+    }
+    return n;
+}
+
+
+
+} // namespace ui
+} // namespace air
+
+// ============================================================
+// Object layer: widget member functions migrated from the
+// free-function drawing kernel above.
+// ============================================================
+namespace air {
+namespace ui {
+namespace widgets {
+
+ChatLayout Chat::Measure(const Metrics& mx) const
+{
+    const Rect& rc = Bounds();
+    const ChatState& st = state;
+    (void)mx;
     return GeoChat(rc, st, mx);
 }
 
-int ChatMessageAt(const Rect& rc, const ChatState& st,
-                  const Metrics& mx, Point pt)
+int Chat::MessageAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const ChatState& st = state;
+    (void)mx;
+    (void)pt;
     if (rc.Empty() || !rc.Contains(pt)) return -1;
     const ChatLayout lay = GeoChat(rc, st, mx);
     for (std::size_t i = 0; i < lay.bubbles.size(); ++i) {
-        if (Hit(lay.bubbles[i], pt)) return static_cast<int>(i);
+        if (RectHit(lay.bubbles[i], pt)) return static_cast<int>(i);
     }
     return -1;
 }
 
-void PaintChat(IPainter& g, const Rect& rc, const ChatState& st,
-               const Palette& pal, const Metrics& mx)
+void Chat::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    ChatState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const ChatLayout lay = GeoChat(rc, st, mx);
     g.FillRound(rc, mx.radiusMd, pal.surface);
@@ -276,37 +342,42 @@ void PaintChat(IPainter& g, const Rect& rc, const ChatState& st,
     g.PopClip();
 }
 
-// ============================================================
-// MultiStatusBar
-// ============================================================
-MultiStatusBarLayout MeasureMultiStatusBar(const Rect& rc,
-                                           const MultiStatusBarState& st,
-                                           const Metrics& mx)
+MultiStatusBarLayout MultiStatusBar::Measure(const Metrics& mx) const
 {
+    const Rect& rc = Bounds();
+    const MultiStatusBarState& st = state;
+    (void)mx;
     return GeoStatus(rc, st, mx);
 }
 
-MultiStatusBarHit HitMultiStatusBar(const Rect& rc,
-                                    const MultiStatusBarState& st,
-                                    const Metrics& mx, Point pt)
+MultiStatusBarHit MultiStatusBar::HitAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const MultiStatusBarState& st = state;
+    (void)mx;
+    (void)pt;
     MultiStatusBarHit out;
     if (rc.Empty() || !rc.Contains(pt)) return out;
     const MultiStatusBarLayout lay = GeoStatus(rc, st, mx);
     for (std::size_t i = 0; i < lay.segments.size(); ++i) {
-        if (Hit(lay.segments[i], pt)) {
+        if (RectHit(lay.segments[i], pt)) {
             out.segment = static_cast<int>(i);
             return out;
         }
     }
-    out.message = Hit(lay.messageRc, pt);
+    out.message = RectHit(lay.messageRc, pt);
     return out;
 }
 
-void PaintMultiStatusBar(IPainter& g, const Rect& rc,
-                         const MultiStatusBarState& st,
-                         const Palette& pal, const Metrics& mx)
+void MultiStatusBar::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    MultiStatusBarState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const MultiStatusBarLayout lay = GeoStatus(rc, st, mx);
     const Rect band = StatusBand(rc, mx);
@@ -345,18 +416,20 @@ void PaintMultiStatusBar(IPainter& g, const Rect& rc,
     g.PopClip();
 }
 
-// ============================================================
-// Ribbon
-// ============================================================
-RibbonLayout MeasureRibbon(const Rect& rc, const RibbonState& st,
-                           const Metrics& mx)
+RibbonLayout Ribbon::Measure(const Metrics& mx) const
 {
+    const Rect& rc = Bounds();
+    const RibbonState& st = state;
+    (void)mx;
     return GeoRibbon(rc, st, mx);
 }
 
-RibbonHit HitRibbon(const Rect& rc, const RibbonState& st,
-                    const Metrics& mx, Point pt)
+RibbonHit Ribbon::HitAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const RibbonState& st = state;
+    (void)mx;
+    (void)pt;
     RibbonHit out;
     if (rc.Empty() || !rc.Contains(pt)) return out;
     const RibbonLayout lay = GeoRibbon(rc, st, mx);
@@ -365,7 +438,7 @@ RibbonHit HitRibbon(const Rect& rc, const RibbonState& st,
         out.group = static_cast<int>(gi);
         if (gi < lay.buttons.size()) {
             for (std::size_t bi = 0; bi < lay.buttons[gi].size(); ++bi) {
-                if (Hit(lay.buttons[gi][bi], pt)) {
+                if (RectHit(lay.buttons[gi][bi], pt)) {
                     out.button = static_cast<int>(bi);
                     break;
                 }
@@ -376,9 +449,15 @@ RibbonHit HitRibbon(const Rect& rc, const RibbonState& st,
     return out;
 }
 
-void PaintRibbon(IPainter& g, const Rect& rc, const RibbonState& st,
-                 const Palette& pal, const Metrics& mx)
+void Ribbon::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    RibbonState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const RibbonLayout lay = GeoRibbon(rc, st, mx);
     g.FillRound(rc, mx.radiusMd, pal.surface);
@@ -441,26 +520,26 @@ void PaintRibbon(IPainter& g, const Rect& rc, const RibbonState& st,
     g.PopClip();
 }
 
-// ============================================================
-// NotificationCenter
-// ============================================================
-NoticeCenterLayout MeasureNoticeCenter(const Rect& rc,
-                                       const NoticeCenterState& st,
-                                       const Metrics& mx)
+NoticeCenterLayout NoticeCenter::Measure(const Metrics& mx) const
 {
+    const Rect& rc = Bounds();
+    const NoticeCenterState& st = state;
+    (void)mx;
     return GeoNotice(rc, st, mx);
 }
 
-NoticeCenterHit HitNoticeCenter(const Rect& rc,
-                                const NoticeCenterState& st,
-                                const Metrics& mx, Point pt)
+NoticeCenterHit NoticeCenter::HitAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const NoticeCenterState& st = state;
+    (void)mx;
+    (void)pt;
     NoticeCenterHit out;
     if (rc.Empty() || !rc.Contains(pt)) return out;
     const NoticeCenterLayout lay = GeoNotice(rc, st, mx);
-    if (Hit(lay.readAll, pt)) { out.readAll = true; return out; }
+    if (RectHit(lay.readAll, pt)) { out.readAll = true; return out; }
     for (std::size_t i = 0; i < lay.rows.size(); ++i) {
-        if (Hit(lay.rows[i], pt)) {
+        if (RectHit(lay.rows[i], pt)) {
             out.item = static_cast<int>(i);
             return out;
         }
@@ -468,19 +547,15 @@ NoticeCenterHit HitNoticeCenter(const Rect& rc,
     return out;
 }
 
-int NoticeUnreadCount(const NoticeCenterState& st)
+void NoticeCenter::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
-    int n = 0;
-    for (const NoticeItem& item : st.items) {
-        if (item.unread) ++n;
-    }
-    return n;
-}
-
-void PaintNoticeCenter(IPainter& g, const Rect& rc,
-                       const NoticeCenterState& st,
-                       const Palette& pal, const Metrics& mx)
-{
+    const Rect& rc = Bounds();
+    NoticeCenterState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const NoticeCenterLayout lay = GeoNotice(rc, st, mx);
     g.FillRound(rc, mx.radiusMd, pal.surface);
@@ -547,5 +622,6 @@ void PaintNoticeCenter(IPainter& g, const Rect& rc,
     g.PopClip();
 }
 
+} // namespace widgets
 } // namespace ui
 } // namespace air

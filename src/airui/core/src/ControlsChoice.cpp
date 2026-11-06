@@ -1,3 +1,4 @@
+#include "airui/WidgetControls.h"
 // ============================================================
 // AirUI - ControlsChoice.cpp
 // Platform-free selection controls:
@@ -157,9 +158,94 @@ void PaintTransferButton(IPainter& g, const Rect& rc, const wchar_t* glyph,
 // Dropdown
 // ============================================================
 
-DropdownLayout MeasureDropdown(const Rect& rc, const DropdownState& st,
-                               const Metrics& mx)
+
+
+
+
+
+
+// ============================================================
+// Menu
+// ============================================================
+
+int MenuItemHeight(const MenuItemState& item, const Metrics& mx)
 {
+    return MakeMenuGeom(mx).RowHeight(item);
+}
+
+int MenuContentHeight(const MenuState& st, const Metrics& mx)
+{
+    const MenuGeom gm = MakeMenuGeom(mx);
+    int h = 0;
+    for (const MenuItemState& item : st.items) h += gm.RowHeight(item);
+    return h;
+}
+
+
+
+
+
+
+
+// ============================================================
+// MultiSelect
+// ============================================================
+
+
+
+
+
+// ============================================================
+// Transfer
+// ============================================================
+
+
+
+
+
+void MoveTransferItem(TransferState& st, int side, int row)
+{
+    const bool l2r = (side == 0);
+    const bool r2l = (side == 1);
+    if ((!l2r && !r2l) || row < 0) return;
+
+    std::vector<std::wstring>& src = l2r ? st.left : st.right;
+    std::vector<std::wstring>& dst = l2r ? st.right : st.left;
+    std::vector<bool>& srcChk      = l2r ? st.leftChecked : st.rightChecked;
+    std::vector<bool>& dstChk      = l2r ? st.rightChecked : st.leftChecked;
+    if (row >= static_cast<int>(src.size())) return;
+
+    // Keep both checked vectors aligned with their item lists, then
+    // move one item together with its checked flag to the other side.
+    srcChk.resize(src.size(), false);
+    dstChk.resize(dst.size(), false);
+
+    const bool chk = srcChk[static_cast<std::size_t>(row)];
+    const std::wstring item = src[static_cast<std::size_t>(row)];
+    src.erase(src.begin() + row);
+    srcChk.erase(srcChk.begin() + row);
+    dst.push_back(item);
+    dstChk.push_back(chk);
+}
+
+
+
+} // namespace ui
+} // namespace air
+
+// ============================================================
+// Object layer: widget member functions migrated from the
+// free-function drawing kernel above.
+// ============================================================
+namespace air {
+namespace ui {
+namespace widgets {
+
+DropdownLayout Dropdown::Measure(const Metrics& mx) const
+{
+    const Rect& rc = Bounds();
+    const DropdownState& st = state;
+    (void)mx;
     DropdownLayout out;
     if (rc.Empty()) return out;
 
@@ -179,9 +265,12 @@ DropdownLayout MeasureDropdown(const Rect& rc, const DropdownState& st,
     return out;
 }
 
-int DropdownOptionAt(const Rect& rc, const DropdownState& st,
-                     const Metrics& mx, Point pt)
+int Dropdown::OptionAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const DropdownState& st = state;
+    (void)mx;
+    (void)pt;
     const DropdownLayout lay = MeasureDropdown(rc, st, mx);
     if (lay.field.Empty()) return -2;
     if (lay.field.Contains(pt)) return -1;
@@ -192,9 +281,15 @@ int DropdownOptionAt(const Rect& rc, const DropdownState& st,
     return -2;
 }
 
-void PaintDropdown(IPainter& g, const Rect& rc, const DropdownState& st,
-                   const Palette& pal, const Metrics& mx)
+void Dropdown::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    DropdownState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     const DropdownLayout lay = MeasureDropdown(rc, st, mx);
     if (lay.field.Empty()) return;
 
@@ -250,26 +345,12 @@ void PaintDropdown(IPainter& g, const Rect& rc, const DropdownState& st,
     g.PopClip();
 }
 
-// ============================================================
-// Menu
-// ============================================================
-
-int MenuItemHeight(const MenuItemState& item, const Metrics& mx)
+int Menu::ItemAt(const Metrics& mx, Point pt) const
 {
-    return MakeMenuGeom(mx).RowHeight(item);
-}
-
-int MenuContentHeight(const MenuState& st, const Metrics& mx)
-{
-    const MenuGeom gm = MakeMenuGeom(mx);
-    int h = 0;
-    for (const MenuItemState& item : st.items) h += gm.RowHeight(item);
-    return h;
-}
-
-int MenuItemAt(const Rect& rc, const MenuState& st,
-               const Metrics& mx, Point pt)
-{
+    const Rect& rc = Bounds();
+    const MenuState& st = state;
+    (void)mx;
+    (void)pt;
     if (rc.Empty() || st.items.empty()) return -1;
     if (!rc.Contains(pt)) return -1;
     const MenuGeom gm = MakeMenuGeom(mx);
@@ -284,9 +365,15 @@ int MenuItemAt(const Rect& rc, const MenuState& st,
     return -1;
 }
 
-void PaintMenu(IPainter& g, const Rect& rc, const MenuState& st,
-               const Palette& pal, const Metrics& mx)
+void Menu::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    MenuState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const MenuGeom gm = MakeMenuGeom(mx);
 
@@ -355,10 +442,13 @@ void PaintMenu(IPainter& g, const Rect& rc, const MenuState& st,
     g.PopClip();
 }
 
-void PaintContextMenu(IPainter& g, const Rect& client,
-                      const ContextMenuState& st,
-                      const Palette& pal, const Metrics& mx)
+void ContextMenu::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& client = Bounds();
+    ContextMenuState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
     if (!st.visible || client.Empty()) return;
     if (st.menu.items.empty()) return;
 
@@ -386,13 +476,12 @@ void PaintContextMenu(IPainter& g, const Rect& client,
     PaintMenu(g, placed, st.menu, pal, mx);
 }
 
-// ============================================================
-// MultiSelect
-// ============================================================
-
-int MultiSelectAt(const Rect& rc, const MultiSelectState& st,
-                  const Metrics& mx, Point pt)
+int MultiSelect::At(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const MultiSelectState& st = state;
+    (void)mx;
+    (void)pt;
     if (rc.Empty() || st.options.empty()) return -1;
     if (!rc.Contains(pt)) return -1;
     const int rowH = MultiSelectRowHeight(mx);
@@ -405,10 +494,15 @@ int MultiSelectAt(const Rect& rc, const MultiSelectState& st,
     return row;
 }
 
-void PaintMultiSelect(IPainter& g, const Rect& rc,
-                      const MultiSelectState& st,
-                      const Palette& pal, const Metrics& mx)
+void MultiSelect::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    MultiSelectState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
 
     g.FillRound(rc, mx.radiusMd, st.base.disabled ? pal.sunken : pal.surface);
@@ -442,13 +536,11 @@ void PaintMultiSelect(IPainter& g, const Rect& rc,
     g.PopClip();
 }
 
-// ============================================================
-// Transfer
-// ============================================================
-
-TransferLayout MeasureTransfer(const Rect& rc, const TransferState& st,
-                               const Metrics& mx)
+TransferLayout Transfer::Measure(const Metrics& mx) const
 {
+    const Rect& rc = Bounds();
+    const TransferState& st = state;
+    (void)mx;
     (void)st;
     TransferLayout out;
     if (rc.Empty()) return out;
@@ -474,9 +566,12 @@ TransferLayout MeasureTransfer(const Rect& rc, const TransferState& st,
     return out;
 }
 
-TransferHit HitTransfer(const Rect& rc, const TransferState& st,
-                        const Metrics& mx, Point pt)
+TransferHit Transfer::HitAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const TransferState& st = state;
+    (void)mx;
+    (void)pt;
     TransferHit out;
     const TransferLayout lay = MeasureTransfer(rc, st, mx);
     if (lay.rowH <= 0) return out;
@@ -509,34 +604,15 @@ TransferHit HitTransfer(const Rect& rc, const TransferState& st,
     return out;
 }
 
-void MoveTransferItem(TransferState& st, int side, int row)
+void Transfer::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
-    const bool l2r = (side == 0);
-    const bool r2l = (side == 1);
-    if ((!l2r && !r2l) || row < 0) return;
-
-    std::vector<std::wstring>& src = l2r ? st.left : st.right;
-    std::vector<std::wstring>& dst = l2r ? st.right : st.left;
-    std::vector<bool>& srcChk      = l2r ? st.leftChecked : st.rightChecked;
-    std::vector<bool>& dstChk      = l2r ? st.rightChecked : st.leftChecked;
-    if (row >= static_cast<int>(src.size())) return;
-
-    // Keep both checked vectors aligned with their item lists, then
-    // move one item together with its checked flag to the other side.
-    srcChk.resize(src.size(), false);
-    dstChk.resize(dst.size(), false);
-
-    const bool chk = srcChk[static_cast<std::size_t>(row)];
-    const std::wstring item = src[static_cast<std::size_t>(row)];
-    src.erase(src.begin() + row);
-    srcChk.erase(srcChk.begin() + row);
-    dst.push_back(item);
-    dstChk.push_back(chk);
-}
-
-void PaintTransfer(IPainter& g, const Rect& rc, const TransferState& st,
-                   const Palette& pal, const Metrics& mx)
-{
+    const Rect& rc = Bounds();
+    TransferState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     const TransferLayout lay = MeasureTransfer(rc, st, mx);
     if (lay.rowH <= 0) return;
 
@@ -555,5 +631,6 @@ void PaintTransfer(IPainter& g, const Rect& rc, const TransferState& st,
     PaintTransferButton(g, lay.toLeft,  L"\u2190", !off && anyRight, pal, mx);
 }
 
+} // namespace widgets
 } // namespace ui
 } // namespace air

@@ -1,3 +1,4 @@
+#include "airui/WidgetControls.h"
 // AirUI - ControlsEnterpriseEdit.cpp : platform-free workbench editors.
 // Fourth wave: QueryBuilder, PropertyGrid, Schedule, FileDropZone.
 #include "airui/ControlsEnterprise.h"
@@ -26,7 +27,7 @@ int ClampI(int v, int lo, int hi)
     return (std::min)((std::max)(v, lo), hi);
 }
 
-bool Hit(const Rect& r, Point p)
+bool RectHit(const Rect& r, Point p)
 {
     return !r.Empty() && r.Contains(p);
 }
@@ -257,16 +258,64 @@ FileDropZoneLayout GeoDrop(const Rect& rc, const FileDropZoneState& st,
 // ============================================================
 // QueryBuilder - public entry points
 // ============================================================
-QueryBuilderLayout MeasureQueryBuilder(const Rect& rc,
-                                       const QueryBuilderState& st,
-                                       const Metrics& mx)
+
+
+
+
+
+
+// ============================================================
+// PropertyGrid - public entry points
+// ============================================================
+
+
+
+
+
+
+// ============================================================
+// Schedule - public entry points
+// ============================================================
+
+
+
+
+
+
+// ============================================================
+// FileDropZone - public entry points
+// ============================================================
+
+
+
+
+
+
+} // namespace ui
+} // namespace air
+
+// ============================================================
+// Object layer: widget member functions migrated from the
+// free-function drawing kernel above.
+// ============================================================
+namespace air {
+namespace ui {
+namespace widgets {
+
+QueryBuilderLayout QueryBuilder::Measure(const Metrics& mx) const
 {
+    const Rect& rc = Bounds();
+    const QueryBuilderState& st = state;
+    (void)mx;
     return GeoQuery(rc, st, mx);
 }
 
-QueryBuilderHit HitQueryBuilder(const Rect& rc, const QueryBuilderState& st,
-                                const Metrics& mx, Point pt)
+QueryBuilderHit QueryBuilder::HitAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const QueryBuilderState& st = state;
+    (void)mx;
+    (void)pt;
     QueryBuilderHit out;
     if (rc.Empty() || !rc.Contains(pt)) return out;
     const QueryBuilderLayout lay = GeoQuery(rc, st, mx);
@@ -278,20 +327,25 @@ QueryBuilderHit HitQueryBuilder(const Rect& rc, const QueryBuilderState& st,
         const QueryRowLayout& r = lay.rows[i];
         if (!r.row.Contains(pt)) continue;
         out.row = static_cast<int>(i);
-        if (Hit(r.remove, pt)) out.kind = QueryHitKind::Remove;
-        else if (Hit(r.value, pt)) out.kind = QueryHitKind::Value;
-        else if (Hit(r.op, pt)) out.kind = QueryHitKind::Operator;
-        else if (Hit(r.field, pt)) out.kind = QueryHitKind::Field;
-        else if (i > 0 && Hit(r.logic, pt)) out.kind = QueryHitKind::Logic;
+        if (RectHit(r.remove, pt)) out.kind = QueryHitKind::Remove;
+        else if (RectHit(r.value, pt)) out.kind = QueryHitKind::Value;
+        else if (RectHit(r.op, pt)) out.kind = QueryHitKind::Operator;
+        else if (RectHit(r.field, pt)) out.kind = QueryHitKind::Field;
+        else if (i > 0 && RectHit(r.logic, pt)) out.kind = QueryHitKind::Logic;
         return out;
     }
     return out;
 }
 
-void PaintQueryBuilder(IPainter& g, const Rect& rc,
-                       const QueryBuilderState& st,
-                       const Palette& pal, const Metrics& mx)
+void QueryBuilder::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    QueryBuilderState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const QueryBuilderLayout lay = GeoQuery(rc, st, mx);
     const bool disabled = st.base.disabled;
@@ -346,19 +400,20 @@ void PaintQueryBuilder(IPainter& g, const Rect& rc,
     g.PopClip();
 }
 
-// ============================================================
-// PropertyGrid - public entry points
-// ============================================================
-PropertyGridLayout MeasurePropertyGrid(const Rect& rc,
-                                       const PropertyGridState& st,
-                                       const Metrics& mx)
+PropertyGridLayout PropertyGrid::Measure(const Metrics& mx) const
 {
+    const Rect& rc = Bounds();
+    const PropertyGridState& st = state;
+    (void)mx;
     return GeoProperty(rc, st, mx);
 }
 
-PropertyGridHit HitPropertyGrid(const Rect& rc, const PropertyGridState& st,
-                                const Metrics& mx, Point pt)
+PropertyGridHit PropertyGrid::HitAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const PropertyGridState& st = state;
+    (void)mx;
+    (void)pt;
     PropertyGridHit out;
     if (rc.Empty() || !rc.Contains(pt)) return out;
     const PropertyGridLayout lay = GeoProperty(rc, st, mx);
@@ -374,17 +429,22 @@ PropertyGridHit HitPropertyGrid(const Rect& rc, const PropertyGridState& st,
             }
         } else {
             out.item = r.item;
-            out.onValue = Hit(r.value, pt);
+            out.onValue = RectHit(r.value, pt);
         }
         return out;
     }
     return out;
 }
 
-void PaintPropertyGrid(IPainter& g, const Rect& rc,
-                       const PropertyGridState& st,
-                       const Palette& pal, const Metrics& mx)
+void PropertyGrid::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    PropertyGridState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const PropertyGridLayout lay = GeoProperty(rc, st, mx);
     g.FillRound(rc, mx.radiusMd, pal.surface);
@@ -448,29 +508,37 @@ void PaintPropertyGrid(IPainter& g, const Rect& rc,
     g.PopClip();
 }
 
-// ============================================================
-// Schedule - public entry points
-// ============================================================
-ScheduleLayout MeasureSchedule(const Rect& rc, const ScheduleState& st,
-                               const Metrics& mx)
+ScheduleLayout Schedule::Measure(const Metrics& mx) const
 {
+    const Rect& rc = Bounds();
+    const ScheduleState& st = state;
+    (void)mx;
     return GeoSchedule(rc, st, mx);
 }
 
-int ScheduleEventAt(const Rect& rc, const ScheduleState& st,
-                    const Metrics& mx, Point pt)
+int Schedule::EventAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const ScheduleState& st = state;
+    (void)mx;
+    (void)pt;
     if (rc.Empty() || !rc.Contains(pt)) return -1;
     const ScheduleLayout lay = GeoSchedule(rc, st, mx);
     for (std::size_t i = 0; i < lay.bars.size(); ++i) {
-        if (Hit(lay.bars[i], pt)) return static_cast<int>(i);
+        if (RectHit(lay.bars[i], pt)) return static_cast<int>(i);
     }
     return -1;
 }
 
-void PaintSchedule(IPainter& g, const Rect& rc, const ScheduleState& st,
-                   const Palette& pal, const Metrics& mx)
+void Schedule::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    ScheduleState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const ScheduleLayout lay = GeoSchedule(rc, st, mx);
     if (lay.grid.Empty()) return;
@@ -532,37 +600,43 @@ void PaintSchedule(IPainter& g, const Rect& rc, const ScheduleState& st,
     g.PopClip();
 }
 
-// ============================================================
-// FileDropZone - public entry points
-// ============================================================
-FileDropZoneLayout MeasureFileDropZone(const Rect& rc,
-                                       const FileDropZoneState& st,
-                                       const Metrics& mx)
+FileDropZoneLayout FileDropZone::Measure(const Metrics& mx) const
 {
+    const Rect& rc = Bounds();
+    const FileDropZoneState& st = state;
+    (void)mx;
     return GeoDrop(rc, st, mx);
 }
 
-FileDropZoneHit HitFileDropZone(const Rect& rc, const FileDropZoneState& st,
-                                const Metrics& mx, Point pt)
+FileDropZoneHit FileDropZone::HitAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const FileDropZoneState& st = state;
+    (void)mx;
+    (void)pt;
     FileDropZoneHit out;
     if (rc.Empty() || !rc.Contains(pt)) return out;
     const FileDropZoneLayout lay = GeoDrop(rc, st, mx);
-    if (Hit(lay.drop, pt)) { out.drop = true; return out; }
+    if (RectHit(lay.drop, pt)) { out.drop = true; return out; }
     for (std::size_t i = 0; i < lay.rows.size(); ++i) {
         if (!lay.rows[i].Contains(pt)) continue;
         out.file = static_cast<int>(i);
         out.remove = i < lay.removeButtons.size() &&
-                     Hit(lay.removeButtons[i], pt);
+                     RectHit(lay.removeButtons[i], pt);
         return out;
     }
     return out;
 }
 
-void PaintFileDropZone(IPainter& g, const Rect& rc,
-                       const FileDropZoneState& st,
-                       const Palette& pal, const Metrics& mx)
+void FileDropZone::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    FileDropZoneState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const FileDropZoneLayout lay = GeoDrop(rc, st, mx);
     if (lay.drop.Empty()) return;
@@ -624,5 +698,6 @@ void PaintFileDropZone(IPainter& g, const Rect& rc,
     g.PopClip();
 }
 
+} // namespace widgets
 } // namespace ui
 } // namespace air

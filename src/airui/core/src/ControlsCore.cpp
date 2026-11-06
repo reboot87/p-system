@@ -1,3 +1,4 @@
+#include "airui/WidgetControls.h"
 #include "airui/ControlsCore.h"
 
 namespace air {
@@ -34,14 +35,62 @@ Rect OptionLabel(const Rect& rc)
 
 } // namespace
 
-void PaintButton(IPainter& g,
-                 const Rect& rc,
-                 const std::wstring& text,
-                 ButtonStyle style,
-                 const ControlState& st,
-                 const Palette& pal,
-                 const Metrics& mx)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+} // namespace ui
+} // namespace air
+
+// ============================================================
+// Object layer: widget member functions migrated from the
+// free-function drawing kernel above.
+// ============================================================
+namespace air {
+namespace ui {
+namespace widgets {
+
+void Button::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    ControlState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.hover = true;
+    if (Focused()) st.focused = true;
     switch (style) {
     case ButtonStyle::Primary: {
         Color fill = pal.primary;
@@ -85,12 +134,16 @@ void PaintButton(IPainter& g,
     }
 }
 
-void PaintCheckbox(IPainter& g,
-                   const Rect& rc,
-                   const std::wstring& text,
-                   const ControlState& st,
-                   const Palette& pal)
+void Checkbox::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    ControlState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.hover = true;
+    if (Focused()) st.focused = true;
+    if (rc.Empty()) return;
     const Rect box = OptionBox(rc);
 
     g.FillRound(box, kBoxRadius, pal.surface);
@@ -104,12 +157,16 @@ void PaintCheckbox(IPainter& g,
            st.disabled ? pal.textDisabled : pal.text, kLabelText);
 }
 
-void PaintRadio(IPainter& g,
-                const Rect& rc,
-                const std::wstring& text,
-                const ControlState& st,
-                const Palette& pal)
+void Radio::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    ControlState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.hover = true;
+    if (Focused()) st.focused = true;
+    if (rc.Empty()) return;
     const Rect box = OptionBox(rc);
 
     g.FillRound(box, kRadioR, pal.surface);
@@ -125,13 +182,15 @@ void PaintRadio(IPainter& g,
            st.disabled ? pal.textDisabled : pal.text, kLabelText);
 }
 
-void PaintProgressBar(IPainter& g,
-                      const Rect& rc,
-                      float progress,
-                      const ControlState& st,
-                      const Palette& pal,
-                      const Metrics& mx)
+void ProgressBar::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    ControlState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.hover = true;
+    if (Focused()) st.focused = true;
     if (progress < 0.f) progress = 0.f;
     if (progress > 1.f) progress = 1.f;
 
@@ -147,12 +206,15 @@ void PaintProgressBar(IPainter& g,
     g.StrokeRound(rc, mx.radiusMd, pal.border, 1);
 }
 
-void PaintSlider(IPainter& g,
-                 const Rect& rc,
-                 const SliderState& st,
-                 const Palette& pal,
-                 const Metrics& mx)
+void Slider::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    SliderState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     (void)mx;
     const int h = rc.bottom - rc.top;
     const int trackH = 4;
@@ -183,12 +245,15 @@ void PaintSlider(IPainter& g,
     }
 }
 
-void PaintToggleSwitch(IPainter& g,
-                       const Rect& rc,
-                       const ToggleState& st,
-                       const Palette& pal,
-                       const Metrics& mx)
+void Toggle::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    ToggleState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     (void)mx;
     const int h = rc.bottom - rc.top;
     const int w = rc.right - rc.left;
@@ -213,12 +278,15 @@ void PaintToggleSwitch(IPainter& g,
     g.StrokeRound(thumb, thumbSize/2, pal.border, 1);
 }
 
-void PaintTextField(IPainter& g,
-                    const Rect& rc,
-                    const TextFieldState& st,
-                    const Palette& pal,
-                    const Metrics& mx)
+void TextField::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    TextFieldState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     Color bg = st.base.disabled ? pal.sunken : pal.surface;
     g.FillRound(rc, mx.radiusMd, bg);
     Color border = st.base.disabled ? pal.border : (st.hasFocus ? pal.primary : pal.border);
@@ -231,12 +299,15 @@ void PaintTextField(IPainter& g,
     g.Text(inner, txt, FontRole::Body, txtCol, dt::SingleLine | dt::Left | dt::VCenter);
 }
 
-void PaintSegmented(IPainter& g,
-                    const Rect& rc,
-                    const SegmentedState& st,
-                    const Palette& pal,
-                    const Metrics& mx)
+void Segmented::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    SegmentedState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (st.items.empty()) return;
     int count = static_cast<int>(st.items.size());
     int w = (rc.right - rc.left) / count;
@@ -256,12 +327,15 @@ void PaintSegmented(IPainter& g,
     }
 }
 
-void PaintComboBox(IPainter& g,
-                   const Rect& rc,
-                   const ComboBoxState& st,
-                   const Palette& pal,
-                   const Metrics& mx)
+void ComboBox::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    ComboBoxState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     Color bg = st.base.disabled ? pal.sunken : pal.surface;
     g.FillRound(rc, mx.radiusMd, bg);
     Color border = st.base.disabled ? pal.border : (st.base.hover || st.open ? pal.primary : pal.border);
@@ -275,12 +349,15 @@ void PaintComboBox(IPainter& g,
     g.Text(arrowR, L"\u25BE", FontRole::Body, txtCol, dt::SingleLine | dt::Center | dt::VCenter);
 }
 
-void PaintTag(IPainter& g,
-              const Rect& rc,
-              const TagState& st,
-              const Palette& pal,
-              const Metrics& mx)
+void Tag::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    TagState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     Color bg = st.base.disabled ? pal.sunken :
                st.selected ? pal.primarySoft : pal.surface;
     g.FillRound(rc, mx.radiusPill, bg);
@@ -291,12 +368,15 @@ void PaintTag(IPainter& g,
     g.Text(rc, st.text, FontRole::Body, txtCol, dt::SingleLine | dt::Center | dt::VCenter);
 }
 
-void PaintRating(IPainter& g,
-                 const Rect& rc,
-                 const RatingState& st,
-                 const Palette& pal,
-                 const Metrics& mx)
+void Rating::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    RatingState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     (void)mx;
     int starCount = st.max;
     int w = (rc.right - rc.left) / starCount;
@@ -308,12 +388,15 @@ void PaintRating(IPainter& g,
     }
 }
 
-void PaintStepper(IPainter& g,
-                  const Rect& rc,
-                  const StepperState& st,
-                  const Palette& pal,
-                  const Metrics& mx)
+void Stepper::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    StepperState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     int h = rc.bottom - rc.top;
     int btnW = h;
     Rect leftBtn{rc.left, rc.top, rc.left + btnW, rc.bottom};
@@ -340,12 +423,15 @@ void PaintStepper(IPainter& g,
     g.Text(mid, val, FontRole::Body, txtCol, dt::SingleLine | dt::Center | dt::VCenter);
 }
 
-void PaintProgressRing(IPainter& g,
-                       const Rect& rc,
-                       const ProgressRingState& st,
-                       const Palette& pal,
-                       const Metrics& mx)
+void ProgressRing::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    ProgressRingState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     // Simple representation: filled arc via rect progress for now
     Color bg = st.base.disabled ? pal.sunken : pal.sunken;
     g.FillRound(rc, mx.radiusMd, bg);
@@ -358,24 +444,30 @@ void PaintProgressRing(IPainter& g,
     g.StrokeRound(rc, mx.radiusMd, pal.border, 1);
 }
 
-void PaintBadge(IPainter& g,
-                const Rect& rc,
-                const BadgeState& st,
-                const Palette& pal,
-                const Metrics& mx)
+void Badge::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    BadgeState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     Color bg = st.base.disabled ? pal.border : pal.errorText;
     g.FillRound(rc, mx.radiusPill, bg);
     Color txtCol = pal.textInverse;
     g.Text(rc, st.text, FontRole::Meta, txtCol, dt::SingleLine | dt::Center | dt::VCenter);
 }
 
-void PaintAlert(IPainter& g,
-                const Rect& rc,
-                const AlertState& st,
-                const Palette& pal,
-                const Metrics& mx)
+void Alert::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    AlertState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     Color bg, accent, txt;
     const wchar_t* icon;
     switch (st.kind) {
@@ -419,12 +511,15 @@ void PaintAlert(IPainter& g,
     }
 }
 
-void PaintTabs(IPainter& g,
-               const Rect& rc,
-               const TabsState& st,
-               const Palette& pal,
-               const Metrics& mx)
+void Tabs::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    TabsState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (st.tabs.empty()) return;
     const int n = static_cast<int>(st.tabs.size());
     const int w = (rc.right - rc.left) / n;
@@ -454,12 +549,15 @@ void PaintTabs(IPainter& g,
     }
 }
 
-void PaintAvatar(IPainter& g,
-                 const Rect& rc,
-                 const AvatarState& st,
-                 const Palette& pal,
-                 const Metrics& mx)
+void Avatar::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    AvatarState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     (void)mx;
     const int w = rc.right - rc.left;
     const int h = rc.bottom - rc.top;
@@ -475,12 +573,15 @@ void PaintAvatar(IPainter& g,
            dt::SingleLine | dt::Center | dt::VCenter);
 }
 
-void PaintSkeleton(IPainter& g,
-                   const Rect& rc,
-                   const SkeletonState& st,
-                   const Palette& pal,
-                   const Metrics& mx)
+void Skeleton::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    SkeletonState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     (void)mx;
     int lines = st.lines < 1 ? 1 : st.lines;
     const int gap = 8;
@@ -499,5 +600,6 @@ void PaintSkeleton(IPainter& g,
     }
 }
 
+} // namespace widgets
 } // namespace ui
 } // namespace air

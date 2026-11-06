@@ -1,3 +1,4 @@
+#include "airui/WidgetControls.h"
 // AirUI - ControlsStudioEditors.cpp : platform-free specialist editors.
 // Fifth wave: JsonTree, LogViewer, CronEditor, MentionInput.
 #include "airui/ControlsStudio.h"
@@ -93,15 +94,172 @@ JsonTreeLayout GeoJson(const Rect& rc, const JsonTreeState& st,
 
 } // namespace
 
-JsonTreeLayout MeasureJsonTree(const Rect& rc, const JsonTreeState& st,
-                               const Metrics& mx)
+
+
+
+
+
+
+namespace {
+
+// ============================================================
+// LogViewer
+// ============================================================
+LogViewerLayout GeoLog(const Rect& rc, const LogViewerState& st,
+                       const Metrics& mx)
 {
+    LogViewerLayout o;
+    if (rc.Empty()) return o;
+    const Rect inner = Inset(rc, mx.unit / 2);
+    if (inner.Empty() || inner.Height() < mx.rowH * 2) return o;
+    o.header = Rect(inner.left, inner.top, inner.right,
+                    inner.top + mx.rowH);
+    o.filterRc = Rect(o.header.right - mx.unit * 18, o.header.top,
+                      o.header.right, o.header.bottom);
+    o.body = Rect(inner.left, o.header.bottom, inner.right, inner.bottom);
+    if (o.body.Empty() || st.entries.empty()) return o;
+    o.rowH = (std::min)(mx.rowH,
+                        o.body.Height() /
+                            (std::max)(1, static_cast<int>(st.entries.size())));
+    if (o.rowH <= 0) o.rowH = mx.rowH;
+    for (std::size_t i = 0; i < st.entries.size(); ++i) {
+        const int y = o.body.top + static_cast<int>(i) * o.rowH;
+        if (y + o.rowH > o.body.bottom) break;
+        o.rows.push_back(Rect(o.body.left, y, o.body.right, y + o.rowH));
+    }
+    return o;
+}
+
+} // namespace
+
+
+
+
+
+
+
+namespace {
+
+// ============================================================
+// CronEditor
+// ============================================================
+CronEditorLayout GeoCron(const Rect& rc, const CronEditorState& st,
+                         const Metrics& mx)
+{
+    CronEditorLayout o;
+    if (rc.Empty()) return o;
+    const Rect inner = Inset(rc, mx.unit / 2);
+    if (inner.Empty() || inner.Height() < mx.rowH * 3) return o;
+    o.header = Rect(inner.left, inner.top, inner.right,
+                    inner.top + mx.rowH);
+    const int fieldH = mx.inputH + mx.tagH;
+    o.expr = Rect(inner.left, o.header.bottom + mx.unit / 2,
+                  inner.right, o.header.bottom + mx.unit / 2 + fieldH);
+    o.descriptionRc = Rect(inner.left, o.expr.bottom + mx.unit / 2,
+                           inner.right,
+                           o.expr.bottom + mx.unit / 2 + mx.rowH);
+    const int presetH = mx.btnH;
+    o.presetsRc = Rect(inner.left, inner.bottom - presetH,
+                       inner.right, inner.bottom);
+    if (o.expr.Empty() || o.descriptionRc.Empty()) return o;
+
+    const int n = (std::max)(1, static_cast<int>(st.fields.size()));
+    const int gap = mx.unit / 2;
+    const int slot = (o.expr.Width() - gap * (n - 1)) / n;
+    if (slot <= 0) return o;
+    for (int i = 0; i < n; ++i) {
+        const int x = o.expr.left + i * (slot + gap);
+        o.fields.push_back(Rect(x, o.expr.top,
+                                (std::min)(x + slot, o.expr.right),
+                                o.expr.bottom));
+    }
+    const int m = static_cast<int>(st.presets.size());
+    if (m > 0 && !o.presetsRc.Empty()) {
+        const int pslot = (o.presetsRc.Width() - gap * (m - 1)) / m;
+        if (pslot > 0) {
+            for (int i = 0; i < m; ++i) {
+                const int x = o.presetsRc.left + i * (pslot + gap);
+                o.presets.push_back(Rect(x, o.presetsRc.top,
+                                         (std::min)(x + pslot, o.presetsRc.right),
+                                         o.presetsRc.bottom));
+            }
+        }
+    }
+    return o;
+}
+
+} // namespace
+
+
+
+
+
+
+
+namespace {
+
+// ============================================================
+// MentionInput
+// ============================================================
+MentionInputLayout GeoMention(const Rect& rc, const MentionInputState& st,
+                              const Metrics& mx)
+{
+    MentionInputLayout o;
+    if (rc.Empty()) return o;
+    const Rect inner = Inset(rc, mx.unit / 2);
+    if (inner.Empty() || inner.Height() < mx.inputH + mx.rowH) return o;
+    o.input = Rect(inner.left, inner.top, inner.right,
+                   inner.top + mx.inputH);
+    if (!st.showCandidates || st.candidates.empty() || inner.Empty()) return o;
+    o.list = Rect(inner.left + mx.unit * 2, o.input.bottom + mx.unit / 2,
+                  inner.right, inner.bottom);
+    if (o.list.Empty()) return o;
+    const int rowH = (std::min)(mx.rowH,
+                                o.list.Height() /
+                                    (std::max)(1, static_cast<int>(st.candidates.size())));
+    if (rowH <= 0) return o;
+    for (std::size_t i = 0; i < st.candidates.size(); ++i) {
+        const int y = o.list.top + static_cast<int>(i) * rowH;
+        if (y + rowH > o.list.bottom) break;
+        o.rows.push_back(Rect(o.list.left + mx.unit / 2, y,
+                              o.list.right - mx.unit / 2, y + rowH));
+    }
+    return o;
+}
+
+} // namespace
+
+
+
+
+
+
+
+} // namespace ui
+} // namespace air
+
+// ============================================================
+// Object layer: widget member functions migrated from the
+// free-function drawing kernel above.
+// ============================================================
+namespace air {
+namespace ui {
+namespace widgets {
+
+JsonTreeLayout JsonTree::Measure(const Metrics& mx) const
+{
+    const Rect& rc = Bounds();
+    const JsonTreeState& st = state;
+    (void)mx;
     return GeoJson(rc, st, mx);
 }
 
-JsonTreeHit HitJsonTree(const Rect& rc, const JsonTreeState& st,
-                        const Metrics& mx, Point pt)
+JsonTreeHit JsonTree::HitAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const JsonTreeState& st = state;
+    (void)mx;
+    (void)pt;
     JsonTreeHit h;
     const JsonTreeLayout o = GeoJson(rc, st, mx);
     if (o.body.Empty()) return h;
@@ -121,9 +279,15 @@ JsonTreeHit HitJsonTree(const Rect& rc, const JsonTreeState& st,
     return h;
 }
 
-void PaintJsonTree(IPainter& g, const Rect& rc, const JsonTreeState& st,
-                   const Palette& pal, const Metrics& mx)
+void JsonTree::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    JsonTreeState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const JsonTreeLayout o = GeoJson(rc, st, mx);
     if (o.header.Empty()) return;
@@ -169,47 +333,20 @@ void PaintJsonTree(IPainter& g, const Rect& rc, const JsonTreeState& st,
     g.PopClip();
 }
 
-namespace {
-
-// ============================================================
-// LogViewer
-// ============================================================
-LogViewerLayout GeoLog(const Rect& rc, const LogViewerState& st,
-                       const Metrics& mx)
+LogViewerLayout LogViewer::Measure(const Metrics& mx) const
 {
-    LogViewerLayout o;
-    if (rc.Empty()) return o;
-    const Rect inner = Inset(rc, mx.unit / 2);
-    if (inner.Empty() || inner.Height() < mx.rowH * 2) return o;
-    o.header = Rect(inner.left, inner.top, inner.right,
-                    inner.top + mx.rowH);
-    o.filterRc = Rect(o.header.right - mx.unit * 18, o.header.top,
-                      o.header.right, o.header.bottom);
-    o.body = Rect(inner.left, o.header.bottom, inner.right, inner.bottom);
-    if (o.body.Empty() || st.entries.empty()) return o;
-    o.rowH = (std::min)(mx.rowH,
-                        o.body.Height() /
-                            (std::max)(1, static_cast<int>(st.entries.size())));
-    if (o.rowH <= 0) o.rowH = mx.rowH;
-    for (std::size_t i = 0; i < st.entries.size(); ++i) {
-        const int y = o.body.top + static_cast<int>(i) * o.rowH;
-        if (y + o.rowH > o.body.bottom) break;
-        o.rows.push_back(Rect(o.body.left, y, o.body.right, y + o.rowH));
-    }
-    return o;
-}
-
-} // namespace
-
-LogViewerLayout MeasureLogViewer(const Rect& rc, const LogViewerState& st,
-                                 const Metrics& mx)
-{
+    const Rect& rc = Bounds();
+    const LogViewerState& st = state;
+    (void)mx;
     return GeoLog(rc, st, mx);
 }
 
-int LogLineAt(const Rect& rc, const LogViewerState& st,
-              const Metrics& mx, Point pt)
+int LogViewer::LogLineAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const LogViewerState& st = state;
+    (void)mx;
+    (void)pt;
     const LogViewerLayout o = GeoLog(rc, st, mx);
     if (o.body.Empty()) return -1;
     for (std::size_t i = 0; i < o.rows.size(); ++i) {
@@ -218,9 +355,15 @@ int LogLineAt(const Rect& rc, const LogViewerState& st,
     return -1;
 }
 
-void PaintLogViewer(IPainter& g, const Rect& rc, const LogViewerState& st,
-                    const Palette& pal, const Metrics& mx)
+void LogViewer::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    LogViewerState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const LogViewerLayout o = GeoLog(rc, st, mx);
     if (o.header.Empty()) return;
@@ -285,68 +428,20 @@ void PaintLogViewer(IPainter& g, const Rect& rc, const LogViewerState& st,
     g.PopClip();
 }
 
-namespace {
-
-// ============================================================
-// CronEditor
-// ============================================================
-CronEditorLayout GeoCron(const Rect& rc, const CronEditorState& st,
-                         const Metrics& mx)
+CronEditorLayout CronEditor::Measure(const Metrics& mx) const
 {
-    CronEditorLayout o;
-    if (rc.Empty()) return o;
-    const Rect inner = Inset(rc, mx.unit / 2);
-    if (inner.Empty() || inner.Height() < mx.rowH * 3) return o;
-    o.header = Rect(inner.left, inner.top, inner.right,
-                    inner.top + mx.rowH);
-    const int fieldH = mx.inputH + mx.tagH;
-    o.expr = Rect(inner.left, o.header.bottom + mx.unit / 2,
-                  inner.right, o.header.bottom + mx.unit / 2 + fieldH);
-    o.descriptionRc = Rect(inner.left, o.expr.bottom + mx.unit / 2,
-                           inner.right,
-                           o.expr.bottom + mx.unit / 2 + mx.rowH);
-    const int presetH = mx.btnH;
-    o.presetsRc = Rect(inner.left, inner.bottom - presetH,
-                       inner.right, inner.bottom);
-    if (o.expr.Empty() || o.descriptionRc.Empty()) return o;
-
-    const int n = (std::max)(1, static_cast<int>(st.fields.size()));
-    const int gap = mx.unit / 2;
-    const int slot = (o.expr.Width() - gap * (n - 1)) / n;
-    if (slot <= 0) return o;
-    for (int i = 0; i < n; ++i) {
-        const int x = o.expr.left + i * (slot + gap);
-        o.fields.push_back(Rect(x, o.expr.top,
-                                (std::min)(x + slot, o.expr.right),
-                                o.expr.bottom));
-    }
-    const int m = static_cast<int>(st.presets.size());
-    if (m > 0 && !o.presetsRc.Empty()) {
-        const int pslot = (o.presetsRc.Width() - gap * (m - 1)) / m;
-        if (pslot > 0) {
-            for (int i = 0; i < m; ++i) {
-                const int x = o.presetsRc.left + i * (pslot + gap);
-                o.presets.push_back(Rect(x, o.presetsRc.top,
-                                         (std::min)(x + pslot, o.presetsRc.right),
-                                         o.presetsRc.bottom));
-            }
-        }
-    }
-    return o;
-}
-
-} // namespace
-
-CronEditorLayout MeasureCronEditor(const Rect& rc,
-                                   const CronEditorState& st,
-                                   const Metrics& mx)
-{
+    const Rect& rc = Bounds();
+    const CronEditorState& st = state;
+    (void)mx;
     return GeoCron(rc, st, mx);
 }
 
-CronEditorHit HitCronEditor(const Rect& rc, const CronEditorState& st,
-                            const Metrics& mx, Point pt)
+CronEditorHit CronEditor::HitAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const CronEditorState& st = state;
+    (void)mx;
+    (void)pt;
     CronEditorHit h;
     const CronEditorLayout o = GeoCron(rc, st, mx);
     for (std::size_t i = 0; i < o.presets.size(); ++i) {
@@ -364,9 +459,15 @@ CronEditorHit HitCronEditor(const Rect& rc, const CronEditorState& st,
     return h;
 }
 
-void PaintCronEditor(IPainter& g, const Rect& rc, const CronEditorState& st,
-                     const Palette& pal, const Metrics& mx)
+void CronEditor::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    CronEditorState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const CronEditorLayout o = GeoCron(rc, st, mx);
     if (o.header.Empty()) return;
@@ -418,49 +519,20 @@ void PaintCronEditor(IPainter& g, const Rect& rc, const CronEditorState& st,
     }
 }
 
-namespace {
-
-// ============================================================
-// MentionInput
-// ============================================================
-MentionInputLayout GeoMention(const Rect& rc, const MentionInputState& st,
-                              const Metrics& mx)
+MentionInputLayout MentionInput::Measure(const Metrics& mx) const
 {
-    MentionInputLayout o;
-    if (rc.Empty()) return o;
-    const Rect inner = Inset(rc, mx.unit / 2);
-    if (inner.Empty() || inner.Height() < mx.inputH + mx.rowH) return o;
-    o.input = Rect(inner.left, inner.top, inner.right,
-                   inner.top + mx.inputH);
-    if (!st.showCandidates || st.candidates.empty() || inner.Empty()) return o;
-    o.list = Rect(inner.left + mx.unit * 2, o.input.bottom + mx.unit / 2,
-                  inner.right, inner.bottom);
-    if (o.list.Empty()) return o;
-    const int rowH = (std::min)(mx.rowH,
-                                o.list.Height() /
-                                    (std::max)(1, static_cast<int>(st.candidates.size())));
-    if (rowH <= 0) return o;
-    for (std::size_t i = 0; i < st.candidates.size(); ++i) {
-        const int y = o.list.top + static_cast<int>(i) * rowH;
-        if (y + rowH > o.list.bottom) break;
-        o.rows.push_back(Rect(o.list.left + mx.unit / 2, y,
-                              o.list.right - mx.unit / 2, y + rowH));
-    }
-    return o;
-}
-
-} // namespace
-
-MentionInputLayout MeasureMentionInput(const Rect& rc,
-                                       const MentionInputState& st,
-                                       const Metrics& mx)
-{
+    const Rect& rc = Bounds();
+    const MentionInputState& st = state;
+    (void)mx;
     return GeoMention(rc, st, mx);
 }
 
-MentionInputHit HitMentionInput(const Rect& rc, const MentionInputState& st,
-                                const Metrics& mx, Point pt)
+MentionInputHit MentionInput::HitAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const MentionInputState& st = state;
+    (void)mx;
+    (void)pt;
     MentionInputHit h;
     const MentionInputLayout o = GeoMention(rc, st, mx);
     if (Has(o.input, pt)) {
@@ -476,10 +548,15 @@ MentionInputHit HitMentionInput(const Rect& rc, const MentionInputState& st,
     return h;
 }
 
-void PaintMentionInput(IPainter& g, const Rect& rc,
-                       const MentionInputState& st,
-                       const Palette& pal, const Metrics& mx)
+void MentionInput::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    MentionInputState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const MentionInputLayout o = GeoMention(rc, st, mx);
     if (o.input.Empty()) return;
@@ -542,5 +619,6 @@ void PaintMentionInput(IPainter& g, const Rect& rc,
     g.PopClip();
 }
 
+} // namespace widgets
 } // namespace ui
 } // namespace air

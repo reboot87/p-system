@@ -1,3 +1,4 @@
+#include "airui/WidgetControls.h"
 // AirUI - ControlsAdvancedOverlay.cpp : platform-free overlay widgets.
 // Third wave: Snackbar, CommandPalette, GuideTour.
 // All three take the client rect and position themselves inside it;
@@ -26,7 +27,7 @@ int ClampI(int v, int lo, int hi)
     return (std::min)((std::max)(v, lo), hi);
 }
 
-bool Hit(const Rect& r, Point p)
+bool RectHit(const Rect& r, Point p)
 {
     return !r.Empty() && r.Contains(p);
 }
@@ -83,9 +84,57 @@ void PaintSmallButton(IPainter& g, const Rect& rc, const wchar_t* label,
 
 } // namespace
 
-SnackbarLayout MeasureSnackbar(const Rect& client, const SnackbarState& st,
-                               const Metrics& mx)
+
+
+
+
+
+
+std::vector<int> CommandPaletteMatches(const CommandPaletteState& st)
 {
+    std::vector<int> out;
+    const std::wstring q = LowerAscii(st.query);
+    for (int i = 0; i < static_cast<int>(st.items.size()); ++i) {
+        const CommandItem& item = st.items[static_cast<std::size_t>(i)];
+        if (q.empty()) {
+            out.push_back(i);
+            continue;
+        }
+        const std::wstring hay = LowerAscii(item.title + L" " + item.hint +
+                                           L" " + item.group);
+        if (hay.find(q) != std::wstring::npos) out.push_back(i);
+    }
+    return out;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+} // namespace ui
+} // namespace air
+
+// ============================================================
+// Object layer: widget member functions migrated from the
+// free-function drawing kernel above.
+// ============================================================
+namespace air {
+namespace ui {
+namespace widgets {
+
+SnackbarLayout Snackbar::Measure(const Metrics& mx) const
+{
+    const Rect& client = Bounds();
+    const SnackbarState& st = state;
+    (void)mx;
     SnackbarLayout out;
     if (client.Empty()) return out;
     const int pad = mx.unit * 2;
@@ -118,19 +167,26 @@ SnackbarLayout MeasureSnackbar(const Rect& client, const SnackbarState& st,
     return out;
 }
 
-SnackbarHit HitSnackbar(const Rect& client, const SnackbarState& st,
-                        const Metrics& mx, Point pt)
+SnackbarHit Snackbar::HitAt(const Metrics& mx, Point pt) const
 {
+    const Rect& client = Bounds();
+    const SnackbarState& st = state;
+    (void)mx;
+    (void)pt;
     const SnackbarLayout lay = MeasureSnackbar(client, st, mx);
-    if (!Hit(lay.card, pt)) return SnackbarHit::None;
-    if (Hit(lay.closeRc, pt)) return SnackbarHit::Close;
-    if (Hit(lay.actionRc, pt)) return SnackbarHit::Action;
+    if (!RectHit(lay.card, pt)) return SnackbarHit::None;
+    if (RectHit(lay.closeRc, pt)) return SnackbarHit::Close;
+    if (RectHit(lay.actionRc, pt)) return SnackbarHit::Action;
     return SnackbarHit::None;
 }
 
-void PaintSnackbar(IPainter& g, const Rect& client, const SnackbarState& st,
-                   const Palette& pal, const Metrics& mx)
+void Snackbar::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& client = Bounds();
+    SnackbarState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
     if (client.Empty()) return;
     const SnackbarLayout lay = MeasureSnackbar(client, st, mx);
     if (lay.card.Empty()) return;
@@ -157,27 +213,11 @@ void PaintSnackbar(IPainter& g, const Rect& client, const SnackbarState& st,
     g.PopClip();
 }
 
-std::vector<int> CommandPaletteMatches(const CommandPaletteState& st)
+CommandPaletteLayout CommandPalette::Measure(const Metrics& mx) const
 {
-    std::vector<int> out;
-    const std::wstring q = LowerAscii(st.query);
-    for (int i = 0; i < static_cast<int>(st.items.size()); ++i) {
-        const CommandItem& item = st.items[static_cast<std::size_t>(i)];
-        if (q.empty()) {
-            out.push_back(i);
-            continue;
-        }
-        const std::wstring hay = LowerAscii(item.title + L" " + item.hint +
-                                           L" " + item.group);
-        if (hay.find(q) != std::wstring::npos) out.push_back(i);
-    }
-    return out;
-}
-
-CommandPaletteLayout MeasureCommandPalette(const Rect& client,
-                                           const CommandPaletteState& st,
-                                           const Metrics& mx)
-{
+    const Rect& client = Bounds();
+    const CommandPaletteState& st = state;
+    (void)mx;
     CommandPaletteLayout out;
     if (client.Empty()) return out;
     const int pad = mx.unit * 2;
@@ -205,18 +245,20 @@ CommandPaletteLayout MeasureCommandPalette(const Rect& client,
     return out;
 }
 
-CommandPaletteHit HitCommandPalette(const Rect& client,
-                                    const CommandPaletteState& st,
-                                    const Metrics& mx, Point pt)
+CommandPaletteHit CommandPalette::HitAt(const Metrics& mx, Point pt) const
 {
+    const Rect& client = Bounds();
+    const CommandPaletteState& st = state;
+    (void)mx;
+    (void)pt;
     CommandPaletteHit h;
     const CommandPaletteLayout lay = MeasureCommandPalette(client, st, mx);
-    if (!Hit(lay.panel, pt)) return h;
-    if (Hit(lay.search, pt)) {
+    if (!RectHit(lay.panel, pt)) return h;
+    if (RectHit(lay.search, pt)) {
         h.search = true;
         return h;
     }
-    if (!Hit(lay.list, pt) || lay.rowH <= 0) return h;
+    if (!RectHit(lay.list, pt) || lay.rowH <= 0) return h;
     const int k = (pt.y - lay.list.top) / lay.rowH;
     if (k < 0 || k >= static_cast<int>(lay.rows.size())) return h;
     const std::vector<int> matches = CommandPaletteMatches(st);
@@ -225,10 +267,15 @@ CommandPaletteHit HitCommandPalette(const Rect& client,
     return h;
 }
 
-void PaintCommandPalette(IPainter& g, const Rect& client,
-                         const CommandPaletteState& st,
-                         const Palette& pal, const Metrics& mx)
+void CommandPalette::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& client = Bounds();
+    CommandPaletteState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (client.Empty()) return;
     const CommandPaletteLayout lay = MeasureCommandPalette(client, st, mx);
     if (lay.panel.Empty()) return;
@@ -284,9 +331,11 @@ void PaintCommandPalette(IPainter& g, const Rect& client,
     g.PopClip();
 }
 
-GuideTourLayout MeasureGuideTour(const Rect& client, const Rect& anchor,
-                                 const GuideTourState& st, const Metrics& mx)
+GuideTourLayout GuideTour::Measure(const Metrics& mx) const
 {
+    const Rect& client = Bounds();
+    const GuideTourState& st = state;
+    (void)mx;
     GuideTourLayout out;
     (void)st;
     if (client.Empty()) return out;
@@ -322,21 +371,27 @@ GuideTourLayout MeasureGuideTour(const Rect& client, const Rect& anchor,
     return out;
 }
 
-GuideTourHit HitGuideTour(const Rect& client, const Rect& anchor,
-                          const GuideTourState& st, const Metrics& mx, Point pt)
+GuideTourHit GuideTour::HitAt(const Metrics& mx, Point pt) const
 {
+    const Rect& client = Bounds();
+    const GuideTourState& st = state;
+    (void)mx;
+    (void)pt;
     const GuideTourLayout lay = MeasureGuideTour(client, anchor, st, mx);
-    if (!Hit(lay.card, pt)) return GuideTourHit::None;
-    if (Hit(lay.nextRc, pt)) return GuideTourHit::Next;
-    if (Hit(lay.prevRc, pt)) return GuideTourHit::Prev;
-    if (Hit(lay.skipRc, pt)) return GuideTourHit::Skip;
+    if (!RectHit(lay.card, pt)) return GuideTourHit::None;
+    if (RectHit(lay.nextRc, pt)) return GuideTourHit::Next;
+    if (RectHit(lay.prevRc, pt)) return GuideTourHit::Prev;
+    if (RectHit(lay.skipRc, pt)) return GuideTourHit::Skip;
     return GuideTourHit::None;
 }
 
-void PaintGuideTour(IPainter& g, const Rect& client, const Rect& anchor,
-                    const GuideTourState& st, const Palette& pal,
-                    const Metrics& mx)
+void GuideTour::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& client = Bounds();
+    GuideTourState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
     if (client.Empty()) return;
     const GuideTourLayout lay = MeasureGuideTour(client, anchor, st, mx);
     if (lay.card.Empty()) return;
@@ -391,5 +446,6 @@ void PaintGuideTour(IPainter& g, const Rect& client, const Rect& anchor,
     g.PopClip();
 }
 
+} // namespace widgets
 } // namespace ui
 } // namespace air

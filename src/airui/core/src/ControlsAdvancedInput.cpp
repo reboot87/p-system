@@ -1,3 +1,4 @@
+#include "airui/WidgetControls.h"
 // AirUI - ControlsAdvancedInput.cpp : platform-free input controls.
 // Third wave: TagInput, RangeSlider, OtpInput, Cascader.
 // Every Measure* helper is the single source of geometry for both the
@@ -28,7 +29,7 @@ int ClampI(int v, int lo, int hi)
     return (std::min)((std::max)(v, lo), hi);
 }
 
-bool Hit(const Rect& r, Point p)
+bool RectHit(const Rect& r, Point p)
 {
     return !r.Empty() && r.Contains(p);
 }
@@ -134,9 +135,48 @@ Rect CascaderRows(const Rect& column, const CascaderLayout& lay)
 
 } // namespace
 
-TagInputLayout MeasureTagInput(const Rect& rc, const TagInputState& st,
-                               const Metrics& mx)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+} // namespace ui
+} // namespace air
+
+// ============================================================
+// Object layer: widget member functions migrated from the
+// free-function drawing kernel above.
+// ============================================================
+namespace air {
+namespace ui {
+namespace widgets {
+
+TagInputLayout TagInput::Measure(const Metrics& mx) const
 {
+    const Rect& rc = Bounds();
+    const TagInputState& st = state;
+    (void)mx;
     TagInputLayout out;
     if (rc.Empty()) return out;
     const int pad = mx.unit;
@@ -184,36 +224,45 @@ TagInputLayout MeasureTagInput(const Rect& rc, const TagInputState& st,
     return out;
 }
 
-TagInputHit HitTagInput(const Rect& rc, const TagInputState& st,
-                        const Metrics& mx, Point pt)
+TagInputHit TagInput::HitAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const TagInputState& st = state;
+    (void)mx;
+    (void)pt;
     TagInputHit h;
-    if (!Hit(rc, pt)) return h;
+    if (!RectHit(rc, pt)) return h;
     const TagInputLayout lay = MeasureTagInput(rc, st, mx);
     for (std::size_t i = 0; i < lay.chips.size(); ++i) {
-        if (Hit(lay.chips[i].close, pt)) {
+        if (RectHit(lay.chips[i].close, pt)) {
             h.tag = static_cast<int>(i);
             h.close = true;
             return h;
         }
     }
     for (std::size_t i = 0; i < lay.chips.size(); ++i) {
-        if (Hit(lay.chips[i].chip, pt)) {
+        if (RectHit(lay.chips[i].chip, pt)) {
             h.tag = static_cast<int>(i);
             return h;
         }
     }
-    if (Hit(lay.clearAll, pt)) {
+    if (RectHit(lay.clearAll, pt)) {
         h.clearAll = true;
         return h;
     }
-    if (Hit(lay.input, pt)) h.input = true;
+    if (RectHit(lay.input, pt)) h.input = true;
     return h;
 }
 
-void PaintTagInput(IPainter& g, const Rect& rc, const TagInputState& st,
-                   const Palette& pal, const Metrics& mx)
+void TagInput::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    TagInputState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const TagInputLayout lay = MeasureTagInput(rc, st, mx);
     g.PushClip(rc);
@@ -246,10 +295,11 @@ void PaintTagInput(IPainter& g, const Rect& rc, const TagInputState& st,
     g.PopClip();
 }
 
-RangeSliderLayout MeasureRangeSlider(const Rect& rc,
-                                     const RangeSliderState& st,
-                                     const Metrics& mx)
+RangeSliderLayout RangeSlider::Measure(const Metrics& mx) const
 {
+    const Rect& rc = Bounds();
+    const RangeSliderState& st = state;
+    (void)mx;
     const RangeGeo geo = GeoRange(rc, st, mx);
     RangeSliderLayout out;
     out.track = geo.track;
@@ -259,23 +309,29 @@ RangeSliderLayout MeasureRangeSlider(const Rect& rc,
     return out;
 }
 
-int RangeSliderThumbAt(const Rect& rc, const RangeSliderState& st,
-                       const Metrics& mx, Point pt)
+int RangeSlider::ThumbAt(const Metrics& mx, Point pt) const
 {
-    if (!Hit(rc, pt)) return -2;
+    const Rect& rc = Bounds();
+    const RangeSliderState& st = state;
+    (void)mx;
+    (void)pt;
+    if (!RectHit(rc, pt)) return -2;
     const RangeGeo geo = GeoRange(rc, st, mx);
     if (geo.track.Empty()) return -2;
-    if (Hit(geo.highThumb, pt)) return 2;
-    if (Hit(geo.lowThumb, pt)) return 1;
+    if (RectHit(geo.highThumb, pt)) return 2;
+    if (RectHit(geo.lowThumb, pt)) return 1;
     const Rect band(geo.track.left, geo.lowThumb.top,
                     geo.track.right, geo.lowThumb.bottom);
-    if (Hit(band, pt)) return -1;
+    if (RectHit(band, pt)) return -1;
     return -2;
 }
 
-int RangeSliderValueAt(const Rect& rc, const RangeSliderState& st,
-                       const Metrics& mx, Point pt)
+int RangeSlider::ValueAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const RangeSliderState& st = state;
+    (void)mx;
+    (void)pt;
     const RangeGeo geo = GeoRange(rc, st, mx);
     if (geo.track.Empty()) {
         return ClampI(st.low, st.min, (std::max)(st.min + 1, st.max));
@@ -292,10 +348,15 @@ int RangeSliderValueAt(const Rect& rc, const RangeSliderState& st,
     return ClampI(v, geo.min, geo.max);
 }
 
-void PaintRangeSlider(IPainter& g, const Rect& rc,
-                      const RangeSliderState& st,
-                      const Palette& pal, const Metrics& mx)
+void RangeSlider::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    RangeSliderState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const RangeGeo geo = GeoRange(rc, st, mx);
     if (geo.track.Empty()) return;
@@ -324,9 +385,11 @@ void PaintRangeSlider(IPainter& g, const Rect& rc,
     g.PopClip();
 }
 
-OtpInputLayout MeasureOtpInput(const Rect& rc, const OtpInputState& st,
-                               const Metrics& mx)
+OtpInputLayout OtpInput::Measure(const Metrics& mx) const
 {
+    const Rect& rc = Bounds();
+    const OtpInputState& st = state;
+    (void)mx;
     OtpInputLayout out;
     if (rc.Empty()) return out;
     const int n = st.length;
@@ -350,20 +413,29 @@ OtpInputLayout MeasureOtpInput(const Rect& rc, const OtpInputState& st,
     return out;
 }
 
-int OtpCellAt(const Rect& rc, const OtpInputState& st,
-              const Metrics& mx, Point pt)
+int OtpInput::OtpCellAt(const Metrics& mx, Point pt) const
 {
-    if (!Hit(rc, pt)) return -1;
+    const Rect& rc = Bounds();
+    const OtpInputState& st = state;
+    (void)mx;
+    (void)pt;
+    if (!RectHit(rc, pt)) return -1;
     const OtpInputLayout lay = MeasureOtpInput(rc, st, mx);
     for (std::size_t i = 0; i < lay.cells.size(); ++i) {
-        if (Hit(lay.cells[i], pt)) return static_cast<int>(i);
+        if (RectHit(lay.cells[i], pt)) return static_cast<int>(i);
     }
     return -1;
 }
 
-void PaintOtpInput(IPainter& g, const Rect& rc, const OtpInputState& st,
-                   const Palette& pal, const Metrics& mx)
+void OtpInput::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    OtpInputState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const OtpInputLayout lay = MeasureOtpInput(rc, st, mx);
     if (lay.cells.empty()) return;
@@ -399,9 +471,11 @@ void PaintOtpInput(IPainter& g, const Rect& rc, const OtpInputState& st,
     g.PopClip();
 }
 
-CascaderLayout MeasureCascader(const Rect& rc, const CascaderState& st,
-                               const Metrics& mx)
+CascaderLayout Cascader::Measure(const Metrics& mx) const
 {
+    const Rect& rc = Bounds();
+    const CascaderState& st = state;
+    (void)mx;
     CascaderLayout out;
     if (rc.Empty() || st.columns.empty()) return out;
     const int n = static_cast<int>(st.columns.size());
@@ -420,15 +494,18 @@ CascaderLayout MeasureCascader(const Rect& rc, const CascaderState& st,
     return out;
 }
 
-CascaderHit HitCascader(const Rect& rc, const CascaderState& st,
-                        const Metrics& mx, Point pt)
+CascaderHit Cascader::HitAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const CascaderState& st = state;
+    (void)mx;
+    (void)pt;
     CascaderHit h;
-    if (!Hit(rc, pt)) return h;
+    if (!RectHit(rc, pt)) return h;
     const CascaderLayout lay = MeasureCascader(rc, st, mx);
     for (std::size_t i = 0; i < lay.columnRects.size(); ++i) {
         const Rect rows = CascaderRows(lay.columnRects[i], lay);
-        if (!Hit(rows, pt)) continue;
+        if (!RectHit(rows, pt)) continue;
         const int row = (pt.y - rows.top) / lay.rowH;
         if (row < 0 || row >= static_cast<int>(st.columns[i].items.size())) {
             return h;
@@ -440,9 +517,15 @@ CascaderHit HitCascader(const Rect& rc, const CascaderState& st,
     return h;
 }
 
-void PaintCascader(IPainter& g, const Rect& rc, const CascaderState& st,
-                   const Palette& pal, const Metrics& mx)
+void Cascader::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    CascaderState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const CascaderLayout lay = MeasureCascader(rc, st, mx);
     if (lay.columnRects.empty()) return;
@@ -497,5 +580,6 @@ void PaintCascader(IPainter& g, const Rect& rc, const CascaderState& st,
     g.PopClip();
 }
 
+} // namespace widgets
 } // namespace ui
 } // namespace air

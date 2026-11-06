@@ -1,3 +1,4 @@
+#include "airui/WidgetControls.h"
 // AirUI - ControlsAdvancedData.cpp : platform-free data views.
 // Third wave: AvatarGroup, Heatmap, CodeBlock, KanbanBoard, GanttChart.
 // The painter has no path/image primitive, so everything is built from
@@ -25,7 +26,7 @@ int ClampI(int v, int lo, int hi)
     return (std::min)((std::max)(v, lo), hi);
 }
 
-bool Hit(const Rect& r, Point p)
+bool RectHit(const Rect& r, Point p)
 {
     return !r.Empty() && r.Contains(p);
 }
@@ -157,10 +158,57 @@ GanttGeo GeoGantt(const Rect& rc, const GanttState& st, const Metrics& mx)
 
 } // namespace
 
-AvatarGroupLayout MeasureAvatarGroup(const Rect& rc,
-                                     const AvatarGroupState& st,
-                                     const Metrics& mx)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+bool CodeBlockCopyHit(const Rect& rc, const CodeBlockState& st,
+                      const Metrics& mx, Point pt)
 {
+    if (!RectHit(rc, pt)) return false;
+    return RectHit(MeasureCodeBlock(rc, st, mx).copy, pt);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+} // namespace ui
+} // namespace air
+
+// ============================================================
+// Object layer: widget member functions migrated from the
+// free-function drawing kernel above.
+// ============================================================
+namespace air {
+namespace ui {
+namespace widgets {
+
+AvatarGroupLayout AvatarGroup::Measure(const Metrics& mx) const
+{
+    const Rect& rc = Bounds();
+    const AvatarGroupState& st = state;
+    (void)mx;
     const AvatarGeo geo = GeoAvatars(rc, st, mx);
     AvatarGroupLayout out;
     out.cells = geo.cells;
@@ -169,21 +217,30 @@ AvatarGroupLayout MeasureAvatarGroup(const Rect& rc,
     return out;
 }
 
-int AvatarGroupAt(const Rect& rc, const AvatarGroupState& st,
-                  const Metrics& mx, Point pt)
+int AvatarGroup::At(const Metrics& mx, Point pt) const
 {
-    if (!Hit(rc, pt)) return -1;
+    const Rect& rc = Bounds();
+    const AvatarGroupState& st = state;
+    (void)mx;
+    (void)pt;
+    if (!RectHit(rc, pt)) return -1;
     const AvatarGeo geo = GeoAvatars(rc, st, mx);
-    if (Hit(geo.more, pt)) return -2;
+    if (RectHit(geo.more, pt)) return -2;
     for (int i = static_cast<int>(geo.cells.size()) - 1; i >= 0; --i) {
-        if (Hit(geo.cells[static_cast<std::size_t>(i)], pt)) return i;
+        if (RectHit(geo.cells[static_cast<std::size_t>(i)], pt)) return i;
     }
     return -1;
 }
 
-void PaintAvatarGroup(IPainter& g, const Rect& rc, const AvatarGroupState& st,
-                      const Palette& pal, const Metrics& mx)
+void AvatarGroup::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    AvatarGroupState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const AvatarGeo geo = GeoAvatars(rc, st, mx);
     if (geo.diameter <= 0) return;
@@ -213,9 +270,11 @@ void PaintAvatarGroup(IPainter& g, const Rect& rc, const AvatarGroupState& st,
     g.PopClip();
 }
 
-HeatmapLayout MeasureHeatmap(const Rect& rc, const HeatmapState& st,
-                             const Metrics& mx)
+HeatmapLayout Heatmap::Measure(const Metrics& mx) const
 {
+    const Rect& rc = Bounds();
+    const HeatmapState& st = state;
+    (void)mx;
     HeatmapLayout out;
     if (rc.Empty()) return out;
     const int pad = mx.unit;
@@ -244,12 +303,15 @@ HeatmapLayout MeasureHeatmap(const Rect& rc, const HeatmapState& st,
     return out;
 }
 
-HeatmapCell HeatmapCellAt(const Rect& rc, const HeatmapState& st,
-                          const Metrics& mx, Point pt)
+HeatmapCell Heatmap::CellAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const HeatmapState& st = state;
+    (void)mx;
+    (void)pt;
     HeatmapCell out;
     const HeatmapLayout lay = MeasureHeatmap(rc, st, mx);
-    if (!Hit(lay.grid, pt) || lay.cell <= 0) return out;
+    if (!RectHit(lay.grid, pt) || lay.cell <= 0) return out;
     const int pitch = lay.cell + lay.gap;
     const int week = (pt.x - lay.grid.left) / pitch;
     const int day = (pt.y - lay.grid.top) / pitch;
@@ -261,9 +323,15 @@ HeatmapCell HeatmapCellAt(const Rect& rc, const HeatmapState& st,
     return out;
 }
 
-void PaintHeatmap(IPainter& g, const Rect& rc, const HeatmapState& st,
-                  const Palette& pal, const Metrics& mx)
+void Heatmap::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    HeatmapState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const HeatmapLayout lay = MeasureHeatmap(rc, st, mx);
     if (lay.grid.Empty()) return;
@@ -317,9 +385,11 @@ void PaintHeatmap(IPainter& g, const Rect& rc, const HeatmapState& st,
     g.PopClip();
 }
 
-CodeBlockLayout MeasureCodeBlock(const Rect& rc, const CodeBlockState& st,
-                                 const Metrics& mx)
+CodeBlockLayout CodeBlock::Measure(const Metrics& mx) const
 {
+    const Rect& rc = Bounds();
+    const CodeBlockState& st = state;
+    (void)mx;
     CodeBlockLayout out;
     (void)st;
     if (rc.Empty()) return out;
@@ -339,16 +409,15 @@ CodeBlockLayout MeasureCodeBlock(const Rect& rc, const CodeBlockState& st,
     return out;
 }
 
-bool CodeBlockCopyHit(const Rect& rc, const CodeBlockState& st,
-                      const Metrics& mx, Point pt)
+void CodeBlock::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
-    if (!Hit(rc, pt)) return false;
-    return Hit(MeasureCodeBlock(rc, st, mx).copy, pt);
-}
-
-void PaintCodeBlock(IPainter& g, const Rect& rc, const CodeBlockState& st,
-                    const Palette& pal, const Metrics& mx)
-{
+    const Rect& rc = Bounds();
+    CodeBlockState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const CodeBlockLayout lay = MeasureCodeBlock(rc, st, mx);
     if (lay.body.Empty()) return;
@@ -392,9 +461,11 @@ void PaintCodeBlock(IPainter& g, const Rect& rc, const CodeBlockState& st,
     g.PopClip();
 }
 
-KanbanLayout MeasureKanban(const Rect& rc, const KanbanState& st,
-                           const Metrics& mx)
+KanbanLayout Kanban::Measure(const Metrics& mx) const
 {
+    const Rect& rc = Bounds();
+    const KanbanState& st = state;
+    (void)mx;
     KanbanLayout out;
     if (rc.Empty() || st.columns.empty()) return out;
     const int n = static_cast<int>(st.columns.size());
@@ -424,15 +495,18 @@ KanbanLayout MeasureKanban(const Rect& rc, const KanbanState& st,
     return out;
 }
 
-KanbanHit HitKanban(const Rect& rc, const KanbanState& st,
-                    const Metrics& mx, Point pt)
+KanbanHit Kanban::HitAt(const Metrics& mx, Point pt) const
 {
+    const Rect& rc = Bounds();
+    const KanbanState& st = state;
+    (void)mx;
+    (void)pt;
     KanbanHit h;
-    if (!Hit(rc, pt)) return h;
+    if (!RectHit(rc, pt)) return h;
     const KanbanLayout lay = MeasureKanban(rc, st, mx);
     for (std::size_t c = 0; c < lay.cardRects.size(); ++c) {
         for (std::size_t k = 0; k < lay.cardRects[c].size(); ++k) {
-            if (Hit(lay.cardRects[c][k], pt)) {
+            if (RectHit(lay.cardRects[c][k], pt)) {
                 h.column = static_cast<int>(c);
                 h.card = static_cast<int>(k);
                 return h;
@@ -442,9 +516,15 @@ KanbanHit HitKanban(const Rect& rc, const KanbanState& st,
     return h;
 }
 
-void PaintKanban(IPainter& g, const Rect& rc, const KanbanState& st,
-                 const Palette& pal, const Metrics& mx)
+void Kanban::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    KanbanState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const KanbanLayout lay = MeasureKanban(rc, st, mx);
     if (lay.columnRects.empty()) return;
@@ -493,26 +573,37 @@ void PaintKanban(IPainter& g, const Rect& rc, const KanbanState& st,
     g.PopClip();
 }
 
-GanttLayout MeasureGantt(const Rect& rc, const GanttState& st,
-                         const Metrics& mx)
+GanttLayout Gantt::Measure(const Metrics& mx) const
 {
+    const Rect& rc = Bounds();
+    const GanttState& st = state;
+    (void)mx;
     return GeoGantt(rc, st, mx).lay;
 }
 
-int GanttTaskAt(const Rect& rc, const GanttState& st,
-                const Metrics& mx, Point pt)
+int Gantt::TaskAt(const Metrics& mx, Point pt) const
 {
-    if (!Hit(rc, pt)) return -1;
+    const Rect& rc = Bounds();
+    const GanttState& st = state;
+    (void)mx;
+    (void)pt;
+    if (!RectHit(rc, pt)) return -1;
     const GanttGeo geo = GeoGantt(rc, st, mx);
-    if (!Hit(geo.lay.rows, pt) || geo.lay.rowH <= 0) return -1;
+    if (!RectHit(geo.lay.rows, pt) || geo.lay.rowH <= 0) return -1;
     const int row = (pt.y - geo.lay.rows.top) / geo.lay.rowH;
     if (row < 0 || row >= static_cast<int>(geo.rowRects.size())) return -1;
     return row;
 }
 
-void PaintGantt(IPainter& g, const Rect& rc, const GanttState& st,
-                const Palette& pal, const Metrics& mx)
+void Gantt::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 {
+    const Rect& rc = Bounds();
+    GanttState& st = state;
+    (void)g;
+    (void)pal;
+    (void)mx;
+    if (Hovered()) st.base.hover = true;
+    if (Focused()) st.base.focused = true;
     if (rc.Empty()) return;
     const GanttGeo geo = GeoGantt(rc, st, mx);
     if (geo.lay.rows.Empty()) return;
@@ -574,5 +665,6 @@ void PaintGantt(IPainter& g, const Rect& rc, const GanttState& st,
     g.PopClip();
 }
 
+} // namespace widgets
 } // namespace ui
 } // namespace air
