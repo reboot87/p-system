@@ -1,7 +1,16 @@
 #include <iostream>
 #include <fstream>
+#include <windows.h>
 #include "airui/TestShell.h"
 #include "airui/Page.h"
+
+// 输出文件写到系统临时目录，避免依赖任何机器特定的绝对路径
+static std::wstring TempFilePath(const wchar_t* name)
+{
+    wchar_t tmp[MAX_PATH] = L"";
+    GetTempPathW(MAX_PATH, tmp);
+    return std::wstring(tmp) + name;
+}
 
 using namespace air::ui;
 
@@ -34,7 +43,7 @@ int main() {
         std::wcerr << L"No draw calls captured\n";
         return 1;
     }
-    std::wstring path = L"F:/project/github/p-system/test_draw_calls.json";
+    std::wstring path = TempFilePath(L"test_draw_calls.json");
     if (!shell.ExportDrawCallsToFile(path)) {
         std::wcerr << L"Export failed\n";
         return 1;

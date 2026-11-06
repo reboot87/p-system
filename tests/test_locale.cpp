@@ -1,12 +1,21 @@
 #include <iostream>
 #include <fstream>
+#include <windows.h>
 #include "airui/Accessibility.h"
+
+// 输出文件写到系统临时目录，避免依赖任何机器特定的绝对路径
+static std::wstring TempFilePath(const wchar_t* name)
+{
+    wchar_t tmp[MAX_PATH] = L"";
+    GetTempPathW(MAX_PATH, tmp);
+    return std::wstring(tmp) + name;
+}
 
 using namespace air::ui::i18n;
 
 int main() {
     // Create a temporary locale JSON file
-    const wchar_t* path = L"F:/project/github/p-system/test_locale.json";
+    std::wstring path = TempFilePath(L"test_locale.json");
     {
         std::wofstream f(path);
         f << L"{\n";

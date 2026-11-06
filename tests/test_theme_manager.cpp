@@ -1,12 +1,21 @@
 #include <iostream>
+#include <windows.h>
 #include "airui/ThemeManager.h"
 #include "airui/ThemeJson.h"
 #include "airui/Theme.h"
 
+// 输出文件写到系统临时目录，避免依赖任何机器特定的绝对路径
+static std::wstring TempFilePath(const wchar_t* name)
+{
+    wchar_t tmp[MAX_PATH] = L"";
+    GetTempPathW(MAX_PATH, tmp);
+    return std::wstring(tmp) + name;
+}
+
 int main()
 {
     auto& tm = air::ui::ThemeManager::Instance();
-    std::wstring path = L"F:/project/github/p-system/test_theme.json";
+    std::wstring path = TempFilePath(L"test_theme.json");
     // Capture baseline values
     COLORREF primaryBefore = air::ui::Pal().primary;
     int unitBefore = air::ui::Mx().unit;

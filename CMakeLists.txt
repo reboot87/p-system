@@ -119,7 +119,7 @@ target_link_libraries(airecordd
     user32 gdi32 shell32 comctl32 shlwapi advapi32 ole32
 )
 set_target_properties(airecordd PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/Release
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
     LINK_FLAGS "/SUBSYSTEM:WINDOWS"
 )
@@ -135,7 +135,7 @@ target_link_libraries(airecord
     user32 gdi32 shell32 comctl32 shlwapi advapi32 ole32
 )
 set_target_properties(airecord PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/Release
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
     LINK_FLAGS "/SUBSYSTEM:WINDOWS"
 )
@@ -151,7 +151,7 @@ target_link_libraries(test_ui
     user32 gdi32 shell32 comctl32 shlwapi advapi32 ole32
 )
 set_target_properties(test_ui PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/Release
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
     LINK_FLAGS "/SUBSYSTEM:CONSOLE"
 )
@@ -167,7 +167,7 @@ target_link_libraries(test_theme_manager
     user32 gdi32 shell32 comctl32 shlwapi advapi32 ole32
 )
 set_target_properties(test_theme_manager PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/Release
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
     LINK_FLAGS "/SUBSYSTEM:CONSOLE"
 )
@@ -183,7 +183,7 @@ target_link_libraries(test_draw_calls
     user32 gdi32 shell32 comctl32 shlwapi advapi32 ole32
 )
 set_target_properties(test_draw_calls PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/Release
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
     LINK_FLAGS "/SUBSYSTEM:CONSOLE"
 )
@@ -199,7 +199,7 @@ target_link_libraries(test_locale
     user32 gdi32 shell32 comctl32 shlwapi advapi32 ole32
 )
 set_target_properties(test_locale PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/Release
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
     LINK_FLAGS "/SUBSYSTEM:CONSOLE"
 )
@@ -216,7 +216,7 @@ target_link_libraries(test_component_gallery
     user32 gdi32 shell32 comctl32 shlwapi advapi32 ole32
 )
 set_target_properties(test_component_gallery PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/Release
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
     LINK_FLAGS "/SUBSYSTEM:CONSOLE"
 )
@@ -228,7 +228,7 @@ add_executable(test_data_controls
 )
 target_link_libraries(test_data_controls airui-core)
 set_target_properties(test_data_controls PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/Release
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
     LINK_FLAGS "/SUBSYSTEM:CONSOLE"
 )
@@ -239,7 +239,7 @@ add_executable(test_overlay_core
 )
 target_link_libraries(test_overlay_core airui-core)
 set_target_properties(test_overlay_core PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/Release
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
     LINK_FLAGS "/SUBSYSTEM:CONSOLE"
 )
@@ -250,7 +250,7 @@ add_executable(test_framework_extra
 )
 target_link_libraries(test_framework_extra airui-core)
 set_target_properties(test_framework_extra PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/Release
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
     LINK_FLAGS "/SUBSYSTEM:CONSOLE"
 )
@@ -261,7 +261,7 @@ add_executable(test_core_layout
 )
 target_link_libraries(test_core_layout airui-core)
 set_target_properties(test_core_layout PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/Release
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
     LINK_FLAGS "/SUBSYSTEM:CONSOLE"
 )
@@ -272,9 +272,23 @@ add_executable(test_controls_core
 )
 target_link_libraries(test_controls_core airui-core)
 set_target_properties(test_controls_core PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/Release
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
     LINK_FLAGS "/SUBSYSTEM:CONSOLE"
+)
+
+# AirUI reuse demo (examples/DemoWindow.cpp) — minimal Shell+Page example
+add_executable(airui_demo
+    examples/DemoWindow.cpp
+)
+target_link_libraries(airui_demo
+    airui-win32
+    user32 gdi32 shell32 comctl32 shlwapi advapi32 ole32
+)
+set_target_properties(airui_demo PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
+    LINK_FLAGS "/SUBSYSTEM:WINDOWS"
 )
 
 # AirUI interactive component gallery (GUI)
@@ -288,7 +302,7 @@ target_link_libraries(airui_gallery
     user32 gdi32 shell32 comctl32 shlwapi advapi32 ole32
 )
 set_target_properties(airui_gallery PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/Release
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
     LINK_FLAGS "/SUBSYSTEM:WINDOWS"
 )
