@@ -195,7 +195,8 @@ struct ExtraDemoState
     widgets::Slider       wSlider;
     widgets::Sparkline    wSparkline;
     widgets::Gauge        wGauge;
-    RatingBarState        ratingBar{};   // demo state for the new RatingBar control
+    widgets::RatingBar    wRatingBar;    // new control (built from scratch)
+    widgets::IconButton   wIconBtn;      // inherited control (derives from Button)
 };
 
 inline void InitExtraDemo(ExtraDemoState& s)
@@ -597,6 +598,9 @@ inline void InitExtraDemo(ExtraDemoState& s)
     s.wSparkline.state.change = 12.5;
     s.wGauge.state.title = L"资源占用";
     s.wGauge.state.value = 62;
+    s.wRatingBar.value = 3; s.wRatingBar.max = 5; s.wRatingBar.SetName(L"对象化评分");
+    s.wIconBtn.text = L"保存"; s.wIconBtn.icon = L"★";
+    s.wIconBtn.style = ButtonStyle::Primary;
 }
 
 inline Rect GuideAnchorRect(const Rect& rc, const Metrics& mx)
@@ -839,19 +843,23 @@ inline void DemoPaint_GuideTour(IPainter& g, const Rect& rc, ExtraDemoState& s,
 inline void DemoPaint_WidgetClasses(IPainter& g, const Rect& rc, ExtraDemoState& s,
                                     const Palette& pal, const Metrics& mx)
 {
+    const int n = 8;
     const int gap = mx.unit;
     const int cols = 3;
+    const int rows = (n + cols - 1) / cols;               // 3 rows for 8 tiles
     const int cw = (rc.Width() - gap * (cols - 1)) / cols;
-    const int ch = (rc.Height() - gap) / 2;
+    const int ch = (rc.Height() - gap * (rows - 1)) / rows;
     if (cw <= 0 || ch <= 0) return;
-    Control* items[6] = {&s.wButton, &s.wCheckbox, &s.wTextField,
-                         &s.wSlider, &s.wSparkline, &s.wGauge};
-    const wchar_t* names[6] = {
+    Control* items[8] = {&s.wButton, &s.wCheckbox, &s.wTextField,
+                         &s.wSlider, &s.wSparkline, &s.wGauge,
+                         &s.wRatingBar, &s.wIconBtn};
+    const wchar_t* names[8] = {
         L"widgets::Button", L"widgets::Checkbox", L"widgets::TextField",
-        L"widgets::Slider", L"widgets::Sparkline", L"widgets::Gauge"};
+        L"widgets::Slider", L"widgets::Sparkline", L"widgets::Gauge",
+        L"widgets::RatingBar", L"widgets::IconButton"};
     const TextFormat tf = dt::SingleLine | dt::Left | dt::VCenter |
                           dt::NoPrefix | dt::EndEllipsis;
-    for (int i = 0; i < 6; ++i) {
+    for (int i = 0; i < n; ++i) {
         const int col = i % cols;
         const int row = i / cols;
         const Rect tile(rc.left + col * (cw + gap),
@@ -1690,14 +1698,17 @@ inline void DemoClick_AudioWaveform(int, Point pt, const Rect& rc, ExtraDemoStat
 inline void DemoClick_WidgetClasses(int, Point pt, const Rect& rc, ExtraDemoState& s,
                                     const Metrics& mx, std::wstring& status)
 {
+    const int n = 8;
     const int gap = mx.unit;
     const int cols = 3;
+    const int rows = (n + cols - 1) / cols;               // 3 rows for 8 tiles
     const int cw = (rc.Width() - gap * (cols - 1)) / cols;
-    const int ch = (rc.Height() - gap) / 2;
+    const int ch = (rc.Height() - gap * (rows - 1)) / rows;
     if (cw <= 0 || ch <= 0) return;
-    Control* items[6] = {&s.wButton, &s.wCheckbox, &s.wTextField,
-                         &s.wSlider, &s.wSparkline, &s.wGauge};
-    for (int i = 0; i < 6; ++i) {
+    Control* items[8] = {&s.wButton, &s.wCheckbox, &s.wTextField,
+                         &s.wSlider, &s.wSparkline, &s.wGauge,
+                         &s.wRatingBar, &s.wIconBtn};
+    for (int i = 0; i < n; ++i) {
         const int col = i % cols;
         const int row = i / cols;
         const Rect tile(rc.left + col * (cw + gap),
@@ -1732,6 +1743,16 @@ inline void DemoClick_WidgetClasses(int, Point pt, const Rect& rc, ExtraDemoStat
                 (s.wSparkline.state.hovered + 1) %
                 static_cast<int>(s.wSparkline.state.values.size());
             status = L"widgets::Sparkline：切换高亮数据点";
+            break;
+        case 6:
+            // widgets::RatingBar: OnPointer already mapped the click to a star
+            status = L"widgets::RatingBar：value = " +
+                     std::to_wstring(s.wRatingBar.value);
+            break;
+        case 7:
+            s.wIconBtn.style = s.wIconBtn.style == ButtonStyle::Primary
+                                  ? ButtonStyle::Secondary : ButtonStyle::Primary;
+            status = L"widgets::IconButton：切换按钮样式";
             break;
         default:
             s.wGauge.state.value = s.wGauge.state.value + 9 > 100
@@ -1873,27 +1894,9 @@ inline const std::vector<DemoEntry>& Demos()
         { L"P5 协同", L"ActivityFeed",   230, DemoPaint_ActivityFeed,DemoClick_ActivityFeed, nullptr },
         { L"P5 协同", L"AudioWaveform",  160, DemoPaint_Waveform,    DemoClick_AudioWaveform, nullptr },
         // ---------------- P6 ----------------
+        // Both new controls are shown here as real ControlHost instances
+        // (see the P6 widget members + DemoPaint/Click_WidgetClasses).
         { L"P6 类体系", L"WidgetClasses", 250, DemoPaint_WidgetClasses, DemoClick_WidgetClasses, nullptr },
-        // --- extension demos: how to add / inherit a control (see docs/design-patterns.md) ---
-        { L"P6 类体系", L"RatingBar (新增)", 60,
-          [](IPainter& g, const Rect& rc, ExtraDemoState& s, const Palette& pal, const Metrics& mx) {
-              PaintRatingBar(g, rc, s.ratingBar, pal, mx);
-          },
-          [](int, Point pt, const Rect& rc, ExtraDemoState& s, const Metrics& mx, std::wstring&) {
-              (void)mx;
-              if (s.ratingBar.max > 0) {
-                  const int cell = rc.Width() / s.ratingBar.max;
-                  int v = (pt.x - rc.left) / cell + 1;
-                  if (v >= 0 && v <= s.ratingBar.max) s.ratingBar.value = v;
-              }
-          },
-          nullptr },
-        { L"P6 类体系", L"IconButton (继承)", 60,
-          [](IPainter& g, const Rect& rc, ExtraDemoState& s, const Palette& pal, const Metrics& mx) {
-              (void)s;
-              PaintIconButton(g, rc, L"保存", L"\u2605", ButtonStyle::Primary, ControlState{}, pal, mx);
-          },
-          nullptr, nullptr },
     };
     return demos;
 }
