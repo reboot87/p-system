@@ -82,6 +82,11 @@ struct ShellOptions
     // through GdiPainter instead of the legacy rich renderer. Default off
     // so the existing caption (logo / three buttons) never regresses.
     bool         coreShell   = false;
+    // Phase 2: only honoured when the build defines AIRUI_HAVE_SKIA
+    // (AIRUI_WITH_SKIA=ON). Draws the ShellCore chrome with the Skia
+    // raster backend instead of GdiPainter. Default off, so the GDI
+    // path and the official CMake + VS2017 build never change.
+    bool         skiaChrome  = false;
 };
 
 class Shell

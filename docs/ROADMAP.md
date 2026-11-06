@@ -15,16 +15,17 @@
   - Windows：唯一官方 = CMake + Visual Studio 2017（`build.bat`）。
   - Linux：CMake + Unix Makefiles/Ninja，**仅构建 `airui-core`**（`build.sh`）。
   - 绝不使用 MinGW 构建完整项目（g++ 仅用于核心 CI 冒烟）。
-- **测试**：`ctest -C Release` **16/16 通过**（含 `test_shell_hal` 与平台无关金样 `test_paint_recorder`）；`test_ui` 为端到端脚本，仍需手工跑。
+- **测试**：`ctest -C Release` **17/17 通过**（含 `test_shell_hal`、平台无关金样 `test_paint_recorder`、Skia 值映射 `test_skia_types`）；`test_ui` 为端到端脚本，仍需手工跑。
 
 ---
 
 ## 1. 未实现清单（按层）
 
-### A. 跨平台 / 后端层（Phase 1 三项已完成，Skia 仍为设计稿）
+### A. 跨平台 / 后端层（Phase 1 三项已完成；Windows Skia 已 opt-in 接入）
 | 项 | 状态 | 说明 / 证据 |
 |---|---|---|
-| Skia 跨平台后端（Win/Linux/macOS 统一绘制） | 未实施 | `docs/cross-platform.md` 标注"草稿 v0.1，仅设计，未实施" |
+| Skia 绘制后端（Windows） | ✅ 已接入（opt-in） | `AIRUI_WITH_SKIA` 默认 OFF；`SkiaPainter`（IPainter→SkCanvas）+ `SkiaSurface`（raster BGRA→DIB→AlphaBlend）+ `ShellOptions.skiaChrome`；引入方式定案见 `docs/skia-backend.md` |
+| Skia 跨平台（Linux/macOS 统一绘制 + 窗口壳） | 未实施 | 目前只有 Windows 绘制后端；Skia 版 `IWindow`、Linux/macOS 应用本体仍是 Phase 2 |
 | Linux / macOS 应用本体构建 | 不可行 | 完整 exe 依赖 Win32/GDI/DWM；目前仅 `airui-core` 可在 Linux 编 |
 | `GdiPainter` / `Win32Window` 生产级 HAL | ✅ 已完成 (1) | 真圆角/虚线/alpha/FontRole 字体/裁剪栈；`SetNavBadge` 落库、`WM_GETMINMAXINFO` 强制最小尺寸、滚轮屏幕坐标转客户区 |
 | `IWindow` 完整事件注入 | ✅ 已完成 (2) | 平台无关 `IWindow` 补齐 enter/leave/char/focus/blur/DPI 六个事件（默认 no-op，不破坏其他后端），`Win32Window::PumpEvent` 全量转发 |
@@ -48,7 +49,7 @@
 | 项 | 状态 | 说明 / 证据 |
 |---|---|---|
 | `test_ui` 接入 ctest | 未接入 | 端到端需 `airecord.exe` + IPC，只能手工跑（`phase0-signoff.md:37`） |
-| 跨后端 DrawCall 一致性断言 | 金样基座已就位 | `PaintRecorder` 的 `SequenceEquals/Diff/ToString` 已可用、三平台 CI 跑同一份确定性金样；但**真实双后端 diff** 仍需等 Skia 后端接入后才能执行（`docs/cross-platform.md` G5 / §10） |
+| 跨后端 DrawCall 一致性断言 | 双后端用例已就位，真 SDK 实跑待 CI | `test_skia_backend` 已实现「core 金样 vs Skia 后端实收调用序列」的 `Diff()` 断言 + 光栅像素校验；需 `AIRUI_WITH_SKIA=ON` 编译，由 `skia-windows`（`workflow_dispatch`）用 vcpkg Skia 实跑。**像素级 GDI vs Skia 截图 diff** 仍属计划项（`docs/cross-platform.md` §6） |
 
 ---
 
@@ -64,7 +65,7 @@
 7. 落地 App 业务模块：**文件监控**、**打印监控**插件。
 
 ### Phase 2 —— Skia 与跨平台
-1. 引入 Skia 后端实现 `IPainter` / `IFont` / `IWindow`。
+1. ✅ 引入 Skia 后端实现 `IPainter`（Windows，opt-in，默认 OFF）；⬜ `IFont` / `IWindow` 的 Skia 版与跨平台窗口壳仍待做。
 2. 在 Linux / macOS 跑通 AirUI 核心 + 示例（`airui_demo` / `airui_gallery`）。
 3. 实现跨后端 DrawCall 一致性断言（复用 core 的 `PaintRecorder` 金样 + `Diff()`，不再用 Win32 专属的 `TestShell`）。
 4. p-system 业务层 Win32 部分（托盘、注册表、性能计数器）保持 Windows 专属，不跨平台。
@@ -104,3 +105,12 @@
   - **CI**：`test_paint_recorder` 加入 CMake + ctest，并在 GitHub Actions 的 ubuntu/macOS 用 CMake 与裸 g++ 冒烟两条路径运行；`scripts/check-core-linux-smoke.sh` 增加该用例。
   - **验证**：g++ 冒烟 `-Wall -Wextra -Werror` PASSED；VS2017 编译 EXIT=0；`ctest -C Release` **16/16**。
   - **边界**：这是「确定性金样 + 比对机制」，**不是**已经完成双后端 diff；真实 Win GDI vs Skia 比对要等 Skia 后端接入。`docs/cross-platform.md` 顶部已加实施状态补记，纠正 §2.2 过时描述，并保留 §10 待评审的开放问题（Skia 引入方式、Linux 窗口壳等）。
+
+- **2026-11-07 — A 续：Windows 接入 Skia 后端（§10 开放问题 1 定案）**
+  - 用户定调「先做 1，使 Windows 接入 Skia」「业务最后做」；本机实测无 Skia SDK / vcpkg / depot_tools，且 vcpkg 的 `skia` 官方工具集为 VS2022+，与本地硬性 VS2017 冲突，因此定为 **opt-in 第二后端，默认 OFF，绝不进入默认构建图**。
+  - **引入方式定案**：vcpkg `skia` port 首选（`find_package(unofficial-skia)` → `unofficial::skia::skia`），`AIRUI_SKIA_ROOT` 预编译 release 备选，不采用 git 子模块源码编译。两者都找不到时 configure 明确 `FATAL_ERROR`，不静默降级。完整决策见 `docs/skia-backend.md`。
+  - **新增后端**：`src/airui/platform/skia/airui/` 下 `SkiaTypes`（零 SDK 依赖的 Color/字体/UTF-8/对齐映射）、`SkiaApi`（Skia 头唯一入口，隔离版本漂移）、`SkiaPainter`（IPainter→SkCanvas，13 个方法全实现）、`SkiaSurface`（`SkiaFrame` raster BGRA→DIB→`AlphaBlend` 上屏 + `CreateSkiaBackend` 工厂）。
+  - **应用接线**：`CMakeLists.txt` 加 `AIRUI_WITH_SKIA`（默认 OFF）；开启时 `AIRUI_HAVE_SKIA` 让 `Shell.cpp` 在 `ShellOptions.coreShell + skiaChrome` 下把 `ShellCore` 外壳交给 Skia 绘制。两层默认都关，富渲染零回归。
+  - **G5 落地**：`test_skia_backend` 用 `PaintRecorder` 金样 vs Skia 后端**实收** `IPainter` 序列做 `Diff()` 断言，并校验光栅像素；需 SDK，由 `skia-windows`（`workflow_dispatch`，VS2022 + vcpkg）实跑。
+  - **验证**：`test_skia_types` 加入 ctest（三平台可跑，g++ `-Werror` 通过）；`check-skia-syntax.sh` 用 API 契约 mock 对 5 个源文件 `-fsyntax-only` 全绿；`AIRUI_WITH_SKIA=ON` 无 SDK 时报错指引正确；以 `-DAIRUI_HAVE_SKIA=1` 单独编译 `airui-win32` 实测 VS2017 EXIT=0；默认构建 `ctest` **17/17**。
+  - **边界**：仅 Windows 绘制后端；Skia 版 `IWindow`、Linux/macOS 应用本体、字体度量/CJK 回退校准、像素级 GDI vs Skia 截图 diff 仍未做。VS2017 + Skia 未验证，真 SDK 路径只在 VS2022 CI 上验证。

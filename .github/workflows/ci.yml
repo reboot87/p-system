@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # The real-Skia job needs vcpkg to fetch/build Skia; run it on demand
+  # so ordinary pushes stay fast. See docs/skia-backend.md.
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -36,8 +39,13 @@ jobs:
         run: |
           cmake --build build-core --config Release --target test_shell_hal
           cmake --build build-core --config Release --target test_paint_recorder
+          cmake --build build-core --config Release --target test_skia_types
           ./build-core/test_shell_hal
           ./build-core/test_paint_recorder
+          ./build-core/test_skia_types
+
+      - name: Skia backend API contract gate (no SDK required)
+        run: bash scripts/check-skia-syntax.sh
 
       - name: Core smoke test (compile + link + run core tests)
         run: bash scripts/check-core-linux-smoke.sh
@@ -56,3 +64,45 @@ jobs:
 
       - name: Build airui-core
         run: cmake --build build-core --config Release --target airui-core
+
+  # ---------------------------------------------------------------
+  # B. Real Skia SDK verification (manual / non-blocking).
+  # GitHub-hosted Windows runners ship VS2022, not VS2017; per the
+  # project convention CI may differ from the local CMake+VS2017 build.
+  # Local builds keep Skia OFF by default and stay on VS2017.
+  # ---------------------------------------------------------------
+  skia-windows:
+    name: Skia backend (windows / vcpkg)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Skia via vcpkg
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install skia:x64-windows
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Configure (CMake + VS2022, Skia ON)
+        shell: pwsh
+        run: |
+          $tc = "$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake"
+          cmake -S . -B build-skia -G "Visual Studio 17 2022" -A x64 `
+            -DAIRUI_WITH_SKIA=ON "-DCMAKE_TOOLCHAIN_FILE=$tc"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build Skia backend + dual-backend test
+        shell: pwsh
+        run: |
+          cmake --build build-skia --config Release --target airui-skia
+          cmake --build build-skia --config Release --target test_skia_backend
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run G5 dual-backend parity test
+        shell: pwsh
+        run: |
+          $env:PATH = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\bin;$env:PATH"
+          & .\build-skia\Release\test_skia_backend.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

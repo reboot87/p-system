@@ -1,5 +1,8 @@
 #include "airui/Shell.h"
 #include "airui/GdiPainter.h"
+#ifdef AIRUI_HAVE_SKIA
+#include "airui/SkiaSurface.h"
+#endif
 #include "airui/Gfx.h"
 #include "airui/Responsive.h"
 #include <commctrl.h>
@@ -517,10 +520,24 @@ void Shell::Paint(HDC dc)
     gfx::Fill(dc, rc, Pal().bg);
 
     if (m_opt.coreShell) {
-        // Phase 1 HAL route: core owns state & layout, GdiPainter owns
-        // pixels. Useful for backend parity checks and future Skia port.
-        GdiPainter painter(dc);
-        m_shellCore.Paint(painter, Pal(), Mx());
+        // Phase 1 HAL route: core owns state & layout, a backend owns
+        // pixels. GDI is the default; Skia is opt-in at runtime when
+        // the build was configured with AIRUI_WITH_SKIA=ON.
+#ifdef AIRUI_HAVE_SKIA
+        if (m_opt.skiaChrome) {
+            SkiaFrame frame(dc, Rect{ rc.left, rc.top, rc.right, rc.bottom });
+            if (frame.Valid()) {
+                m_shellCore.Paint(frame, Pal(), Mx());
+            } else {
+                GdiPainter painter(dc);
+                m_shellCore.Paint(painter, Pal(), Mx());
+            }
+        } else
+#endif
+        {
+            GdiPainter painter(dc);
+            m_shellCore.Paint(painter, Pal(), Mx());
+        }
     } else {
         // Legacy rich chrome (logo, three caption buttons, status pills,
         // key hints). Its state is now read back from ShellCore below.

@@ -13,9 +13,13 @@ endif()
 # Include directories
 #   core/include      -> airui-core public headers (platform-free)
 #   platform/win32    -> airui-win32 public headers (airui/*.h)
+#   platform/skia     -> optional backend headers (headers only; nothing
+#                        from this directory is compiled or linked unless
+#                        AIRUI_WITH_SKIA=ON)
 include_directories(
     ${CMAKE_SOURCE_DIR}/src/airui/core/include
     ${CMAKE_SOURCE_DIR}/src/airui/platform/win32
+    ${CMAKE_SOURCE_DIR}/src/airui/platform/skia
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/third_party/sqlite
 )
@@ -90,7 +94,86 @@ else()
     add_library(airui-win32 INTERFACE)
     target_link_libraries(airui-win32 INTERFACE airui-core)
 endif()
-file(GLOB_RECURSE CORE_SOURCES 
+
+# ------------------------------------------------------------
+# Optional Skia rendering backend (Phase 2, Windows first).
+#
+# OFF by default. The official build stays CMake + VS2017 + GDI;
+# nothing in the default graph references Skia. Turn it on only when
+# a Skia SDK is available:
+#   -DAIRUI_WITH_SKIA=ON -DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake
+# (vcpkg install skia:x64-windows), or
+#   -DAIRUI_WITH_SKIA=ON -DAIRUI_SKIA_ROOT=<prebuilt-prefix>
+#
+# Two discovery paths are supported on purpose: vcpkg is the default
+# recommendation, AIRUI_SKIA_ROOT is the escape hatch for a prebuilt
+# release or an in-tree source build. See docs/skia-backend.md.
+# ------------------------------------------------------------
+option(AIRUI_WITH_SKIA "Build the optional Skia raster backend" OFF)
+
+set(AIRUI_SKIA_FOUND OFF)
+set(AIRUI_SKIA_INCLUDE_DIRS "")
+set(AIRUI_SKIA_LIBRARIES "")
+
+if(AIRUI_WITH_SKIA)
+    find_package(unofficial-skia CONFIG QUIET)
+    if(TARGET unofficial::skia::skia)
+        set(AIRUI_SKIA_FOUND ON)
+        set(AIRUI_SKIA_LIBRARIES unofficial::skia::skia)
+    elseif(AIRUI_SKIA_ROOT)
+        find_path(AIRUI_SKIA_INC include/core/SkCanvas.h
+            PATHS ${AIRUI_SKIA_ROOT}/include/skia
+                  ${AIRUI_SKIA_ROOT}/include
+                  ${AIRUI_SKIA_ROOT}
+            NO_DEFAULT_PATH)
+        find_library(AIRUI_SKIA_LIB NAMES skia skia_lib
+            PATHS ${AIRUI_SKIA_ROOT}/lib ${AIRUI_SKIA_ROOT}/lib/Release
+                  ${AIRUI_SKIA_ROOT}/out/Release
+            NO_DEFAULT_PATH)
+        if(AIRUI_SKIA_INC AND AIRUI_SKIA_LIB)
+            set(AIRUI_SKIA_FOUND ON)
+            set(AIRUI_SKIA_INCLUDE_DIRS ${AIRUI_SKIA_INC})
+            set(AIRUI_SKIA_LIBRARIES ${AIRUI_SKIA_LIB})
+        endif()
+    endif()
+
+    if(NOT AIRUI_SKIA_FOUND)
+        message(FATAL_ERROR
+            "AIRUI_WITH_SKIA=ON but no Skia SDK was found.\n"
+            "  vcpkg : vcpkg install skia:x64-windows, then configure with "
+            "-DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake\n"
+            "  manual: pass -DAIRUI_SKIA_ROOT=<prefix> with headers at "
+            "include/skia/include/core and a skia library under lib/\n"
+            "See docs/skia-backend.md.")
+    endif()
+
+    add_library(airui-skia STATIC
+        src/airui/platform/skia/airui/SkiaTypes.cpp
+        src/airui/platform/skia/airui/SkiaPainter.cpp
+        src/airui/platform/skia/airui/SkiaSurface.cpp
+    )
+    target_include_directories(airui-skia PUBLIC
+        ${CMAKE_SOURCE_DIR}/src/airui/platform/skia
+        ${AIRUI_SKIA_INCLUDE_DIRS})
+    target_link_libraries(airui-skia
+        PUBLIC airui-core
+        PRIVATE ${AIRUI_SKIA_LIBRARIES})
+    if(WIN32)
+        # SkiaSurface presents through a 32bpp DIB + AlphaBlend.
+        target_link_libraries(airui-skia PUBLIC msimg32 gdi32 user32)
+    endif()
+    target_compile_definitions(airui-skia PUBLIC AIRUI_HAVE_SKIA=1)
+
+    if(WIN32)
+        # Lets Shell.cpp select the Skia chrome route at runtime while
+        # keeping the default GDI route untouched.
+        target_link_libraries(airui-win32 PUBLIC airui-skia)
+    endif()
+
+    message(STATUS "AirUI: Skia backend enabled (${AIRUI_SKIA_LIBRARIES})")
+endif()
+
+file(GLOB_RECURSE CORE_SOURCES
     src/core/*.cpp
 )
 file(GLOB_RECURSE IPC_SOURCES 
@@ -359,6 +442,39 @@ if(MSVC)
     set_target_properties(test_paint_recorder PROPERTIES LINK_FLAGS "/SUBSYSTEM:CONSOLE")
 endif()
 
+# Skia backend value mapping. NO Skia SDK needed: this is a pure-C++
+# test of the conversion layer, so it runs in ctest on all three OSes.
+add_executable(test_skia_types
+    tests/test_skia_types.cpp
+    src/airui/platform/skia/airui/SkiaTypes.cpp
+)
+target_include_directories(test_skia_types PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/airui/platform/skia)
+target_link_libraries(test_skia_types PRIVATE airui-core)
+set_target_properties(test_skia_types PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
+)
+if(MSVC)
+    set_target_properties(test_skia_types PROPERTIES LINK_FLAGS "/SUBSYSTEM:CONSOLE")
+endif()
+
+# Real dual-backend check: needs a Skia SDK (AIRUI_WITH_SKIA=ON).
+# Compares the platform-free PaintRecorder golden against the exact
+# IPainter call sequence received by the Skia backend, and verifies
+# raster pixels (G5, docs/cross-platform.md).
+if(AIRUI_WITH_SKIA)
+    add_executable(test_skia_backend tests/test_skia_backend.cpp)
+    target_link_libraries(test_skia_backend PRIVATE airui-skia airui-core)
+    set_target_properties(test_skia_backend PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+        RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
+    )
+    if(MSVC)
+        set_target_properties(test_skia_backend PROPERTIES LINK_FLAGS "/SUBSYSTEM:CONSOLE")
+    endif()
+endif()
+
 # AirUI reuse demo (examples/DemoWindow.cpp) — minimal Shell+Page example
 add_executable(airui_demo
     examples/DemoWindow.cpp
@@ -416,7 +532,7 @@ endif()
 # test_ui is an end-to-end script that drives a *running* airecord.exe
 # (window lookup + IPC), so it is not registered as a ctest case.
 enable_testing()
-foreach(_t test_core_layout test_controls_core test_shell_hal test_paint_recorder test_data_controls test_overlay_core test_framework_extra test_advanced_controls test_enterprise_controls test_studio_controls test_control_classes test_theme_manager test_draw_calls test_locale test_component_gallery test_ipc_pipe)
+foreach(_t test_core_layout test_controls_core test_shell_hal test_paint_recorder test_skia_types test_skia_backend test_data_controls test_overlay_core test_framework_extra test_advanced_controls test_enterprise_controls test_studio_controls test_control_classes test_theme_manager test_draw_calls test_locale test_component_gallery test_ipc_pipe)
     if(TARGET ${_t})
         add_test(NAME ${_t} COMMAND ${_t})
     endif()

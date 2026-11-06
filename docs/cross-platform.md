@@ -8,7 +8,8 @@
 > **实施状态补记（2026-11-07，Phase 1 完成后）**
 > - 本文 §2.2 把 `DrawCall.h` / `TestShell` 列为「平台无关、必须复用的资产」，那是**迁移前评估**：实际二者位于 `platform/win32/`，`DrawCall.h` 直接 `#include <windows.h>` 并使用 `RECT / COLORREF / swprintf_s`，`TestShell` 依赖 `HDC / HBITMAP / Canvas`，均无法在 Linux / macOS 编译。
 > - 现已在 `core` 新增平台无关的 `PaintRecorder`（`airui/PaintRecorder.h` + `core/src/PaintRecorder.cpp`）：把 `IPainter` 调用录成可比较、可 ASCII 序列化的 `PaintOp` 序列（`Matches` / `SequenceEquals` / `Diff` / `ToString`）。它统一取代各测试里的 ad-hoc 录制器，作为 **G5 跨后端一致性断言的金样基座**；`test_paint_recorder` 在 Windows / Linux / macOS 三平台 CI 产出同一份序列。
-> - **Skia 后端仍未实施**；§10 的开放问题（Skia 引入方式、Linux 窗口壳等）仍需评审拍板。真正的「Win GDI vs Skia 双后端 diff」要等第二个后端接入后才能执行，当前提供的是确定性金样与比对机制。
+> - **Skia 后端已在 Windows 以 opt-in 方式接入**（`AIRUI_WITH_SKIA`，默认 OFF）：`SkiaPainter`（IPainter → SkCanvas）+ `SkiaSurface`（raster BGRA → DIB → AlphaBlend），`ShellOptions.skiaChrome` 可把 `ShellCore` 外壳改由 Skia 绘制。引入方式定案见 `docs/skia-backend.md`（vcpkg 首选 / `AIRUI_SKIA_ROOT` 预编译备选 / 不采用子模块源码编译）。**Linux / macOS 应用本体与 Skia 版 `IWindow` 仍未实施**。
+> - §10 的「Skia 引入方式」已定案打勾；「Linux 窗口壳」等仍待评审。真 SDK 下的双后端序列断言由 `test_skia_backend` 与 `skia-windows` CI 作业承担；**像素级 GDI vs Skia 截图 diff** 仍是计划项。
 > - Phase 1 的三项 HAL 工作（`GdiPainter` / `Win32Window` 生产化、`IWindow` 完整事件注入、`Shell` 迁入 `ShellCore`）已完成，进展见 `docs/ROADMAP.md` §4。
 
 ---
@@ -342,7 +343,7 @@ class ClipsPage : public air::ui::Page {
 ## 10. 开放问题（评审时需定）
 
 - [ ] Linux 窗口壳：winit（更少代码，Wayland/X11 免费）还是自研 X11/Wayland 壳（更少依赖）？
-- [ ] Skia 引入方式：vcpkg `skia`、预编译 release、还是子模块源码编译？（影响 Windows 开发机搭建成本）
+- [x] Skia 引入方式（2026-11-07 定案）：vcpkg `skia` 首选 + `AIRUI_SKIA_ROOT` 预编译备选，不采用子模块源码编译；默认不进入构建图。完整决策与操作手册见 `docs/skia-backend.md`。
 - [ ] macOS 是否纳入本计划，还是先交付 Linux？
 - [ ] 图标方案：内置 SVG 渲染（推荐）还是 Fork 出 `AirIcons` 自带字体？
 - [ ] 辅助功能优先级：是否在 Linux 首发时强制支持 AT-SPI，还是 v1 明天再做？
