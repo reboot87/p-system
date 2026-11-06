@@ -1,4 +1,5 @@
 #include "App.h"
+#include "DiagLog.h"
 #include "SysInfo.h"
 #include "../ipc/Ipc.h"
 #include "pages/OverviewPage.h"
@@ -25,13 +26,24 @@ int App::Run(HINSTANCE hInstance)
     opt.sidebar   = true;
     opt.statusBar = true;
 
-    if (!m_shell.Create(hInstance, opt))
+    if (!m_shell.Create(hInstance, opt)) {
+        diag::Log(L"[fatal] shell create failed, gle=%lu", GetLastError());
         return 1;
+    }
 
     // 插件钩子：所有窗口消息先过插件分发（F3/F4 等）
     m_shell.SetMessageHook(
         [this](HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                LRESULT& result) -> bool {
+            // 退出链路留痕：现场"闪一下就消失"时能区分是自己关的窗，
+            // 还是外部进程投递 WM_CLOSE / 结束进程（见 client.log）
+            if (msg == WM_CLOSE || msg == WM_DESTROY ||
+                msg == WM_ENDSESSION || msg == WM_QUERYENDSESSION) {
+                POINT cur{}; GetCursorPos(&cur);
+                diag::Log(L"[msg] 0x%04X wParam=%llu insend=%d cursor=%ld,%ld",
+                          msg, (unsigned long long)wParam,
+                          (int)InSendMessage(), cur.x, cur.y);
+            }
             // 服务端新记录通知 → 防抖后刷新（合并连续多次复制）
             if (msg == WM_APP + 2) {
                 SetTimer(hwnd, TIMER_REFRESH_NOTIFY, 300, nullptr);
@@ -127,6 +139,7 @@ int App::Run(HINSTANCE hInstance)
 
     // ---- 插件 ----
     if (!m_plugins.AttachAll(*this)) {
+        diag::Log(L"[fatal] plugin attach failed");
         m_plugins.DetachAll(*this);
         return 2;
     }
@@ -137,7 +150,10 @@ int App::Run(HINSTANCE hInstance)
     RefreshStats();
     SyncServiceUi();
 
+    diag::Log(L"[ui] message loop begin, stats.total=%lld, svc=%d",
+              (long long)m_stats.total, (int)m_svcState);
     int rc = m_shell.RunMessageLoop();
+    diag::Log(L"[ui] message loop end, rc=%d", rc);
     m_plugins.DetachAll(*this);
     return rc;
 }

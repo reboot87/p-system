@@ -29,6 +29,7 @@
 #include "../ipc/Ipc.h"
 #include "../ipc/PipeServer.h"
 #include "../core/Database.h"
+#include "../core/DiagLog.h"
 #include "../core/MachineConfig.h"
 
 #pragma comment(lib, "shell32.lib")
@@ -157,8 +158,11 @@ static bool IsServiceInstalled()
 
 static void LaunchClient()
 {
-    ShellExecuteW(g_hwnd, L"open", g_clientPath.c_str(),
-                  nullptr, nullptr, SW_SHOWNORMAL);
+    // 客户端"闪一下就没了"时，先确认是没拉起来还是拉起来后退出的
+    HINSTANCE r = ShellExecuteW(g_hwnd, L"open", g_clientPath.c_str(),
+                                nullptr, nullptr, SW_SHOWNORMAL);
+    diag::Log(L"[launch-client] session=%lu path=%ls ret=%p",
+              diag::SessionId(), g_clientPath.c_str(), (void*)r);
 }
 
 // ---------- 托盘 ----------

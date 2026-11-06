@@ -6,6 +6,7 @@
 // 启动逻辑：单实例 → 自动拉起服务端（未运行时）→ 显示 UI
 // ============================================================
 #include "core/App.h"
+#include "core/DiagLog.h"
 #include "plugins/SearchPlugin.h"
 #include "plugins/ManualEntryPlugin.h"
 #include <memory>
@@ -36,10 +37,23 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int)
 {
     HeapSetInformation(nullptr, HeapEnableTerminationOnCorruption, nullptr, 0);
 
+    diag::Log(L"[start] session=%lu exe-dir=%ls", diag::SessionId(),
+              ExeDir().c_str());
+
+    // 未处理异常：先落盘再交给系统（现场"闪一下就没了"时靠这条定位）
+    SetUnhandledExceptionFilter([](EXCEPTION_POINTERS* ep) -> LONG {
+        if (ep && ep->ExceptionRecord)
+            diag::Log(L"[crash] code=0x%08lX addr=%p",
+                      ep->ExceptionRecord->ExceptionCode,
+                      ep->ExceptionRecord->ExceptionAddress);
+        return EXCEPTION_CONTINUE_SEARCH;
+    });
+
     // 单实例：已运行则激活已有窗口
     HANDLE mutex = CreateMutexW(nullptr, TRUE, L"Local\\AireRecordUiMutex");
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
         HWND exist = FindWindowW(L"AireRecordWnd", nullptr);
+        diag::Log(L"[second-instance] existing=%p", (void*)exist);
         if (exist) {
             ShowWindow(exist, SW_RESTORE);
             SetForegroundWindow(exist);
@@ -51,5 +65,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int)
     App app;
     app.SetServicePath(ExeDir() + L"\\airecordd.exe");
     RegisterClientPlugins(app);
-    return app.Run(hInstance);
+    int rc = app.Run(hInstance);
+    diag::Log(L"[exit] rc=%d", rc);
+    return rc;
 }
