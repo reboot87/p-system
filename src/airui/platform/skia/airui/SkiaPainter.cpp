@@ -156,11 +156,22 @@ struct RoleMetrics
     int      cell    = 13;     // GDI cell height, which is also the line advance
 };
 
-// Width reference: Latin plus digits, so the average advance is
-// representative of UI text and the ratio fixes the advance scale rather
-// than one glyph's bearing. Measured in the role's own family, so it is
-// the same face GDI selects.
-constexpr wchar_t kRefText[] = L"AireRecord 0123456789";
+// Width reference: a run of hanzi. GDI grid-fits every glyph to whole
+// pixels, so the advance ratio of a *mixed* run depends on which glyph
+// class dominates -- anchoring on "AireRecord 0123456789" made the
+// semibold roles come out ~19% too wide and the regular ones a couple of
+// percent narrow. A hanzi run has one advance for every glyph, no side
+// bearings at the ends to speak of, and an exact 1:1 relation to the em,
+// so the ratio it produces is the em itself. Latin then follows for free
+// because it is the same face.
+//
+// The strings are code points so this file stays ASCII-only whatever the
+// compiler's source charset is: "workbench overview".
+constexpr wchar_t kRefCjk[] = { 0x5DE5, 0x4F5C, 0x53F0, 0x603B, 0x89C8, 0 };
+constexpr int     kRefCjkCount = 5;
+// Latin fallbacks, used only if the CJK run cannot be measured.
+constexpr wchar_t kRefText[]   = L"AireRecord";
+constexpr wchar_t kRefDigits[] = L"0123456789";
 // One Segoe MDL2 glyph, for icon-role calibration.
 constexpr wchar_t kRefIcon   = 0xE700;
 
@@ -307,9 +318,22 @@ RoleMetrics MeasureRole(HDC dc, const SharedFaces& f, FontRole role)
         solve(&kRefIcon, 1, face, SkTextEncoding::kUTF16,
               (int)sizeof(wchar_t), rm.em);
     } else {
-        solve(kRefText, static_cast<int>(sizeof(kRefText) / sizeof(wchar_t)) - 1,
-              face, SkTextEncoding::kUTF16,
-              (int)(sizeof(kRefText) - sizeof(wchar_t)), rm.em);
+        SkScalar em = 0.f;
+        solve(kRefCjk, kRefCjkCount, face, SkTextEncoding::kUTF16,
+              kRefCjkCount * (int)sizeof(wchar_t), em);
+        // A face without hanzi (or a DC that refused the run): fall back
+        // to letters, then digits.
+        if (em <= 1.f) {
+            solve(kRefText, (int)(sizeof(kRefText) / sizeof(wchar_t)) - 1, face,
+                  SkTextEncoding::kUTF16,
+                  (int)(sizeof(kRefText) - sizeof(wchar_t)), em);
+        }
+        if (em <= 1.f) {
+            solve(kRefDigits, (int)(sizeof(kRefDigits) / sizeof(wchar_t)) - 1,
+                  face, SkTextEncoding::kUTF16,
+                  (int)(sizeof(kRefDigits) - sizeof(wchar_t)), em);
+        }
+        if (em > 1.f) rm.em = em;
 
         // Chinese needs no separate size: the UI family *is* Microsoft
         // YaHei UI, so GDI never font-links here and Latin and CJK share

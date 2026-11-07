@@ -196,31 +196,30 @@ src/airui/platform/skia/airui/
 
 两个后端的文字必须看起来像同一个字体，否则切到 Skia 立刻"变丑"。踩过的坑与结论：
 
-**（1）单位不同：GDI 的 `lfHeight` 是 cell，`SkFont::setSize` 是 em。**
-`CreateFontW(-13, ...)` 的 13 是字符格高（Segoe UI 下 ≈ 1.33 em）；把 13 直接喂给 `setSize()`，字会大 33% —— 标题压住副标题、导航项全部被省略号截断。
-用 `SkFontMetrics` 的 typo 度量反解也不行：Segoe UI 的 typo 只有 ≈ 0.9375 em，反解出来仍然放大 1.4 倍（实测 Skia 标题 101px vs GDI 75px）。
+**（0）先把"设计系统到底是什么"对齐，否则后面全是白工。**
+GDI 后端画字走 `Fonts`（`src/airui/platform/win32/Fonts.cpp`），来源是 `Theme.h` 的 `Metrics`：字族 **`Microsoft YaHei UI`**，字号 `Body 14 / Meta 12 / Title 13 / Section 14 / Button 14 / Icon 11 / IconLarge 16 / Display 22`，Title/Section/Button/Display 是 `FW_SEMIBOLD`。`UiText.h` 一度写成 `Segoe UI` 加一套自造字号（13/11/20/15/…），结果标定拿 Segoe UI 去量、Skia 也用 Segoe UI 画，两端都跟 GDI 对不上：标题偏小、正文偏小 25%~30%、中文偏小 30%。
+现在 `UiText.h` 的 `kCell`/`kWeight` 就是上表，`kFamilyUi` 就是 YaHei UI。**改设计系统时两边必须一起改。**
 
-**（2）最终做法：用 GDI 实测宽度反解 em（标定法）。**
+**（1）单位不同：GDI 的 `lfHeight` 是 cell，`SkFont::setSize` 是 em。**
+`CreateFontW(-13, ...)` 的 13 是字符格高（YaHei UI 下 ≈ 1.36 em）；把 13 直接喂给 `setSize()`，字会大 33% —— 标题压住副标题、导航项全部被省略号截断。
+用 `SkFontMetrics` 的 typo 度量反解也不行：typo 之和只有 ≈ 0.94 em，反解出来仍然放大 1.4 倍。
+
+**（2）做法：用 GDI 实测宽度反解 em（标定法）。**
 `MeasureRole()` 在与后端完全相同的 `LOGFONT`（同字族、同 cell、同字重、同 `CLEARTYPE_QUALITY`）下，**就在目标字号上**量参考串 `"AireRecord 0123456789"` 的 `GetTextExtentPoint32W` 宽度，再解出让 Skia 宽度相等的 em：
 
 ```
 em = 1000 * gdiWidth / skiaWidthAt1000
 ```
 
+不要"在 200px 处量完再按比例缩回目标字号"：GDI 把请求的字符高度**向上取整到字体单元格**（要 13、实际画 17），这个台阶在不同字号上不线性，缩回来的字号 GDI 根本不会画。
+
 **（3）"GDI 报的 cell 比请求的大"不是 DPI 虚拟化，那是 cell 取整。**
-`CreateFontW(-13, ...)` 时 `GetTextMetricsW` 报 `tmHeight = 17`。曾经把它当成 DPI 缩放因子 `gdiScale = 17/13`，从 ascent/descent 和参考宽度里除掉——结果整个 UI 小了 25%~30%（导航中文 9.3px/字 vs GDI 13.7px/字，标题也明显偏小）。
-真实原因是 GDI 用**向上取整到字体单元格**的方式实现"字符高度"语义：请求 13、实际画 17。用 96 DPI + `SetProcessDPIAware()` 的裸探针（`scripts/probe_cjk.cpp`）就能复现同样的 17/13，与 DPI 无关。
-所以现在的做法是：**请求的字号直测，不缩放**；并且把 `RoleMetrics::cell` 取成**实际** `tmHeight`——`DrawText` 的 `DT_VCENTER` 与行高用的都是它，用请求值会让多行行距偏紧。
-另外不要用"200px 大字号量完再按比例缩回目标字号"：13→17 这个台阶在不同字号上不线性，缩回来的字号 GDI 根本不会画。
+`CreateFontW(-13, ...)` 时 `GetTextMetricsW` 报 `tmHeight = 17`。曾经把它当成 DPI 缩放因子 `gdiScale = 17/13`，从 ascent/descent 和参考宽度里除掉——整个 UI 立刻小了 25%~30%。用 96 DPI + `SetProcessDPIAware()` 的裸探针（`scripts/probe_cjk.cpp`）可复现同样的 17/13，与 DPI 无关。
+现在的做法：**请求的字号直测、不缩放**，并把 `RoleMetrics::cell` 取成**实际** `tmHeight`——`DrawText` 的 `DT_VCENTER` 与行高用的都是它，用请求值会让多行行距偏紧。
 
-**（4）中文必须单独标定，而且只能在目标字号上量。**
-GDI 靠字体链接把中文交给 Microsoft YaHei UI，且**链接后的字号与拉丁 em 不同**：cell 13 时拉丁 em ≈ 12.8，而每个汉字的步进是 **16px**（`scripts/probe_cjk.cpp` 实测，weight 400：cell 11→13、13→16、15→16、18→19、20→20、28→29；weight 600 各加约 1px）。
-`GetTextExtentPoint32W` 在目标字号处**是**会走字体链接的（探针里 `GetTextExtentPoint32W` 与 `DrawText(DT_CALCRECT)` 的结果完全一致，例如 cell 13 的两个数都是 128/16），但**在大字号处不会**——早期在 200px 处量中文，解出 3.92 em 这种荒谬值，就是链接没生效。
-所以现在用「同字长串 + 单字」两笔量出净步进，避免左右 side bearing 污染：
-
-```
-emCjk = (width(8 个汉字) - width(1 个汉字)) / 7      // 汉字步进恒为 1 em
-```
+**（4）中文不需要单独标定。**
+既然 UI 字族本身就是 YaHei UI（不是 Segoe UI + 字体链接），拉丁和中文共用一套 em，汉字步进恒为 1 em，`emCjk = em`。
+（曾经为"Segoe UI + 链接"写过单独标定：链接只在请求字号附近生效，在 200px 处量中文会解出 3.92 em 这种荒谬值；而且 GDI 对中文串的 `GetTextExtent` 与逐字步进不完全线性。换成同一字族后这些问题一并消失。）
 
 **（5）基线按 GDI 的 cell 内偏移算。**
 `DrawText` 以 `tmHeight` 为 cell、baseline 距 cell 顶 `tmAscent`：`DT_TOP → top + ascent`、`DT_VCENTER → top + floor((h - cell)/2) + ascent`、`DT_BOTTOM → bottom - descent`，最后对 y 取 `floor`。行高与 `TextBlock` 起点同样用实际 `cell`/`ascent`。
@@ -229,14 +228,14 @@ emCjk = (width(8 个汉字) - width(1 个汉字)) / 7      // 汉字步进恒为
 原实现无条件 `push_back("...")`，导致每个导航项都带尾点。现在先 `textW + dotsW > avail` 才截断，`avail` 加 1px 容差模拟 GDI 的整数像素取整。
 
 **（7）字重来自设计系统。**
-Title / Section / Button / Display 是 **600（semibold）**，Body / Meta / Icon 是 400。Skia 原先只有 400 face，标题明显更轻、"像换了字体"。现在 `SharedFaces` 同时持 400/600 与 `Microsoft YaHei UI Semibold`，用 `UiFaceFor()` / `CjkFaceFor()` 按 role 选面；`MeasureRole` 也按同一字重造 GDI 参考字体，标定与绘制一致。
+Title / Section / Button / Display 是 **600（semibold）**，Body / Meta / Icon 是 400。Skia 原先只有 400 face，标题明显更轻、"像换了字体"。现在 `SharedFaces` 同时持 400/600（含 `Microsoft YaHei UI Semibold`），用 `UiFaceFor()` / `CjkFaceFor()` 按 role 选面；`MeasureRole` 也按同一字重造 GDI 参考字体，标定与绘制一致。
 
 **（8）清晰度贴近 `CLEARTYPE_QUALITY`。**
 `setHinting(kFull)` + `setSubpixel(false)` + `setEdging(kAntiAlias)`：不用 subpixel 是因为 Skia 的 LCD 滤镜与 GDI ClearType 的滤色矩阵不同，混排会在彩色边缘上看出来；全 hinting + 灰度抗锯齿更接近。
 
 **字号与字重的唯一来源是 `src/airui/core/include/airui/UiText.h`**（`RoleFontSpec()`，header-only、平台无关，因为 Skia 插件不链接 core）。GDI 的 `GdiPainter::FontFor()`、Skia 的 `SkiaTypes::RoleFontSize()` 与标定都读它，避免两边各维护一张表再次漂移。
 
-排查用：`set AIRUI_PAINT_TRACE=1` 后运行，标定结果写到 `%LOCALAPPDATA%\AireRecord\skia_font.log`（每个 role 的 `cell/em/ascent/descent` 只写一次，之后追加每条文本的 role、size、宽度、坐标）。
+排查用：`set AIRUI_PAINT_TRACE=1` 后运行，Skia 侧标定写到 `%LOCALAPPDATA%\AireRecord\skia_font.log`（每个 role 的 `cell/em/ascent/descent` 只写一次，之后追加每条文本的 role、size、宽度、坐标）；GDI 侧同一开关会把每次 `gfx::Text` 的 `lfHeight`、rect、实测宽度追加到同目录 `gdi_font.log`。**两个日志逐行对比**是判断"某一行字为什么不一样"最快的手段：同一段文字在两边的 `w=` 应该相等，`h=`（GDI）与 `cell`（Skia 标定）应该对得上。
 
 ---
 
