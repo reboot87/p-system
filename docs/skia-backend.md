@@ -170,6 +170,7 @@ cmake -S . -B build-skia -G "Visual Studio 17 2022" -A x64 `
 ```
 src/airui/core/
 ├─ include/airui/PaintBackend.h   运行时注册表 / PaintTarget / 解析函数（平台无关）
+├─ include/airui/UiText.h         字体规格唯一来源（cell 高度 + 字重，平台无关 header-only）
 └─ src/PaintBackend.cpp           Begin 解析 + gdi 回退 + LastError
 
 src/airui/platform/win32/
@@ -190,6 +191,45 @@ src/airui/platform/skia/airui/
 ```
 
 **上屏路径**：`SkImageInfo(kBGRA_8888, kPremul)` → `SkBitmap::allocPixels` → `SkCanvas(bitmap)` → 绘制 → 逐行拷进 `CreateDIBSection` 创建的 top-down 32bpp DIB → `AlphaBlend(AC_SRC_ALPHA)` 合成到 HDC。Skia 的 premultiplied BGRA 与 Win32 DIB 布局天然一致；透明像素不改动下方 GDI 内容，所以 Skia 外壳与旧 GDI 页面可以并存。
+
+### 4.1 文字：与 GDI 用同一套度量（这是最容易做错的地方）
+
+两个后端的文字必须看起来像同一个字体，否则切到 Skia 立刻"变丑"。踩过的坑与结论：
+
+**（1）单位不同：GDI 的 `lfHeight` 是 cell，`SkFont::setSize` 是 em。**
+`CreateFontW(-13, ...)` 的 13 是字符格高（Segoe UI 下 ≈ 1.33 em）；把 13 直接喂给 `setSize()`，字会大 33% —— 标题压住副标题、导航项全部被省略号截断。
+用 `SkFontMetrics` 的 typo 度量反解也不行：Segoe UI 的 typo 只有 ≈ 0.9375 em，反解出来仍然放大 1.4 倍（实测 Skia 标题 101px vs GDI 75px）。
+
+**（2）最终做法：用 GDI 实测宽度反解 em（标定法）。**
+`MeasureRole()` 在与后端完全相同的 `LOGFONT`（同字族、同 cell、同字重、同 `CLEARTYPE_QUALITY`）下，用 200px 大字号量参考串 `"AireRecord 0123456789"` 的 `GetTextExtentPoint32W` 宽度，再解出让 Skia 宽度相等的 em：
+
+```
+em = 1000 * (gdiWidth / gdiScale * cell / kRefCell) / skiaWidthAt1000
+```
+
+两侧都是纯比例，大字号只用来提高精度；与字族、DPI、度量来源都无关。
+
+**（3）标定用的 DC 是 DPI 虚拟化的，绘制面不是。**
+requested cell = 13 时 `GetTextMetricsW` 报 `tmHeight = 17`（1.31×），而 `SkiaFrame` 画布是未缩放的设备像素。所以要用同一 DC 的 `gdiScale = tmHeight / requestedCell` 把 `tmAscent` / `tmDescent` 和参考宽度一起除掉，否则字仍然偏大 1.31 倍。
+
+**（4）中文不单独标定。**
+GDI 靠字体链接把中文交给 Microsoft YaHei UI，但 `GetTextExtentPoint32W` **不做字体链接**（只在请求字号附近才链接），在 200px / 3× cell 处量中文会算出 3.92 em 这种荒谬值。结论：CJK 每字宽度恒为 1 em，`emCjk = em`（实测吻合：Title 角色 5 个汉字 71px = 14.2 em）。
+
+**（5）基线按 GDI 的 cell 内偏移算。**
+`DrawText` 以 `tmHeight` 为 cell、baseline 距 cell 顶 `tmAscent`：`DT_TOP → top + ascent`、`DT_VCENTER → top + floor((h - cell)/2) + ascent`、`DT_BOTTOM → bottom - descent`，最后对 y 取 `floor`。`ascent/descent` 本身 `round` 到整像素；行高与 `TextBlock` 起点同样用 `cell`/`ascent`。
+
+**（6）`DT_END_ELLIPSIS` 只在放不下时才省略。**
+原实现无条件 `push_back("...")`，导致每个导航项都带尾点。现在先 `textW + dotsW > avail` 才截断，`avail` 加 1px 容差模拟 GDI 的整数像素取整。
+
+**（7）字重来自设计系统。**
+Title / Section / Button / Display 是 **600（semibold）**，Body / Meta / Icon 是 400。Skia 原先只有 400 face，标题明显更轻、"像换了字体"。现在 `SharedFaces` 同时持 400/600 与 `Microsoft YaHei UI Semibold`，用 `UiFaceFor()` / `CjkFaceFor()` 按 role 选面；`MeasureRole` 也按同一字重造 GDI 参考字体，标定与绘制一致。
+
+**（8）清晰度贴近 `CLEARTYPE_QUALITY`。**
+`setHinting(kFull)` + `setSubpixel(false)` + `setEdging(kAntiAlias)`：不用 subpixel 是因为 Skia 的 LCD 滤镜与 GDI ClearType 的滤色矩阵不同，混排会在彩色边缘上看出来；全 hinting + 灰度抗锯齿更接近。
+
+**字号与字重的唯一来源是 `src/airui/core/include/airui/UiText.h`**（`RoleFontSpec()`，header-only、平台无关，因为 Skia 插件不链接 core）。GDI 的 `GdiPainter::FontFor()`、Skia 的 `SkiaTypes::RoleFontSize()` 与标定都读它，避免两边各维护一张表再次漂移。
+
+排查用：`set AIRUI_PAINT_TRACE=1` 后运行，标定结果写到 `%LOCALAPPDATA%\AireRecord\skia_font.log`（每个 role 的 `cell/em/ascent/descent` 只写一次，之后追加每条文本的 role、size、宽度、坐标）。
 
 ---
 
@@ -346,7 +386,8 @@ airecord.exe --paint-backend=skia
 - **VS2017 只验证了「使用 DLL」，未验证「编译 Skia」**：真 SDK 源码编译仍只在 VS2022 CI 上做；官方 VS2017 工具链 x64 产物通过下载 DLL 使用 Skia 已实测（整窗 GUI 截图、像素差异、启动诊断、双向热切换，§5.2 / §5.3 / §5.4）。CI 目前只出 **x64** 插件，x86 官方产物需 x64 构建或另出 x86 artifact。
 - **Skia API 版本漂移**：所有 Skia 头集中在 `SkiaApi.h`；已在 vcpkg `skia@148` 上校准（§5.1），但 `drawSimpleText` / `measureText` 等仍可能随版本变化。
 - **整窗重绘的时序约束（切页/切菜单不能闪）**：Skia 一帧是「离屏光栅化 → `AlphaBlend` 到内存 DC → `BitBlt` 上屏」，只有最后那次 `BitBlt` 才真正改变屏幕。所以**任何中间态都不能被呈现**，而最容易被呈现的中间态恰恰是「背景色」。实测根因（commit `d6374b8`）：`SwitchPage()` 解除 `WM_SETREDRAW FALSE` 冻结时，Windows 会以**带 erase** 的方式重绘整个客户区，`WM_ERASEBKGND` 先把 1120×780 全填成主题背景色，而真正的 Skia 帧还要 46–63 ms 才上屏——这一帧纯背景就是用户看到的「全屏闪动」。修法是切页期间用 `m_eraseSuppressed` 让 `WM_ERASEBKGND` 只认领不填充，随后一次 `RedrawWindow(RDW_INVALIDATE|RDW_UPDATENOW|RDW_NOERASE|RDW_ALLCHILDREN)` 同步呈现唯一一帧；`m_paintedOnce` 保证窗口第一帧仍正常擦背景（否则新暴露区域会露未初始化内容）。同时「隐藏旧页 → 改选中态 → 布局 → 显示新页」整段收在冻结区内（`OnShow(true)` 若留在解冻之后，子控件会先擦背景露白块）。
-- **诊断入口**：`AIRUI_PAINT_TRACE=1` 启动后，`%LOCALAPPDATA%\AireRecord\shell_paint.log` 会打出每帧 `[paint] ... (begin/draw/present)` 分段耗时、`[switch] sync_ms`、`[erase] ... suppressed=` 探针。默认关闭、零开销。判断「是否还在闪」看 `[erase]` 行的 `suppressed` 是否为 1。
+- **字体已与 GDI 对齐，但仍是"近似逐像素"**：字号（GDI 宽度标定）、字重（400/600 分面）、基线（GDI cell/ascent + 整像素取整）、中文回退（CJK 1 em）、省略号语义（只在放不下时截断）都已统一，见 §4.1。残余差异来自抗锯齿本身：GDI ClearType 是 RGB 子像素、Skia 走灰度全 hinting，两边的灰阶过渡不同，逐像素 diff 不会归零；`MeasureText` 也可能与 GDI 有 ±1px 差别。这属于渲染质量差异，不是"字体不同"。
+- **诊断入口**：`AIRUI_PAINT_TRACE=1` 启动后，`%LOCALAPPDATA%\AireRecord\shell_paint.log` 会打出每帧 `[paint] ... (begin/draw/present)` 分段耗时、`[switch] sync_ms`、`[erase] ... suppressed=` 探针。默认关闭、零开销。判断「是否还在闪」看 `[erase]` 行的 `suppressed` 是否为 1。文字标定与逐条文本的 role/size/宽度/坐标写到同目录的 `skia_font.log`（§4.1）。
 - **Skia 单帧成本远高于 GDI**：1120×780 窗口实测 GDI 重绘 0–15 ms，Skia `draw` 段 63–109 ms（`present` 另占约 16 ms；`begin` 可忽略）。首次绘制因要建 3 个 typeface 达 125–188 ms，之后 typeface 进程级共享（commit `014cef7`）。定位手段：`AIRUI_PAINT_TRACE=1` 启动后会在 `%LOCALAPPDATA%\AireRecord\shell_paint.log` 打出每帧 `begin/draw/present` 分段耗时，默认关闭、零开销。这也是「切页比 GDI 明显钝」的原因，属已知性能边界，非正确性问题。
 
 ---
@@ -354,6 +395,6 @@ airecord.exe --paint-backend=skia
 ## 7. 下一步
 
 1. ~~观察 `test_skia_plugin` 首次真 SDK 结果~~ 已完成：run `42337859169` 四个作业全绿，插件 DLL 与动态加载测试**首跑即通过**，无需修正 ABI / 导出名；后续每次 push/PR 自动复验。
-2. ~~校准字体度量与 CJK 回退~~ 已完成（commit `0cb349f`）：`EnsureFaces()` 用 `SkCreateTypefaceFromLOGFONT` 创建 "Microsoft YaHei UI" / "Segoe MDL2 Assets" typeface 并做逐码点回退，`SkiaPluginSupportsWideText()` 应返回 true、自动进入 `text=backend` 纯 Skia 整窗；待重测确认探测通过后再补 GDI vs Skia 截图阈值 / SSIM 基线。
+2. ~~校准字体度量与 CJK 回退~~ 已完成（commit `0cb349f` 建 face 回退；后续 commit 把字号改为 GDI 宽度标定、修掉 DPI 缩放、字重补 semibold、省略号条件化，见 §4.1）：`EnsureFaces()` 用 `SkCreateTypefaceFromLOGFONT` 创建 "Microsoft YaHei UI" / "Segoe MDL2 Assets" typeface 并做逐码点回退，`SkiaPluginSupportsWideText()` 应返回 true、自动进入 `text=backend` 纯 Skia 整窗；待重测确认探测通过后再补 GDI vs Skia 截图阈值 / SSIM 基线。
 3. 把 `test_paint_frame` 的帧路由契约与 GUI 截图比对接入 CI（需要带窗口的 runner 步骤）。
 3. Phase 2 剩余：Skia 版 `IWindow` / Linux 窗口壳（`cross-platform.md` §10 仍待定）。

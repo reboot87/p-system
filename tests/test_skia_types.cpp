@@ -67,11 +67,16 @@ int main()
 
     std::wstring emoji;
     constexpr bool kUtf16 = (sizeof(wchar_t) == 2);
+    // Kept out of the constant domain so that the UTF-32 branch below does
+    // not trip C4309 (constant truncation) on Windows builds where wchar_t
+    // is 16 bits -- `if constexpr` outside a template still type-checks the
+    // discarded branch.
+    static const unsigned long kEmojiCodePoint = 0x1F600UL;
     if constexpr (kUtf16) {
         emoji.push_back(static_cast<wchar_t>(0xD83D));
         emoji.push_back(static_cast<wchar_t>(0xDE00));
     } else {
-        emoji.push_back(static_cast<wchar_t>(0x1F600));
+        emoji.push_back(static_cast<wchar_t>(kEmojiCodePoint));
     }
     Check(Hex(WideToUtf8(emoji)) == "F09F9880", "4-byte UTF-8 / surrogate pair");
 
