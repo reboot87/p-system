@@ -27,6 +27,8 @@ int App::Run(HINSTANCE hInstance)
     opt.statusBar = true;
     // 静默启动或延迟显示时，窗口先以隐藏状态创建
     opt.showOnCreate = !m_startHidden && m_showDelayMs <= 0;
+    // 运行时后端选择（--paint-backend / AIRUI_PAINT_BACKEND / 默认 gdi）
+    opt.paintBackend = m_paintBackend;
 
     if (!m_shell.Create(hInstance, opt)) {
         diag::Log(L"[fatal] shell create failed, gle=%lu", GetLastError());

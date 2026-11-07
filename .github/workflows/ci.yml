@@ -38,9 +38,11 @@ jobs:
         run: |
           cmake --build build-core --config Release --target test_shell_hal
           cmake --build build-core --config Release --target test_paint_recorder
+          cmake --build build-core --config Release --target test_paint_backend
           cmake --build build-core --config Release --target test_skia_types
           ./build-core/test_shell_hal
           ./build-core/test_paint_recorder
+          ./build-core/test_paint_backend
           ./build-core/test_skia_types
 
       - name: Skia backend API contract gate (no SDK required)
@@ -85,6 +87,11 @@ jobs:
 
       - name: Build airui-core
         run: cmake --build build-core --config Release --target airui-core
+
+      - name: Build + run runtime backend registry test
+        run: |
+          cmake --build build-core --config Release --target test_paint_backend
+          .\build-core\Release\test_paint_backend.exe
 
   # ---------------------------------------------------------------
   # B. Real Skia SDK verification — automatic on every push / PR.
@@ -198,11 +205,13 @@ jobs:
             -DAIRUI_WITH_SKIA=ON "-DCMAKE_TOOLCHAIN_FILE=$tc"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Build Skia backend + dual-backend test
+      - name: Build Skia backend, plugin DLL + tests
         shell: pwsh
         run: |
           cmake --build build-skia --config Release --target airui-skia
+          cmake --build build-skia --config Release --target airui-skia-plugin
           cmake --build build-skia --config Release --target test_skia_backend
+          cmake --build build-skia --config Release --target test_skia_plugin
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run G5 dual-backend parity test
@@ -210,4 +219,11 @@ jobs:
         run: |
           $env:PATH = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\bin;$env:PATH"
           & .\build-skia\Release\test_skia_backend.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run runtime Skia plugin selection test
+        shell: pwsh
+        run: |
+          $env:PATH = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\bin;$env:PATH"
+          & .\build-skia\Release\test_skia_plugin.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

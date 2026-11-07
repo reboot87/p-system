@@ -11,6 +11,7 @@
 #include "plugins/SearchPlugin.h"
 #include "plugins/ManualEntryPlugin.h"
 #include <memory>
+#include <string>
 #include <shellapi.h>
 #include <stdlib.h>
 
@@ -44,6 +45,9 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int)
     //   --hidden            静默启动：窗口建好但不显示（由热键/托盘唤出）
     //   --show-after=<ms>   延迟显示：先隐藏建窗，ms 后再显示
     //                       不传则读机器级配置 [service] defer_show_ms（默认 0）
+    //   --paint-backend=<id>  运行时绘制后端：gdi / skia / auto
+    //                       skia 可来自静态链接或 airui-skia.dll 动态加载；
+    //                       不可用时自动回退 gdi，无需重新编译
     //
     // 为什么要延迟显示：部分终端管控/DLP 会在进程启动后约 0.3~0.6s 检查
     // "新出现的可见窗口"并投递 WM_CLOSE 后强杀；隐藏建窗、>600ms 再显示
@@ -51,6 +55,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int)
     bool startHidden = false;
     bool noActivate  = false;
     int  showAfterMs = -1;
+    std::string paintBackend;
     {
         int argc = 0;
         LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
@@ -61,6 +66,13 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int)
                 noActivate = true;
             else if (_wcsnicmp(argv[i], L"--show-after=", 13) == 0)
                 showAfterMs = _wtoi(argv[i] + 13);
+            else if (_wcsnicmp(argv[i], L"--paint-backend=", 16) == 0) {
+                // Backend ids are ASCII; map anything else to '?' so the
+                // registry rejects it and falls back to gdi cleanly.
+                for (const wchar_t* p = argv[i] + 16; *p; ++p)
+                    paintBackend.push_back((*p > 0 && *p < 128)
+                        ? static_cast<char>(*p) : '?');
+            }
         }
         if (argv) LocalFree(argv);
     }
@@ -95,6 +107,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int)
     }
 
     App app;
+    if (!paintBackend.empty()) app.SetPaintBackend(paintBackend);
     app.SetServicePath(ExeDir() + L"\\airecordd.exe");
     app.SetStartHidden(startHidden);
     app.SetShowDelayMs(showAfterMs);

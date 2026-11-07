@@ -13,9 +13,10 @@ endif()
 # Include directories
 #   core/include      -> airui-core public headers (platform-free)
 #   platform/win32    -> airui-win32 public headers (airui/*.h)
-#   platform/skia     -> optional backend headers (headers only; nothing
-#                        from this directory is compiled or linked unless
-#                        AIRUI_WITH_SKIA=ON)
+#   platform/skia     -> optional backend headers. The app only needs
+#                        the platform-free C ABI header at runtime;
+#                        Skia sources/libs are compiled solely into
+#                        airui-skia(.dll) when AIRUI_WITH_SKIA=ON.
 include_directories(
     ${CMAKE_SOURCE_DIR}/src/airui/core/include
     ${CMAKE_SOURCE_DIR}/src/airui/platform/win32
@@ -55,6 +56,7 @@ set(AIRUI_CORE_SOURCES
     src/airui/core/src/ControlsClasses.cpp
     src/airui/core/src/ShellCore.cpp
     src/airui/core/src/PaintRecorder.cpp
+    src/airui/core/src/PaintBackend.cpp
 )
 add_library(airui-core STATIC ${AIRUI_CORE_SOURCES})
 target_include_directories(airui-core PUBLIC
@@ -73,6 +75,7 @@ set(AIRUI_SOURCES
     src/airui/platform/win32/Gfx.cpp
     src/airui/platform/win32/Page.cpp
     src/airui/platform/win32/Shell.cpp
+    src/airui/platform/win32/PaintProviders.cpp
     src/airui/platform/win32/Widgets.cpp
     src/airui/platform/win32/Components.cpp
     src/airui/platform/win32/Responsive.cpp
@@ -96,20 +99,29 @@ else()
 endif()
 
 # ------------------------------------------------------------
-# Optional Skia rendering backend (Phase 2, Windows first).
+# Skia is a RUNTIME backend choice, NOT a compile-time one.
 #
-# OFF by default. The official build stays CMake + VS2017 + GDI;
-# nothing in the default graph references Skia. Turn it on only when
-# a Skia SDK is available:
+# The application always contains the runtime registry (core) and the
+# dynamic loader (win32). Dropping airui-skia.dll next to the exe is
+# enough to make "skia" selectable at runtime, with no SDK and no
+# rebuild of the official CMake + VS2017 + GDI product.
+#
+# AIRUI_WITH_SKIA therefore only controls whether THIS build produces
+# Skia code: when ON it builds airui-skia.dll (plus an embedded skia
+# provider and the real-SDK tests). It never decides which painter a
+# frame uses. Selection is --paint-backend / AIRUI_PAINT_BACKEND /
+# ShellOptions.paintBackend / Shell::SetPaintBackend, resolved by
+# PainterRegistry with an automatic gdi fallback.
+#
+# Turn it on only when a Skia SDK is available:
 #   -DAIRUI_WITH_SKIA=ON -DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake
 # (vcpkg install skia:x64-windows), or
 #   -DAIRUI_WITH_SKIA=ON -DAIRUI_SKIA_ROOT=<prebuilt-prefix>
-#
-# Two discovery paths are supported on purpose: vcpkg is the default
-# recommendation, AIRUI_SKIA_ROOT is the escape hatch for a prebuilt
-# release or an in-tree source build. See docs/skia-backend.md.
+# See docs/skia-backend.md.
 # ------------------------------------------------------------
-option(AIRUI_WITH_SKIA "Build the optional Skia raster backend" OFF)
+option(AIRUI_WITH_SKIA
+       "Build the Skia backend (plugin DLL + embedded provider); does not select the runtime backend"
+       OFF)
 
 set(AIRUI_SKIA_FOUND OFF)
 set(AIRUI_SKIA_INCLUDE_DIRS "")
@@ -165,12 +177,26 @@ if(AIRUI_WITH_SKIA)
     target_compile_definitions(airui-skia PUBLIC AIRUI_HAVE_SKIA=1)
 
     if(WIN32)
-        # Lets Shell.cpp select the Skia chrome route at runtime while
-        # keeping the default GDI route untouched.
+        # A linked-in provider makes "skia" work even without the DLL;
+        # it registers under the same runtime id as the plugin provider.
+        # AIRUI_HAVE_SKIA only controls this registration - the choice
+        # of painter is still made by PainterRegistry at runtime.
         target_link_libraries(airui-win32 PUBLIC airui-skia)
+
+        # The dynamically loadable backend (stable C ABI, see
+        # SkiaPluginAbi.h). Its import library gets a distinct name so
+        # it cannot collide with the static airui-skia.lib.
+        add_library(airui-skia-plugin SHARED
+            src/airui/platform/skia/airui/SkiaPlugin.cpp)
+        target_link_libraries(airui-skia-plugin PRIVATE airui-skia)
+        set_target_properties(airui-skia-plugin PROPERTIES
+            OUTPUT_NAME "airui-skia"
+            ARCHIVE_OUTPUT_NAME "airui-skia-import"
+            RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+            RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug)
     endif()
 
-    message(STATUS "AirUI: Skia backend enabled (${AIRUI_SKIA_LIBRARIES})")
+    message(STATUS "AirUI: Skia backend built (${AIRUI_SKIA_LIBRARIES}); runtime selection stays dynamic")
 endif()
 
 file(GLOB_RECURSE CORE_SOURCES
@@ -442,6 +468,34 @@ if(MSVC)
     set_target_properties(test_paint_recorder PROPERTIES LINK_FLAGS "/SUBSYSTEM:CONSOLE")
 endif()
 
+# Runtime painter backend registry: explicit / auto / hot switch /
+# graceful gdi fallback. Platform-free, runs on all three OSes.
+add_executable(test_paint_backend
+    tests/test_paint_backend.cpp
+)
+target_link_libraries(test_paint_backend airui-core)
+set_target_properties(test_paint_backend PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
+)
+if(MSVC)
+    set_target_properties(test_paint_backend PROPERTIES LINK_FLAGS "/SUBSYSTEM:CONSOLE")
+endif()
+
+# Windows runtime wiring: the default build (no SDK, no DLL) must still
+# resolve a "skia" request and fall back to gdi instead of failing.
+if(WIN32)
+    add_executable(test_paint_runtime tests/test_paint_runtime.cpp)
+    target_link_libraries(test_paint_runtime PRIVATE airui-win32 airui-core)
+    set_target_properties(test_paint_runtime PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+        RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
+    )
+    if(MSVC)
+        set_target_properties(test_paint_runtime PROPERTIES LINK_FLAGS "/SUBSYSTEM:CONSOLE")
+    endif()
+endif()
+
 # Skia backend value mapping. NO Skia SDK needed: this is a pure-C++
 # test of the conversion layer, so it runs in ctest on all three OSes.
 add_executable(test_skia_types
@@ -472,6 +526,21 @@ if(AIRUI_WITH_SKIA)
     )
     if(MSVC)
         set_target_properties(test_skia_backend PROPERTIES LINK_FLAGS "/SUBSYSTEM:CONSOLE")
+    endif()
+
+    # Proves Skia is selectable at runtime from airui-skia.dll, not by
+    # a compile-time switch. Loads the plugin through the C ABI, draws
+    # across the module boundary and checks the raster pixels.
+    if(WIN32)
+        add_executable(test_skia_plugin tests/test_skia_plugin.cpp)
+        target_link_libraries(test_skia_plugin PRIVATE airui-win32 airui-core)
+        set_target_properties(test_skia_plugin PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+            RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
+        )
+        if(MSVC)
+            set_target_properties(test_skia_plugin PROPERTIES LINK_FLAGS "/SUBSYSTEM:CONSOLE")
+        endif()
     endif()
 endif()
 
@@ -532,7 +601,7 @@ endif()
 # test_ui is an end-to-end script that drives a *running* airecord.exe
 # (window lookup + IPC), so it is not registered as a ctest case.
 enable_testing()
-foreach(_t test_core_layout test_controls_core test_shell_hal test_paint_recorder test_skia_types test_skia_backend test_data_controls test_overlay_core test_framework_extra test_advanced_controls test_enterprise_controls test_studio_controls test_control_classes test_theme_manager test_draw_calls test_locale test_component_gallery test_ipc_pipe)
+foreach(_t test_core_layout test_controls_core test_shell_hal test_paint_recorder test_paint_backend test_paint_runtime test_skia_types test_skia_backend test_skia_plugin test_data_controls test_overlay_core test_framework_extra test_advanced_controls test_enterprise_controls test_studio_controls test_control_classes test_theme_manager test_draw_calls test_locale test_component_gallery test_ipc_pipe)
     if(TARGET ${_t})
         add_test(NAME ${_t} COMMAND ${_t})
     endif()

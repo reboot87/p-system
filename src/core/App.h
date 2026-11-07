@@ -67,6 +67,10 @@ public:
     // 自动抢前台"当成弹窗行为直接关闭窗口；不激活显示可避开。
     void SetShowNoActivate(bool on) { m_showNoActivate = on; }
 
+    // 运行时绘制后端（"gdi" / "skia" / "auto"）。透传给 ShellOptions，
+    // 不需要重新编译，也不需要本机安装 Skia SDK（插件按需加载）。
+    void SetPaintBackend(const std::string& id) { m_paintBackend = id; }
+
     // ---- 外壳 ----
     air::ui::Shell& Shell() { return m_shell; }
     HWND Hwnd();
@@ -127,4 +131,5 @@ private:
     bool         m_startHidden = false;
     int          m_showDelayMs = 0;
     bool         m_showNoActivate = false;
+    std::string  m_paintBackend;   // empty = auto (env / gdi)
 };

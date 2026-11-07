@@ -108,6 +108,15 @@ echo "LINK test_paint_recorder"
 echo "RUN test_paint_recorder"
 "$out/test_paint_recorder"
 
+# ---- Runtime painter backend registry (selection / fallback) ----
+echo "CXX test_paint_backend"
+"$cxx" -std=c++17 $warnflags -c \
+    -I "$core/include" "$root/tests/test_paint_backend.cpp" -o "$out/test_paint_backend.o"
+echo "LINK test_paint_backend"
+"$cxx" "$out/test_paint_backend.o" "$out/libairui-core.a" -o "$out/test_paint_backend"
+echo "RUN test_paint_backend"
+"$out/test_paint_backend"
+
 echo "--- artifacts ---"
 ls -l "$out"
 echo "linux-smoke: PASSED (airui-core built with $cxx, no platform headers)"

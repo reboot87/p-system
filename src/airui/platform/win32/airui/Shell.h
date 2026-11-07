@@ -14,6 +14,7 @@
 #include "airui/Controls.h"
 #include "airui/Page.h"
 #include "airui/ShellCore.h"
+#include "airui/PaintBackend.h"
 
 // 前向声明
 namespace air { namespace ui { 
@@ -82,10 +83,14 @@ struct ShellOptions
     // through GdiPainter instead of the legacy rich renderer. Default off
     // so the existing caption (logo / three buttons) never regresses.
     bool         coreShell   = false;
-    // Phase 2: only honoured when the build defines AIRUI_HAVE_SKIA
-    // (AIRUI_WITH_SKIA=ON). Draws the ShellCore chrome with the Skia
-    // raster backend instead of GdiPainter. Default off, so the GDI
-    // path and the official CMake + VS2017 build never change.
+    // Runtime painter backend for the ShellCore chrome: "gdi", "skia",
+    // "auto" (read AIRUI_PAINT_BACKEND, else gdi), or any registered
+    // provider id. Empty = "auto". Switching needs no rebuild: Skia is
+    // linked in when a SDK was present, otherwise loaded from
+    // airui-skia.dll at runtime. Unavailable backends fall back to gdi.
+    std::string  paintBackend;
+    // Deprecated compatibility alias: when paintBackend is empty,
+    // true resolves to "skia" (the old compile-time skiaChrome flag).
     bool         skiaChrome  = false;
 };
 
@@ -153,6 +158,12 @@ public:
     const RECT&  ContentRect() const { return m_content; }
     const RECT&  SidebarRect() const { return m_side; }
 
+    // Runtime painter backend selection (no rebuild required).
+    // SetPaintBackend() takes effect on the next painted frame.
+    void        SetPaintBackend(const std::string& id);
+    const std::string& PaintBackendChoice() const { return m_paintBackend; }
+    std::vector<std::string> AvailablePaintBackends() const;
+
     // Platform-free shell state / layout / hit test. Core owns state,
     // the Win32 backend owns pixels (see ShellCore.h).
     ShellCore&       Core()       { return m_shellCore; }
@@ -182,6 +193,7 @@ private:
     void CreateNavItems();
     void LayoutAll();
     void Paint(HDC dc);
+    void InitPaintBackends();
 
     void DrawCaption(HDC dc, const RECT& rc);
     void DrawStatusBar(HDC dc, const RECT& rc);
@@ -198,6 +210,7 @@ private:
     HINSTANCE     m_hinst = nullptr;
     HWND          m_hwnd  = nullptr;
     ShellOptions  m_opt;
+    std::string   m_paintBackend;   // resolved runtime choice ("" = auto)
     Fonts         m_fonts;
     NavBar        m_nav;
     ShellCore     m_shellCore;   // platform-free state, layout, hit test

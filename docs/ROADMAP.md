@@ -24,7 +24,7 @@
 ### A. 跨平台 / 后端层（Phase 1 三项已完成；Windows Skia 已 opt-in 接入）
 | 项 | 状态 | 说明 / 证据 |
 |---|---|---|
-| Skia 绘制后端（Windows） | ✅ 已接入（opt-in） | `AIRUI_WITH_SKIA` 默认 OFF；`SkiaPainter`（IPainter→SkCanvas）+ `SkiaSurface`（raster BGRA→DIB→AlphaBlend）+ `ShellOptions.skiaChrome`；引入方式定案见 `docs/skia-backend.md` |
+| Skia 绘制后端（Windows） | ✅ 已接入（**运行时动态选择**） | core `PainterRegistry` 运行时按 id 选 `IPainter`：`--paint-backend` / `AIRUI_PAINT_BACKEND` / `ShellOptions.paintBackend` / `SetPaintBackend()` 热切换；`airui-skia.dll` 稳定 C ABI 动态加载或静态 provider，不可用自动回退 gdi。`AIRUI_WITH_SKIA` 默认 OFF，只决定本次是否**构建** Skia 代码，不再是编译期选择。详见 `docs/skia-backend.md` |
 | Skia 跨平台（Linux/macOS 统一绘制 + 窗口壳） | 未实施 | 目前只有 Windows 绘制后端；Skia 版 `IWindow`、Linux/macOS 应用本体仍是 Phase 2 |
 | Linux / macOS 应用本体构建 | 不可行 | 完整 exe 依赖 Win32/GDI/DWM；目前仅 `airui-core` 可在 Linux 编 |
 | `GdiPainter` / `Win32Window` 生产级 HAL | ✅ 已完成 (1) | 真圆角/虚线/alpha/FontRole 字体/裁剪栈；`SetNavBadge` 落库、`WM_GETMINMAXINFO` 强制最小尺寸、滚轮屏幕坐标转客户区 |
@@ -49,7 +49,7 @@
 | 项 | 状态 | 说明 / 证据 |
 |---|---|---|
 | `test_ui` 接入 ctest | 未接入 | 端到端需 `airecord.exe` + IPC，只能手工跑（`phase0-signoff.md:37`） |
-| 跨后端 DrawCall 一致性断言 | 双后端用例已就位，真 SDK 实跑待 CI | `test_skia_backend` 已实现「core 金样 vs Skia 后端实收调用序列」的 `Diff()` 断言 + 光栅像素校验；需 `AIRUI_WITH_SKIA=ON` 编译，由 `skia-windows`（push/PR **自动触发**，带 vcpkg 源码编译产物缓存）用 vcpkg Skia 实跑。**像素级 GDI vs Skia 截图 diff** 仍属计划项（`docs/cross-platform.md` §6） |
+| 跨后端 DrawCall 一致性断言 | ✅ 真 SDK 实跑通过 | `test_skia_backend` 实现「core 金样 vs Skia 后端实收调用序列」的 `Diff()` 断言 + 光栅像素校验，由 `skia-windows`（push/PR **自动触发**，带 vcpkg 源码编译产物缓存）实跑输出 `G5 parity + raster OK`；另有 `test_skia_plugin` 验证运行时 DLL 动态选择 + C ABI 光栅（同一 CI 作业）。**像素级 GDI vs Skia 截图 diff** 仍属计划项（`docs/cross-platform.md` §6） |
 
 ---
 
@@ -142,3 +142,14 @@
   - 至此「Windows 的 Actions 都编译失败」彻底解决，根因是三层环境与契约问题、**均非业务代码错误**：① `windows-latest` 迁到 VS2026 镜像 → 固定 `windows-2022`；② `actions/cache` 只在 job 成功时保存 → 拆成 `restore`/`save` 并在 install 后立即保存；③ 真 SDK 的 5 处 API/宏不兼容 → 按真实签名适配 `SkiaApi.h` / `SkiaPainter.cpp` / `SkiaSurface.cpp`，并同步 `SkiaApiMock.h` 契约门禁。
   - 提交链：`e7bfa74`（CI 镜像/缓存）→ `082af38`（真 SDK API 适配 + 签名诊断步骤）→ `a95d0db`（`allocPixels` 返回 void）。本地 `check-skia-syntax.sh`、`check-core-clean.sh` 与 VS2017 默认构建不受影响。
   - 边界不变：`skia-windows` 仍 `continue-on-error`（隔离第三方 SDK 源码编译的偶发波动，不阻塞核心门禁）；字体族对齐、CJK 回退、像素级截图 diff、Skia 版 `IWindow` 未做；业务模块仍留最后。
+
+- **2026-11-07 — 重构：`AIRUI_WITH_SKIA` 改为运行时动态选择（编译开关 → 运行时注册表）**
+  - 用户定调「AIRUI_WITH_SKIA 应该配置为动态选择 skia 而不是编译选择」。原方案用 `#ifdef AIRUI_HAVE_SKIA` 把 `Shell.cpp` 的 Skia 分支在编译期剔除：想用 Skia 必须带 SDK 重编整个 app，官方 VS2017 产物永远用不上。
+  - **core 层**：新增 `PaintBackend.h/.cpp`（`PaintTarget` / `IPainterProvider` / `PainterRegistry` / `ResolvePaintBackend`），Strategy + Registry 在运行时按 id 解析 `IPainter`，不可用自动回退 `gdi` 并写 `LastError()`；平台无关，48 个 core 文件仍 0 平台引用。
+  - **Win32 层**：`PaintProviders.cpp` 注册 `gdi`（总是）与 `skia`；有 SDK 时注册静态 provider，无 SDK 时注册 `airui-skia.dll` 动态加载 provider（同一 id，`Register()` 按 id 替换）。`Shell.cpp` 绘制路径彻底去掉 `#ifdef`。
+  - **插件 ABI**：`SkiaPluginAbi.h`（零 Skia 头 / 零 STL 的 C 函数指针 + ABI 版本）+ `SkiaPlugin.cpp` 导出 `airui_skia_abi/create/destroy/pixels/row_bytes`；对象在 DLL 内创建/销毁，所有权不跨 CRT；主程序 `PluginPainter` 转发 13 个 `IPainter` 方法。
+  - **配置入口**：`--paint-backend=`（`main.cpp` → `App::SetPaintBackend` → `ShellOptions`）、`AIRUI_PAINT_BACKEND`、`ShellOptions.paintBackend`、`Shell::SetPaintBackend()` 热切换、`Shell::AvailablePaintBackends()`；旧 `skiaChrome` 保留为兼容别名。
+  - **CMake**：`AIRUI_WITH_SKIA` 默认 OFF，语义改为「本次是否构建 Skia 代码」；ON 时新增 `airui-skia-plugin` SHARED target（输出 `airui-skia.dll`，导入库改名 `airui-skia-import.lib`，避免与静态 `airui-skia.lib` 冲突）。默认构建产出仍不引用 / 不链接 Skia。
+  - **测试 / CI**：新增 `test_paint_backend`（三平台，运行时选择 / 热切换 / 回退）、`test_paint_runtime`（Windows 无 SDK，默认构建回退路径）、`test_skia_plugin`（真 SDK，DLL 动态加载 + C ABI + 光栅像素）；`check-core-linux-smoke.sh` 加注册表用例；CI `core-unix` / `windows` 跑新用例，`skia-windows` 构建 DLL 并跑 `test_skia_plugin`。
+  - **验证**：VS2017 默认全量构建 `BUILD=0`、`ctest -C Release` **19/19**；Linux smoke（g++ `-Werror`）含 `test_paint_backend` 全绿；`check-core-clean.ps1` 48 文件 0 平台引用；`check-skia-syntax.sh` 全绿；本机用 VS2017 OBJECT-library 临时工程编译 `SkiaPlugin.cpp` / `PaintProviders.cpp`（含 `AIRUI_HAVE_SKIA=1` 分支）/ `test_skia_plugin.cpp` 全通过；`test_paint_runtime` 实跑输出 `skia backend not deployed (fallback path under test)`。
+  - **边界**：插件跨 DLL 依赖同代 MSVC ABI（`IPainter` 虚方法带 `std::wstring`），真 SDK 的 DLL 链接 / 导出 / 运行由下一次自动 CI 复验；VS2017 官方产物通过 DLL 使用 Skia 的端到端截图未确认；业务模块仍留最后。

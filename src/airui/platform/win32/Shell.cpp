@@ -1,8 +1,6 @@
 #include "airui/Shell.h"
 #include "airui/GdiPainter.h"
-#ifdef AIRUI_HAVE_SKIA
-#include "airui/SkiaSurface.h"
-#endif
+#include "airui/PaintProviders.h"
 #include "airui/Gfx.h"
 #include "airui/Responsive.h"
 #include <commctrl.h>
@@ -117,6 +115,7 @@ bool Shell::Create(HINSTANCE hInstance, const ShellOptions& options)
 {
     m_hinst = hInstance;
     m_opt   = options;
+    InitPaintBackends();
     if (m_opt.className.empty()) m_opt.className = L"AirUiShellWnd";
     if (m_opt.appName.empty())   m_opt.appName   = L"App";
 
@@ -510,6 +509,38 @@ void Shell::LayoutAll()
 }
 
 // ============================================================
+// 运行时绘制后端
+// ============================================================
+void Shell::InitPaintBackends()
+{
+    // gdi is always registered; skia is linked in when a SDK was
+    // available at build time, otherwise resolved from airui-skia.dll
+    // on first use. Neither path is chosen by a preprocessor flag.
+    RegisterPlatformPaintProviders();
+
+    // Precedence: ShellOptions.paintBackend (also fed by --paint-backend)
+    // > AIRUI_PAINT_BACKEND > legacy skiaChrome > "auto" (= gdi).
+    m_paintBackend = ResolvePaintBackend(m_opt.paintBackend,
+                                         EnvironmentPaintBackend(),
+                                         m_opt.skiaChrome);
+}
+
+void Shell::SetPaintBackend(const std::string& id)
+{
+    m_paintBackend = NormalizeBackend(id);
+    Invalidate();   // hot switch: the very next frame uses the new id
+}
+
+std::vector<std::string> Shell::AvailablePaintBackends() const
+{
+    PainterRegistry& registry = PainterRegistry::Instance();
+    std::vector<std::string> out;
+    for (const std::string& id : registry.Backends())
+        if (registry.Available(id)) out.push_back(id);
+    return out;
+}
+
+// ============================================================
 // 绘制
 // ============================================================
 void Shell::Paint(HDC dc)
@@ -520,23 +551,23 @@ void Shell::Paint(HDC dc)
     gfx::Fill(dc, rc, Pal().bg);
 
     if (m_opt.coreShell) {
-        // Phase 1 HAL route: core owns state & layout, a backend owns
-        // pixels. GDI is the default; Skia is opt-in at runtime when
-        // the build was configured with AIRUI_WITH_SKIA=ON.
-#ifdef AIRUI_HAVE_SKIA
-        if (m_opt.skiaChrome) {
-            SkiaFrame frame(dc, Rect{ rc.left, rc.top, rc.right, rc.bottom });
-            if (frame.Valid()) {
-                m_shellCore.Paint(frame, Pal(), Mx());
-            } else {
-                GdiPainter painter(dc);
-                m_shellCore.Paint(painter, Pal(), Mx());
-            }
-        } else
-#endif
-        {
-            GdiPainter painter(dc);
-            m_shellCore.Paint(painter, Pal(), Mx());
+        // Phase 1 HAL route: core owns state & layout, a runtime-
+        // selected backend owns pixels. The registry resolves the id
+        // and falls back to gdi if the requested backend is missing.
+        PaintTarget target{
+            static_cast<void*>(dc),
+            Rect{ rc.left, rc.top, rc.right, rc.bottom }
+        };
+        std::unique_ptr<IPainter> painter =
+            PainterRegistry::Instance().Begin(m_paintBackend, target);
+        if (painter) {
+            m_shellCore.Paint(*painter, Pal(), Mx());
+            // destruction flushes the frame (Skia presents to the DC)
+        } else {
+            const std::string& err = PainterRegistry::Instance().LastError();
+            if (!err.empty()) uiDebugLog(L"[paint] %hs", err.c_str());
+            GdiPainter fallback(dc);
+            m_shellCore.Paint(fallback, Pal(), Mx());
         }
     } else {
         // Legacy rich chrome (logo, three caption buttons, status pills,
