@@ -360,13 +360,16 @@ const Calibration& GetCalibration(void* nativeDc)
 void DiagCalibration(const RoleMetrics* m)
 {
 #if defined(_WIN32) && !defined(AIRUI_SKIA_MOCK)
+    static bool done = false;       // painter is per frame; dump once
+    if (done) return;
     wchar_t v[8] = {};
     if (GetEnvironmentVariableW(L"AIRUI_PAINT_TRACE", v, 8) == 0) return;
+    done = true;
     wchar_t path[MAX_PATH] = {};
     if (GetEnvironmentVariableW(L"LOCALAPPDATA", path, MAX_PATH) == 0) return;
     wcscat_s(path, L"\\AireRecord\\skia_font.log");
     FILE* fp = nullptr;
-    _wfopen_s(&fp, path, L"w");     // once per calibration, not per call
+    _wfopen_s(&fp, path, L"w");     // truncate once, then trace appends
     if (!fp) return;
     fwprintf(fp, L"[calib] dpi-scaled calibration\n");
     for (int i = 0; i < static_cast<int>(FontRole::Count); ++i) {
@@ -680,14 +683,20 @@ void SkiaPainter::Text(const Rect& r, const std::wstring& s,
         // nav labels sit exactly on this boundary at the Title role.
         const float avail = static_cast<float>(r.Width()) + 1.f;
         const float dotsW = primary.measureText("...", 3, SkTextEncoding::kUTF8);
-        while (cps.size() > 1 &&
-               m->MeasureRuns(role, cps, primary) + dotsW > avail)
-            cps.pop_back();
-        cps.push_back(static_cast<uint32_t>('.'));
-        cps.push_back(static_cast<uint32_t>('.'));
-        cps.push_back(static_cast<uint32_t>('.'));
-        utf8 = EncodeUtf8(cps.data(), cps.size());
-        DecodeUtf8(utf8, cps);
+        const float textW = m->MeasureRuns(role, cps, primary);
+        // DT_END_ELLIPSIS only decorates text that does not fit. Adding
+        // the dots unconditionally (as this used to) put "..." on every
+        // ellipsis-capable label, even short ones with room to spare.
+        if (textW + dotsW > avail) {
+            while (cps.size() > 1 &&
+                   m->MeasureRuns(role, cps, primary) + dotsW > avail)
+                cps.pop_back();
+            cps.push_back(static_cast<uint32_t>('.'));
+            cps.push_back(static_cast<uint32_t>('.'));
+            cps.push_back(static_cast<uint32_t>('.'));
+            utf8 = EncodeUtf8(cps.data(), cps.size());
+            DecodeUtf8(utf8, cps);
+        }
     }
 
     const float totalW = m->MeasureRuns(role, cps, primary);
