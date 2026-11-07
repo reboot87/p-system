@@ -249,13 +249,22 @@ RoleMetrics MeasureRole(HDC dc, const SharedFaces& f, FontRole role)
                            DEFAULT_PITCH, family);
     };
 
-    // (1) Target cell: exact tmAscent/tmDescent in device pixels.
+    // (1) Target cell: tmAscent/tmDescent, normalised by how much the DC
+    // scales fonts. A DPI-virtualised DC reports tmHeight 17 for a
+    // requested cell of 13; the drawing surface itself is in unscaled
+    // device pixels, so both the baseline offsets and the width below
+    // must be divided by that factor.
+    float gdiScale = 1.f;
     if (HFONT hf = makeFont(rm.cell)) {
         HGDIOBJ old = SelectObject(dc, hf);
         TEXTMETRICW tm{};
         if (GetTextMetricsW(dc, &tm)) {
-            rm.ascent  = static_cast<float>(tm.tmAscent);
-            rm.descent = static_cast<float>(tm.tmDescent);
+            if (tm.tmHeight > 0)
+                gdiScale = static_cast<float>(tm.tmHeight) /
+                           static_cast<float>(rm.cell);
+            if (gdiScale <= 0.f) gdiScale = 1.f;
+            rm.ascent  = static_cast<float>(tm.tmAscent) / gdiScale;
+            rm.descent = static_cast<float>(tm.tmDescent) / gdiScale;
         }
         SelectObject(dc, old);
         DeleteObject(hf);
@@ -279,8 +288,8 @@ RoleMetrics MeasureRole(HDC dc, const SharedFaces& f, FontRole role)
                                     SkTextEncoding::kUTF8);
             if (w1000 > 1.f) {
                 const float gdiAtCell =
-                    static_cast<float>(sz.cx) * static_cast<float>(rm.cell) /
-                    static_cast<float>(kRefCell);
+                    static_cast<float>(sz.cx) / gdiScale *
+                    static_cast<float>(rm.cell) / static_cast<float>(kRefCell);
                 rm.em = 1000.f * gdiAtCell / w1000;
             }
         }
