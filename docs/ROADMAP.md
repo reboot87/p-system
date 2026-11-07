@@ -159,4 +159,12 @@
   - 用户要求「把 github actions 产物下载下来 进行测试」。此前 CI 只构建 DLL 并跑测试、**未上传任何 artifact**（`total_count: 0`），故先补 `73e0be8`：Skia 作业新增 `Stage downloadable plugin bundle` + `actions/upload-artifact@v4`，打包 `airui-skia.dll`、两个 CI 测试 exe、全套 vcpkg x64 运行时 DLL 与 `README.txt`；`.gitignore` 加 `artifact-staging/`。
   - run `42338618815` 四作业全绿，artifact `airui-skia-windows-x64` 共 37 文件约 53 MB，下载到 `build/ci-artifacts/`。本机另配 `build/vs2017-x64` 构建树（`cmake -A x64`），并用临时工程 `build/plugin-abi-check/`（已 gitignore）以 VS2017 x64 编译 `test_skia_plugin.cpp` 与真实 HDC harness。
   - **实测结论**：① CI 自带 VS2022 x64 测试全绿（同代基线）；② 官方 VS2017 **x86** 产物 + x64 DLL → 位数不匹配，优雅回退 gdi、不崩；③ VS2017 **x64** 产物 + VS2022 x64 DLL → 运行时选择、`std::wstring` 跨 DLL、C ABI 光栅像素全绿，**证明 MSVC v141↔v143 跨代 ABI 可用**（修正此前「必须同代」的保守说法）；④ 真实 `CreateDIBSection` HDC 经 `AlphaBlend` 合成出 `BGRA 00 00 DD FF`，验证 Skia 上屏链路。
-  - **边界**：CI 目前只出 **x64** 插件，本机官方 `build/` 是 **x86**，直接用需 x64 构建树或另出 x86 artifact（`skia:x86-windows` 需约 35 分钟额外源码编译，未做）；主程序窗口壳 `coreShell` 默认关，`--paint-backend` 暂不改变主窗口绘制路径；GUI 级截图 diff 未做。业务模块仍留最后。
+  - **边界**：CI 此时只出 **x64** 插件（x86 GDI 全量包见下一节），本机官方 `build/` 是 **x86**，直接用需 x64 构建树或另出 x86 Skia artifact（`skia:x86-windows` 需约 35 分钟额外源码编译，未做）；主程序窗口壳 `coreShell` 默认关，`--paint-backend` 暂不改变主窗口绘制路径；GUI 级截图 diff 未做。业务模块仍留最后。
+
+- **2026-11-07 — CI 改为整体编译并发布全部产物（提交 `55c4327`）**
+  - 用户要求「整体编译下载包括所有产物」。此前 `windows` 只编 `airui-core` + 1 个测试，`skia-windows` 只编 4 个 target，artifact 只有插件 DLL。
+  - **改造**：三个 Windows job 全部 `cmake --build ... --config Release`（ALL targets）+ 全量 `ctest -C Release`；新增 `windows-x86`（`Visual Studio 17 2022 -A Win32`）覆盖官方 x86 架构；`core-unix` 因项目结构仍只构建平台无关 target（非 Windows 上 Win32 app targets 不可编译）。每个 job 把全部 exe/dll/lib 上传为 artifact。
+  - **run `42339972398`**：5 个 job 全绿、5 个 artifact —— `airui-skia-windows-x64`（65 文件 / 69 MB：26 exe + 34 DLL + 4 lib，含 `airui-skia.dll` 与全套 vcpkg 运行时）、`p-system-windows-x64-gdi`（27）、`p-system-windows-x86-gdi`（27）、`p-system-core-ubuntu-latest`（6）、`p-system-core-macos-latest`（6）。
+  - **下载实测**：`gh run download 42339972398 -D build/ci-all`；PE 检出的架构正确（x64 / x86 / x64），下载后的 `test_paint_backend` / `test_paint_runtime` / `test_skia_plugin` / `test_skia_backend` 全通过，两个 `airecord.exe --hidden` 启动 5 秒无崩溃。本机官方 VS2017 全量 `BUILD=0` + `ctest` **19/19**。
+  - **交付**：合并 5 个 CI 包 + 本机 `build/Release`（26 个 exe/lib）为 `build/p-system-all-artifacts.zip`（46 MB，含 `MANIFEST.txt`）；Skia 全量包另存 `build/ci-all/airui-skia-windows-x64-FULL.zip`（27 MB）。
+  - **边界**：仍无 x86 Skia 插件（需 `skia:x86-windows` 约 35 分钟源码编译）；主程序 `coreShell` 默认关，`--paint-backend` 不改主窗口绘制路径；GUI 截图 diff 未做。业务模块仍留最后。

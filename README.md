@@ -91,13 +91,20 @@ cmake --build build-skia --config Release --target test_skia_plugin
 
 - 也可传 `-DAIRUI_SKIA_ROOT=<prefix>` 指向预编译 release；两者都找不到时配置阶段明确报错，但**不影响默认 GDI 构建**。
 - **VS2017 下编译 Skia 代码未验证**：vcpkg 的 `skia` 官方工具集是 VS2022+，插件推荐由 VS2022 / CI 产出；本地正式构建保持默认 OFF。本机实测装有 **VS2022 Professional 17.14（`C:\2022`）**；CI 的 `skia-windows` 作业在 push/PR 时自动触发，构建 DLL 并跑动态加载测试。
-**不想本地装 vcpkg？直接下载 CI 产物**（push/PR 自动构建，artifact 保留 14 天）：
+**CI 每次 push/PR 都做整体编译并发布全部产物**（artifact 保留 14 天）：
 
 ```
-gh run download <run-id> -n airui-skia-windows-x64 -D build\ci-artifacts
+gh run download <run-id> -D build\ci-all
 ```
 
-产物共 37 个文件（约 53 MB）：`airui-skia.dll` + 全套 vcpkg x64 运行时 DLL + CI 测试 exe。**必须整套**放到 exe 同目录，只拷插件 DLL 会因缺依赖回退 gdi。注意 CI 产物是 **x64**，而 `build.bat` 默认产物是 **x86**：位数不匹配会静默回退，需要另配 VS2017 x64 构建树（`-A x64`）。跨工具链实测结果见 `docs/skia-backend.md` §5.2。
+| artifact | 内容 |
+|---|---|
+| `airui-skia-windows-x64` | VS2022 x64 + Skia ON **全量**：app / gallery / 全部测试 exe、静态库、`airui-skia.dll`、全套 vcpkg 运行时 DLL |
+| `p-system-windows-x64-gdi` | VS2022 x64 默认 GDI 全量（所有 exe + lib） |
+| `p-system-windows-x86-gdi` | VS2022 Win32 x86 默认 GDI 全量（所有 exe + lib） |
+| `p-system-core-ubuntu-latest` / `p-system-core-macos-latest` | 各平台 `libairui-core.a` + 4 个平台无关测试可执行 |
+
+三个 Windows job 都跑全量 `ctest -C Release`；Linux/macOS 因项目结构只构建平台无关 target。插件包**必须整套**放到 exe 同目录，只拷 `airui-skia.dll` 会因缺依赖回退 gdi。CI 的 Skia 产物是 **x64**，`build.bat` 默认是 **x86**：位数不匹配会静默回退，x86 请直接用 `p-system-windows-x86-gdi`，或另配 VS2017 x64 构建树（`-A x64`）。跨工具链实测结果见 `docs/skia-backend.md` §5.2。
 
 - 引入方式决策、C ABI 约束、验证矩阵与已知边界见 **`docs/skia-backend.md`**。
 - 无需 SDK 也能跑的验证：`test_paint_backend` / `test_paint_runtime`（运行时选择与回退，ctest）、`test_skia_types`（三平台）与 `scripts/check-skia-syntax.sh`（API 契约语法门禁）。

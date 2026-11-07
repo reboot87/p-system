@@ -183,6 +183,7 @@ src/airui/platform/skia/airui/
 | 真实编译 / 链接 / 运行 + **G5 双后端序列断言** | `test_skia_backend` | ✅ | **已实跑通过**：`G5 parity + raster OK`（run `42335700042`） |
 | 默认工具链零回归 | VS2017 全量 `cmake --build` + `ctest -C Release` | ❌ | **19/19 通过**（新增 2 个用例） |
 | **下载 CI 产物、跨工具链 / 跨机器实测** | `gh run download` + 本机 VS2017 x64 harness | ✅ | **已实跑通过**（run `42338618815`）：见 §5.2，含位数不匹配回退、跨代 MSVC ABI、真实 HDC 上屏像素 |
+| **CI 整体编译（ALL targets）+ 全量 ctest + 全产物发布** | 3 个 Windows job（x64 GDI / x86 GDI / x64 Skia）+ 2 个 core-unix | ✅ | **已实跑通过**（run `42339972398`）：5 个 job 全绿、5 个 artifact；下载后复跑测试与 app 冒烟均通过 |
 
 `test_skia_backend` 是 G5 的落地：同一场景先由 core 的 `PaintRecorder` 录成金样，再经 `TeePainter` 一边驱动真实 Skia 后端、一边记录后端**实际收到**的 `IPainter` 调用，最后断言 `SequenceEquals` / `Diff().empty()`，并校验光栅像素确为 `BGRA + premultiplied`。
 
@@ -208,10 +209,11 @@ CI 首次跑完 vcpkg 源码编译（约 35 分钟）并成功 Configure，Build
 
 ### 5.2 下载 CI 产物到本机实测（2026-11-07）
 
-`skia-windows` 作业每次运行都打包 `airui-skia-windows-x64` artifact（`actions/upload-artifact@v4`，保留 14 天）：`airui-skia.dll`、`test_skia_plugin.exe`、`test_skia_backend.exe`、**全套 vcpkg x64 运行时 DLL**（`skia.dll`、`icu*79.dll`、`harfbuzz*.dll`、`freetype.dll`、`z.dll` 等，共 37 个文件约 53 MB）与 `README.txt`。
+CI 现已改为**整体编译**：三个 Windows job 都跑 `cmake --build ... --config Release`（ALL targets）+ 全量 `ctest -C Release`，并把每个 job 的**全部 exe / dll / lib** 上传为 artifact（保留 14 天）。因此 `skia-windows` 的 `airui-skia-windows-x64` 不再只有插件，而是完整的 x64 Skia 构建：26 个 exe、34 个 DLL（含 `airui-skia.dll` 与 `skia.dll` / `icu*79.dll` / `harfbuzz*.dll` / `freetype.dll` / `z.dll` 等全套 vcpkg 运行时）、4 个静态库与 `README.txt`，共 65 文件约 69 MB。另有 `p-system-windows-x64-gdi`、`p-system-windows-x86-gdi` 与两个 `p-system-core-*` 包。
 
 ```
-gh run download <run-id> -n airui-skia-windows-x64 -D build\ci-artifacts
+gh run download <run-id> -D build\ci-all                              # 下载全部 5 个 artifact
+gh run download <run-id> -n airui-skia-windows-x64 -D <dir>          # 只要 Skia 全量包
 ```
 
 > 只拷 `airui-skia.dll` **不够**：插件依赖的 Skia / ICU / HarfBuzz 等 DLL 必须在 exe 同目录（或 PATH）里，否则 `LoadLibraryW` 因缺依赖失败，注册表静默回退 gdi。
@@ -225,6 +227,8 @@ gh run download <run-id> -n airui-skia-windows-x64 -D build\ci-artifacts
 | VS2017 **x64** `test_paint_runtime.exe` + x64 DLL | `skia backend available (linked or DLL loaded)`，运行时选择 + 跨模块虚调用全绿 |
 | VS2017 x64 harness（同一份 `test_skia_plugin.cpp`，含 `std::wstring` 跨模块） | `runtime DLL backend + C ABI + raster OK` |
 | VS2017 x64 harness + 真实 HDC（`CreateDIBSection` → `AlphaBlend`） | 合成像素 `BGRA 00 00 DD FF`，`Skia -> AlphaBlend -> Win32 HDC OK` |
+
+全量产物 run `42339972398`（5 个 artifact、5 个 job 全绿）下载后复核：Windows 包的 `airecord.exe` 分别检出 x64 / x86 / x64；直接运行下载后的 `test_paint_backend`、`test_paint_runtime`、`test_skia_plugin`、`test_skia_backend` 全通过；Skia x64 与 GDI x86 两个 `airecord.exe --hidden` 启动 5 秒无崩溃。本机官方 VS2017 全量构建也重新跑过 `BUILD=0` + `ctest -C Release` **19/19**。
 
 > 本机官方 `build/` 是 **x86**（`CMAKE_GENERATOR_PLATFORM` 为空），CI 产物是 **x64**；要直接用需另配 VS2017 x64 构建树：`cmake -S . -B build/vs2017-x64 -G "Visual Studio 15 2017" -A x64`。另外主程序窗口壳 `ShellOptions.coreShell` 默认关，`--paint-backend=skia` 目前不改变主窗口绘制路径（注册表分支只在 coreShell 路由生效），GUI 级截图仍未做。
 
