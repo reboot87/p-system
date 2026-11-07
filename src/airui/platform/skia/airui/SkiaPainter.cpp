@@ -148,7 +148,8 @@ static void CopyFaceName(TCHAR (&dst)[32], const wchar_t* src)
 // vertical alignment lands on the same pixels too.
 struct RoleMetrics
 {
-    SkScalar em      = 13.f;   // SkFont::setSize
+    SkScalar em      = 13.f;   // SkFont::setSize, Latin/UI face
+    SkScalar emCjk   = 13.f;   // same role, Microsoft YaHei UI (GDI's font link)
     float    ascent  = 10.f;   // GDI tmAscent: baseline offset from the cell top
     float    descent = 3.f;    // GDI tmDescent
     int      cell    = 13;     // GDI cell height, which is also the line advance
@@ -159,9 +160,18 @@ struct RoleMetrics
 // integer advance rounding cannot skew the ratio.
 constexpr wchar_t kRefText[] = L"AireRecord 0123456789";
 constexpr int     kRefCell   = 200;
-constexpr char    kRefUtf8[] = "AireRecord 0123456789";
 // One Segoe MDL2 glyph, for icon-role calibration.
 constexpr wchar_t kRefIcon   = 0xE700;
+// CJK reference ("workbench overview clipboard"), written as code
+// points so this file stays ASCII-only whatever the compiler's source
+// charset is. GDI resolves it through font linking to Microsoft YaHei
+// UI, whose win-metric ratio differs from Segoe UI's, so Chinese needs
+// its own size -- otherwise every nav label comes out a few percent wide
+// and gets ellipsised.
+constexpr wchar_t kRefCjk[] = {
+    0x5DE5, 0x4F5C, 0x53F0, 0x603B, 0x89C8, 0x526A, 0x8D34, 0x677F, 0
+};
+constexpr int kRefCjkCount = 8;
 
 struct SharedFaces
 {
@@ -235,6 +245,7 @@ RoleMetrics MeasureRole(HDC dc, const SharedFaces& f, FontRole role)
     const bool isIcon = (role == FontRole::Icon || role == FontRole::IconLarge);
     rm.cell = spec.cell > 0 ? spec.cell : 13;
     rm.em   = static_cast<SkScalar>(rm.cell);
+    rm.emCjk = static_cast<SkScalar>(rm.cell);
     rm.ascent  = static_cast<float>(rm.cell) * 0.8f;
     rm.descent = static_cast<float>(rm.cell) - rm.ascent;
 
@@ -270,28 +281,40 @@ RoleMetrics MeasureRole(HDC dc, const SharedFaces& f, FontRole role)
         DeleteObject(hf);
     }
 
-    // (2) Large cell: advance width of the reference run, then solve for
+    // (2) Large cell: advance width of a reference run, then solve for
     // the em that reproduces it at the target cell. Both sides are pure
-    // ratios, so the large size drops out except for precision.
+    // ratios, so the large size drops out except for precision. GDI's
+    // width is measured on the same DC and normalised by gdiScale.
     if (HFONT hf = makeFont(kRefCell)) {
         HGDIOBJ old = SelectObject(dc, hf);
-        SIZE sz{};
-        const int n = isIcon ? 1 : static_cast<int>(sizeof(kRefText) / sizeof(kRefText[0])) - 1;
-        const wchar_t* s = isIcon ? &kRefIcon : kRefText;
-        if (GetTextExtentPoint32W(dc, s, n, &sz) && sz.cx > 0) {
+        auto solve = [&](const wchar_t* text, int chars, const sk_sp<SkTypeface>& tf,
+                         SkTextEncoding enc, int bytes, SkScalar& out) {
+            SIZE sz{};
+            if (!tf || !GetTextExtentPoint32W(dc, text, chars, &sz) || sz.cx <= 0)
+                return;
             SkFont probe;
-            probe.setTypeface(face);
+            probe.setTypeface(tf);
             probe.setSize(1000.f);
-            const float w1000 = isIcon
-                ? probe.measureText(s, sizeof(wchar_t), SkTextEncoding::kUTF16)
-                : probe.measureText(kRefUtf8, sizeof(kRefUtf8) - 1,
-                                    SkTextEncoding::kUTF8);
-            if (w1000 > 1.f) {
-                const float gdiAtCell =
-                    static_cast<float>(sz.cx) / gdiScale *
-                    static_cast<float>(rm.cell) / static_cast<float>(kRefCell);
-                rm.em = 1000.f * gdiAtCell / w1000;
-            }
+            const float w1000 = probe.measureText(text, (size_t)bytes, enc);
+            if (w1000 <= 1.f) return;
+            const float gdiAtCell =
+                static_cast<float>(sz.cx) / gdiScale *
+                static_cast<float>(rm.cell) / static_cast<float>(kRefCell);
+            out = 1000.f * gdiAtCell / w1000;
+        };
+
+        if (isIcon) {
+            solve(&kRefIcon, 1, face, SkTextEncoding::kUTF16,
+                  (int)sizeof(wchar_t), rm.em);
+        } else {
+            solve(kRefText, static_cast<int>(sizeof(kRefText) / sizeof(wchar_t)) - 1,
+                  face, SkTextEncoding::kUTF16,
+                  (int)(sizeof(kRefText) - sizeof(wchar_t)), rm.em);
+            // Chinese uses the linked family, so it is calibrated against
+            // its own reference and gets its own size.
+            solve(kRefCjk, kRefCjkCount, f.cjk ? f.cjk : face,
+                  SkTextEncoding::kUTF16,
+                  kRefCjkCount * (int)sizeof(wchar_t), rm.emCjk);
         }
         SelectObject(dc, old);
         DeleteObject(hf);
@@ -344,8 +367,8 @@ void DiagCalibration(const RoleMetrics* m)
     if (!fp) return;
     fwprintf(fp, L"[calib] dpi-scaled calibration\n");
     for (int i = 0; i < static_cast<int>(FontRole::Count); ++i) {
-        fwprintf(fp, L"[calib] role=%d cell=%d em=%.2f ascent=%.1f descent=%.1f\n",
-                 i, m[i].cell, (double)m[i].em,
+        fwprintf(fp, L"[calib] role=%d cell=%d em=%.2f cjk=%.2f ascent=%.1f descent=%.1f\n",
+                 i, m[i].cell, (double)m[i].em, (double)m[i].emCjk,
                  (double)m[i].ascent, (double)m[i].descent);
     }
     fclose(fp);
@@ -504,7 +527,13 @@ struct SkiaPainter::Impl
 
             const std::string run = EncodeUtf8(&cps[i], j - i);
             SkFont f = primary;
-            if (face) f.setTypeface(face);
+            if (face) {
+                f.setTypeface(face);
+                // Chinese is sized separately: its linked family has a
+                // different win-metric ratio than the Latin face.
+                if (cjkFace && face.get() == cjkFace.get())
+                    f.setSize(roleM[Index(role)].emCjk);
+            }
             const float w =
                 f.measureText(run.data(), run.size(), SkTextEncoding::kUTF8);
             canvas->drawSimpleText(run.data(), run.size(),
@@ -529,7 +558,11 @@ struct SkiaPainter::Impl
                 ++j;
             const std::string run = EncodeUtf8(&cps[i], j - i);
             SkFont f = primary;
-            if (face) f.setTypeface(face);
+            if (face) {
+                f.setTypeface(face);
+                if (cjkFace && face.get() == cjkFace.get())
+                    f.setSize(roleM[Index(role)].emCjk);
+            }
             w += f.measureText(run.data(), run.size(), SkTextEncoding::kUTF8);
             i = j;
         }
@@ -712,7 +745,12 @@ int SkiaPainter::MeasureText(const std::wstring& s, FontRole role)
 {
     if (s.empty()) return 0;
     const std::string utf8 = skia::WideToUtf8(s);
-    const float w = m->Width(utf8, m->Font(role));
+    std::vector<uint32_t> cps;
+    DecodeUtf8(utf8, cps);
+    SkFont& primary = m->Font(role);
+    // Same per-codepoint fallback (and per-family size) as drawing, so
+    // layout decisions match what actually gets painted.
+    const float w = m->MeasureRuns(role, cps, primary);
     return static_cast<int>(w + 0.5f);
 }
 
