@@ -310,14 +310,38 @@ RoleMetrics MeasureRole(HDC dc, const SharedFaces& f, FontRole role)
             solve(kRefText, static_cast<int>(sizeof(kRefText) / sizeof(wchar_t)) - 1,
                   face, SkTextEncoding::kUTF16,
                   (int)(sizeof(kRefText) - sizeof(wchar_t)), rm.em);
-            // Chinese uses the linked family, so it is calibrated against
-            // its own reference and gets its own size.
-            solve(kRefCjk, kRefCjkCount, f.cjk ? f.cjk : face,
-                  SkTextEncoding::kUTF16,
-                  kRefCjkCount * (int)sizeof(wchar_t), rm.emCjk);
         }
         SelectObject(dc, old);
         DeleteObject(hf);
+    }
+
+    // Chinese needs a size of its own: GDI resolves CJK through font
+    // linking, and the linked family's advance per glyph is a little
+    // smaller than the Latin em. Measure at 3x the target cell -- GDI's
+    // linking only kicks in near the requested size (at a 200 px
+    // reference it reports a completely different ratio), and 3x still
+    // keeps integer-advance rounding down to about one percent.
+    if (!isIcon && f.cjk) {
+        const int measCell = rm.cell * 3;
+        if (HFONT hf = makeFont(measCell)) {
+            HGDIOBJ old = SelectObject(dc, hf);
+            SIZE sz{};
+            if (GetTextExtentPoint32W(dc, kRefCjk, kRefCjkCount, &sz) && sz.cx > 0) {
+                SkFont probe;
+                probe.setTypeface(f.cjk);
+                probe.setSize(1000.f);
+                const float w1000 = probe.measureText(
+                    kRefCjk, kRefCjkCount * sizeof(wchar_t), SkTextEncoding::kUTF16);
+                if (w1000 > 1.f) {
+                    const float gdiPerChar =
+                        static_cast<float>(sz.cx) / gdiScale /
+                        static_cast<float>(kRefCjkCount);
+                    rm.emCjk = 1000.f * gdiPerChar / w1000;
+                }
+            }
+            SelectObject(dc, old);
+            DeleteObject(hf);
+        }
     }
     return rm;
 }
