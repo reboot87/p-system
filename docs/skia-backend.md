@@ -143,7 +143,8 @@ airecord.exe --paint-backend=skia
   2. `<binary-dir>/ci-all/airui-skia-windows-x64`（CI 步骤或手动放置）；
   3. `<binary-dir>/ci-skia`（本地 `cmake --build` 时由 POST_BUILD 内 `gh run download` 最新成功 CI 产物拉取）。
 - 只拷贝 `*.dll`（`FILES_MATCHING PATTERN "*.dll"`），**不会覆盖开发者自己刚编译的 `airecord.exe`**；`airui-skia.dll` 及其全部 vcpkg 运行时依赖（skia / icu / harfbuzz 等）一次性到位。
-- **本地**：一次 `cmake --build build/vs2017-x64` 即自动把插件放到 exe 同目录——`gh` 已登录（`gh auth login`）+ 网络即可，无需任何手动拷贝或 fetch 命令；首次构建拉取一次，之后检测到 `airui-skia.dll` 已存在即跳过。`fetch-skia-plugin` 这个独立 target 仍保留，作为手动预取入口。
+- **自动更新（不会用旧插件卡住）**：部署后在 exe 旁写一个标记 `airui-skia.ci-run`（记录来源 CI run id）。之后每次 x64 构建都做一次轻量 `gh run list`，若 CI 发布了更新的成功构建就自动重新拉取并覆盖，标记随之更新；标记与最新 run 一致则跳过（不重复下载）；离线 / 无 `gh` 则保留当前插件，绝不误删可用的 DLL。
+- **本地**：一次 `cmake --build build/vs2017-x64` 即自动把插件放到 exe 同目录——`gh` 已登录（`gh auth login`）+ 网络即可，无需任何手动拷贝或 fetch 命令；首次构建拉取一次，同版本后续构建跳过，CI 出新插件时自动更新。`fetch-skia-plugin` 这个独立 target 仍保留，作为手动强制预取入口。
 - **CI（x64 Windows 构建）**：专门的 `Download Skia plugin artifact` 步骤在 `cmake --build` 之前用 `gh`（`GH_TOKEN=${{ github.token }}`）把 `airui-skia-windows-x64` 产物预拉到 `build-core/ci-all/airui-skia-windows-x64`，POST_BUILD 再本地拷贝，从而绕开 `GITHUB_TOKEN` 难以传入 `cmake -P` 子进程的问题。该步骤 `continue-on-error`，失败只回退 GDI，不影响构建（已实测 run `42372024140` 自动部署成功）。
 
 手动 prefix（预编译 release 或自建产物）布局要求：
