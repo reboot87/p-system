@@ -114,12 +114,14 @@ std::string EncodeUtf8(const uint32_t* cps, size_t n)
 
 // Copy a face name into a LOGFONT's fixed-size buffer without relying on
 // the secure CRT (so it also works under the syntax gate, where the real
-// <windows.h> may be absent). The destination is always 32 wide.
-static void CopyFaceName(wchar_t (&dst)[32], const wchar_t* src)
+// <windows.h> may be absent). LOGFONT is TCHAR-based, which is char[] in
+// ANSI builds and wchar_t[] in Unicode builds -- TCHAR/TEXT keep this
+// code correct under either setting.
+static void CopyFaceName(TCHAR (&dst)[32], const TCHAR* src)
 {
     for (int k = 0; k < 32; ++k) {
         dst[k] = src[k];
-        if (src[k] == L'\0') break;
+        if (src[k] == 0) break;
     }
 }
 
@@ -163,11 +165,11 @@ struct SkiaPainter::Impl
         lf.lfClipPrecision  = CLIP_DEFAULT_PRECIS;
         lf.lfQuality        = CLEARTYPE_QUALITY;
         lf.lfPitchAndFamily = DEFAULT_PITCH | FF_DONTCARE;
-        CopyFaceName(lf.lfFaceName, L"Microsoft YaHei UI");
+        CopyFaceName(lf.lfFaceName, TEXT("Microsoft YaHei UI"));
         body = SkCreateTypefaceFromLOGFONT(lf);
 
         LOGFONT lfIcon = lf;
-        CopyFaceName(lfIcon.lfFaceName, L"Segoe MDL2 Assets");
+        CopyFaceName(lfIcon.lfFaceName, TEXT("Segoe MDL2 Assets"));
         icon = SkCreateTypefaceFromLOGFONT(lfIcon);
 
         if (!body) {

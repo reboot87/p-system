@@ -102,6 +102,11 @@ public:
 // the real <windows.h> has NOT been pulled into this TU -- a minimal
 // LOGFONT plus the few GDI constants the backend's font setup needs.
 #ifndef _INC_WINDOWS
+// The backend's font setup uses the TCHAR/TEXT model so the same code
+// compiles in both ANSI (LOGFONTA) and Unicode (LOGFONTW) Windows builds.
+// Provide minimal stand-ins when the real <windows.h> is absent.
+typedef wchar_t TCHAR;
+#define TEXT(x) L##x
 struct LOGFONT {
     long          lfHeight = 0;
     long          lfWidth = 0;
@@ -116,7 +121,7 @@ struct LOGFONT {
     unsigned char lfClipPrecision = 0;
     unsigned char lfQuality = 0;
     unsigned char lfPitchAndFamily = 0;
-    wchar_t       lfFaceName[32] = {};
+    TCHAR         lfFaceName[32] = {};
 };
 #define FW_NORMAL           400
 #define DEFAULT_CHARSET     1
