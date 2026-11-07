@@ -12,20 +12,41 @@
 namespace air {
 namespace ui {
 
-// 临时诊断（发布前移除）
-#if 0
+// Opt-in paint tracing (AIRUI_PAINT_TRACE=1). Off by default: one static
+// check per call, no file is ever opened. Enable it when a repaint looks
+// wrong and you need per-frame timings / page-switch costs.
+static bool PaintTraceEnabled()
+{
+    static int on = -1;
+    if (on < 0) {
+        wchar_t v[8] = {};
+        const DWORD n = GetEnvironmentVariableW(L"AIRUI_PAINT_TRACE", v, 8);
+        on = (n > 0 && n < 8 && v[0] != L'0') ? 1 : 0;
+    }
+    return on != 0;
+}
+
 static void uiDebugLog(const wchar_t* fmt, ...)
 {
-    FILE* f = nullptr;
-    _wfopen_s(&f, L"C:\\Users\\Administrator\\AppData\\Local\\Temp\\airui_dbg.txt", L"a");
-    if (!f) return;
+    if (!PaintTraceEnabled()) return;
+    static FILE* f = nullptr;
+    if (!f) {
+        wchar_t path[MAX_PATH] = {};
+        DWORD n = GetEnvironmentVariableW(L"LOCALAPPDATA", path, MAX_PATH);
+        if (n == 0 || n >= MAX_PATH - 40) return;
+        wcscat_s(path, L"\\AireRecord\\shell_paint.log");
+        _wfopen_s(&f, path, L"a");
+        if (!f) return;
+    }
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    fwprintf_s(f, L"%02d:%02d:%02d.%03d ", st.wHour, st.wMinute, st.wSecond,
+               st.wMilliseconds);
     va_list ap; va_start(ap, fmt);
-    vfwprintf_s(f, fmt, ap); fwprintf_s(f, L"\n");
-    va_end(ap); fclose(f);
+    vfwprintf_s(f, fmt, ap);
+    va_end(ap); fwprintf_s(f, L"\n");
+    fflush(f);
 }
-#else
-static inline void uiDebugLog(const wchar_t*, ...) {}
-#endif
 
 // ============================================================
 // IPage::ParentWnd
@@ -242,23 +263,38 @@ bool Shell::SwitchPage(int id)
     if (id == m_pageId) return CurrentPage() != nullptr;
     IPage* next = FindPage(id);
     if (!next) return false;
+    IPage* prev = CurrentPage();
 
-    if (IPage* prev = CurrentPage()) {
-        prev->OnShow(false);
-        InvalidateContent();
-    }
+    // Freeze painting for the WHOLE switch, not just the layout call.
+    // Previously OnShow(false) ran before the freeze and OnShow(true) ran
+    // after it was lifted, so any child-control erase/creation flashed the
+    // half-built new page on screen before the real frame arrived -- very
+    // visible with the Skia backend, where a frame costs far more than a
+    // GDI repaint. With everything inside the freeze only the finished
+    // frame is ever presented.
+    SendMessageW(m_hwnd, WM_SETREDRAW, FALSE, 0);
+
+    if (prev) prev->OnShow(false);
 
     m_pageId = id;
     m_nav.SetActive(id);
     m_shellCore.SetActiveNav(id);
 
-    // 挂起重绘：布局 → 显示 → 一次性上屏，避免切页闪白
-    SendMessageW(m_hwnd, WM_SETREDRAW, FALSE, 0);
     LayoutAll();
+    next->OnShow(true);
+
+    ::InvalidateRect(m_hwnd, nullptr, FALSE);
     SendMessageW(m_hwnd, WM_SETREDRAW, TRUE, 0);
 
-    next->OnShow(true);
-    Invalidate();
+    // WM_SETREDRAW TRUE only clears the freeze flag; it does not repaint
+    // by itself. Force one synchronous frame so the switch lands as a
+    // single swap instead of waiting for the next idle WM_PAINT.
+    const ULONGLONG t0 = GetTickCount64();
+    ::RedrawWindow(m_hwnd, nullptr, nullptr,
+                   RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE |
+                   RDW_ALLCHILDREN);
+    uiDebugLog(L"[switch] id=%d sync_ms=%llu", id,
+               (unsigned long long)(GetTickCount64() - t0));
     return true;
 }
 
@@ -656,6 +692,7 @@ void Shell::SetPaintBackendChangedHandler(
 // ============================================================
 void Shell::Paint(HDC dc)
 {
+    const ULONGLONG tPaint0 = GetTickCount64();
     RECT rc;
     GetClientRect(m_hwnd, &rc);
 
@@ -727,6 +764,10 @@ void Shell::Paint(HDC dc)
         frame.ReplayText();
         frame.Clear();
     }
+
+    uiDebugLog(L"[paint] page=%d active=%d ms=%llu", m_pageId,
+               frameActive ? 1 : 0,
+               (unsigned long long)(GetTickCount64() - tPaint0));
 }
 
 // ------------------------------------------------------------
@@ -991,8 +1032,17 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         HDC dc = (HDC)wParam;
         RECT rcClient;
         GetClientRect(hwnd, &rcClient);
-        static HBRUSH s_bg = nullptr;
-        if (!s_bg) s_bg = CreateSolidBrush(Pal().bg);
+        // Cache the brush but re-create it when the palette changes:
+        // a once-only static brush keeps erasing with the old theme's
+        // colour after a light/dark switch, which reads as a flash of
+        // the wrong background.
+        static HBRUSH   s_bg      = nullptr;
+        static COLORREF s_bgColor = CLR_INVALID;
+        if (!s_bg || s_bgColor != Pal().bg) {
+            if (s_bg) DeleteObject(s_bg);
+            s_bgColor = Pal().bg;
+            s_bg      = CreateSolidBrush(s_bgColor);
+        }
         FillRect(dc, &rcClient, s_bg);
         return 1;
     }
@@ -1169,16 +1219,26 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         HDC dc = (HDC)wParam;
         SetTextColor(dc, Pal().text);
         SetBkColor(dc, Pal().surface);
-        static HBRUSH s_br = nullptr;
-        if (!s_br) s_br = CreateSolidBrush(Pal().surface);
+        static HBRUSH   s_br      = nullptr;
+        static COLORREF s_brColor = CLR_INVALID;
+        if (!s_br || s_brColor != Pal().surface) {
+            if (s_br) DeleteObject(s_br);
+            s_brColor = Pal().surface;
+            s_br      = CreateSolidBrush(s_brColor);
+        }
         return (LRESULT)s_br;
     }
     case WM_CTLCOLORSTATIC: {
         HDC dc = (HDC)wParam;
         SetBkMode(dc, TRANSPARENT);
         SetTextColor(dc, Pal().textSub);
-        static HBRUSH s_br = nullptr;
-        if (!s_br) s_br = CreateSolidBrush(Pal().bg);
+        static HBRUSH   s_br      = nullptr;
+        static COLORREF s_brColor = CLR_INVALID;
+        if (!s_br || s_brColor != Pal().bg) {
+            if (s_br) DeleteObject(s_br);
+            s_brColor = Pal().bg;
+            s_br      = CreateSolidBrush(s_brColor);
+        }
         return (LRESULT)s_br;
     }
 

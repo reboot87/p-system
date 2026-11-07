@@ -1,5 +1,6 @@
 #include "airui/Controls.h"
 #include "airui/Gfx.h"
+#include "airui/Theme.h"
 #include <commctrl.h>
 #include <dwmapi.h>
 
@@ -581,7 +582,18 @@ PaintDC::PaintDC(HWND hwnd) : m_hwnd(hwnd)
 
     m_mem = CreateCompatibleDC(m_wdc);
     m_bmp = CreateCompatibleBitmap(m_wdc, w, h);
-    if (m_mem && m_bmp) m_old = SelectObject(m_mem, m_bmp);
+    if (m_mem && m_bmp) {
+        m_old = SelectObject(m_mem, m_bmp);
+        // A Device-Dependent Bitmap arrives with UNDEFINED contents. Any
+        // pixel the active backend leaves transparent is AlphaBlended
+        // against whatever was in here, so a partially covered frame used
+        // to present as black noise for a moment. Pre-fill with the theme
+        // background: transparency then degrades to the correct colour
+        // instead of garbage.
+        RECT rcFill = m_client;
+        gfx::Brush bgBrush(Pal().bg);
+        FillRect(m_mem, &rcFill, bgBrush);
+    }
 }
 
 PaintDC::~PaintDC()
