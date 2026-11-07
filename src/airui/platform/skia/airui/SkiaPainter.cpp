@@ -300,40 +300,62 @@ RoleMetrics MeasureRole(HDC dc, const SharedFaces& f, FontRole role)
         if (tm.tmDescent > 0) rm.descent = static_cast<float>(tm.tmDescent);
     }
 
-    // (2) Latin em: ratio of GDI's advance width to Skia's at em 1000.
-    auto solve = [&](const wchar_t* text, int chars, const sk_sp<SkTypeface>& tf,
-                     SkTextEncoding enc, int bytes, SkScalar& out) {
+    // (2) em: match GDI's advance width for a reference run.
+    //
+    // A pure ratio taken at em 1000 is only a seed: the painter draws with
+    // full hinting, which snaps every advance to a whole pixel, so at 13 px
+    // the hinted width can sit ~8% away from the linear one (a hanzi whose
+    // linear advance is 13.78 hints to 15 in the semibold face). The seed is
+    // therefore refined against widths measured at the *drawn* size, with
+    // the same font settings the painter uses, until it stops moving.
+    auto solve = [&](const wchar_t* text, int chars, int bytes, SkScalar& out) {
+        out = 0.f;
         SIZE sz{};
-        if (!tf || !GetTextExtentPoint32W(dc, text, chars, &sz) || sz.cx <= 0)
+        if (!face || !GetTextExtentPoint32W(dc, text, chars, &sz) || sz.cx <= 0)
             return;
         SkFont probe;
-        probe.setTypeface(tf);
+        probe.setTypeface(face);
         probe.setSize(1000.f);
-        const float w1000 = probe.measureText(text, (size_t)bytes, enc);
+        const float w1000 =
+            probe.measureText(text, (size_t)bytes, SkTextEncoding::kUTF16);
         if (w1000 <= 1.f) return;
-        out = 1000.f * static_cast<float>(sz.cx) / w1000;
+
+        const SkScalar seed = 1000.f * static_cast<float>(sz.cx) / w1000;
+        SkScalar em = seed;
+        // Hinted widths are step functions, so guard against a refinement
+        // step running away on a rounding cliff.
+        const SkScalar lo = seed * 0.75f, hi = seed * 1.25f;
+        for (int i = 0; i < 4; ++i) {
+            SkFont f;
+            f.setTypeface(face);
+            f.setSize(em);
+            f.setHinting(SkFontHinting::kFull);
+            f.setSubpixel(false);
+            f.setEdging(SkFont::Edging::kAntiAlias);
+            const float w =
+                f.measureText(text, (size_t)bytes, SkTextEncoding::kUTF16);
+            if (w <= 1.f) break;
+            const SkScalar next = em * static_cast<float>(sz.cx) / w;
+            if (next <= 1.f || next < lo || next > hi) break;
+            const SkScalar diff = next > em ? next - em : em - next;
+            em = next;
+            if (diff <= 0.02f) break;
+        }
+        out = em;
     };
 
     if (isIcon) {
-        solve(&kRefIcon, 1, face, SkTextEncoding::kUTF16,
-              (int)sizeof(wchar_t), rm.em);
+        solve(&kRefIcon, 1, (int)sizeof(wchar_t), rm.em);
     } else {
-        SkScalar em = 0.f;
-        solve(kRefCjk, kRefCjkCount, face, SkTextEncoding::kUTF16,
-              kRefCjkCount * (int)sizeof(wchar_t), em);
+        solve(kRefCjk, kRefCjkCount, kRefCjkCount * (int)sizeof(wchar_t), rm.em);
         // A face without hanzi (or a DC that refused the run): fall back
         // to letters, then digits.
-        if (em <= 1.f) {
-            solve(kRefText, (int)(sizeof(kRefText) / sizeof(wchar_t)) - 1, face,
-                  SkTextEncoding::kUTF16,
-                  (int)(sizeof(kRefText) - sizeof(wchar_t)), em);
-        }
-        if (em <= 1.f) {
+        if (rm.em <= 1.f)
+            solve(kRefText, (int)(sizeof(kRefText) / sizeof(wchar_t)) - 1,
+                  (int)(sizeof(kRefText) - sizeof(wchar_t)), rm.em);
+        if (rm.em <= 1.f)
             solve(kRefDigits, (int)(sizeof(kRefDigits) / sizeof(wchar_t)) - 1,
-                  face, SkTextEncoding::kUTF16,
-                  (int)(sizeof(kRefDigits) - sizeof(wchar_t)), em);
-        }
-        if (em > 1.f) rm.em = em;
+                  (int)(sizeof(kRefDigits) - sizeof(wchar_t)), rm.em);
 
         // Chinese needs no separate size: the UI family *is* Microsoft
         // YaHei UI, so GDI never font-links here and Latin and CJK share
