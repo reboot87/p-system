@@ -106,6 +106,51 @@ int main()
         FreeLibrary(dll);
     }
 
+    // 5. Font-fix validation: the pre-fix plugin drew NO glyphs at all.
+    //    Drive a fresh off-screen frame per sample and count ink coverage.
+    //    Latin "A" is covered by every Windows font, so it must pass and
+    //    proves the typeface + drawSimpleText pipeline works; Chinese "中"
+    //    additionally proves CJK coverage on machines that have a CJK-
+    //    capable font (e.g. the user's zh-CN box). A missing-CJK result
+    //    is reported but NOT fatal -- it only means this runner lacks the
+    //    font, not that the code is wrong.
+    if (dll) {
+        AiruiSkiaCreateFn  c5 = Resolve<AiruiSkiaCreateFn>(dll, AIRUI_SKIA_FN_CREATE);
+        AiruiSkiaDestroyFn d5 = Resolve<AiruiSkiaDestroyFn>(dll, AIRUI_SKIA_FN_DESTROY);
+        AiruiSkiaPixelsFn p5 = Resolve<AiruiSkiaPixelsFn>(dll, AIRUI_SKIA_FN_PIXELS);
+        AiruiSkiaRowBytesFn r5 = Resolve<AiruiSkiaRowBytesFn>(dll, AIRUI_SKIA_FN_ROW_BYTES);
+        if (c5 && d5 && p5 && r5) {
+            auto Ink = [&](const wchar_t* s) -> int {
+                void* h = c5(nullptr, 0, 0, 32, 32);
+                if (!h) return -1;
+                IPainter* pt = reinterpret_cast<IPainter*>(h);
+                pt->Text(Rect{ 2, 2, 28, 28 }, s, FontRole::Body,
+                         MakeColor(0xFF, 0xFF, 0xFF), dt::SingleLine);
+                const unsigned char* px =
+                    static_cast<const unsigned char*>(p5(h));
+                const uint64_t stride = r5(h);
+                int ink = 0;
+                if (px && stride >= 32u * 4u) {
+                    for (int y = 0; y < 32; ++y)
+                        for (int x = 0; x < 32; ++x)
+                            if (px[static_cast<size_t>(y) * stride +
+                                     static_cast<size_t>(x) * 4u + 3u] > 8)
+                                ++ink;
+                }
+                d5(h);
+                return ink;
+            };
+            const int latinInk = Ink(L"A");
+            Check(latinInk > 4, "plugin rasterises Latin glyphs (font fix)");
+            const int cjkInk = Ink(L"\u4E2D");
+            if (cjkInk > 4)
+                std::printf("test_skia_plugin: CJK glyph coverage OK (ink=%d)\n", cjkInk);
+            else
+                std::printf("test_skia_plugin: WARNING CJK glyph not rasterised "
+                            "on this runner (ink=%d) -- likely missing CJK font\n", cjkInk);
+        }
+    }
+
     if (g_fail == 0)
         std::printf("test_skia_plugin: runtime DLL backend + C ABI + raster OK\n");
     else
