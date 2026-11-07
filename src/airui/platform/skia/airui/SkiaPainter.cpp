@@ -169,6 +169,82 @@ struct SharedFaces
     SkScalar em[static_cast<int>(FontRole::Count)] = {};
 };
 
+// One-shot typography diagnostic (AIRUI_PAINT_TRACE=1). Text sizing is
+// the one thing that cannot be unit-tested without a real SDK, so this
+// writes the measured numbers next to GDI's own metrics for the same
+// string -- that pair is what tells us whether the two backends agree.
+void DiagFonts(const SharedFaces& f)
+{
+#if defined(_WIN32) && !defined(AIRUI_SKIA_MOCK)
+    wchar_t dir[MAX_PATH] = {};
+    if (GetEnvironmentVariableW(L"AIRUI_PAINT_TRACE", dir, MAX_PATH) == 0) return;
+
+    wchar_t path[MAX_PATH] = {};
+    if (GetEnvironmentVariableW(L"LOCALAPPDATA", path, MAX_PATH) == 0) return;
+    wcscat_s(path, L"\\AireRecord\\skia_font.log");
+
+    FILE* fp = nullptr;
+    _wfopen_s(&fp, path, L"a");
+    if (!fp) return;
+
+    auto box = [](const sk_sp<SkTypeface>& tf, SkScalar& asc, SkScalar& desc) {
+        SkFont p;
+        if (tf) p.setTypeface(tf);
+        p.setSize(1000.f);
+        SkFontMetrics m{};
+        p.getMetrics(&m);
+        asc = m.fAscent;
+        desc = m.fDescent;
+    };
+
+    SkScalar ua = 0, ud = 0, ca = 0, cd = 0, ia = 0, id = 0;
+    box(f.ui, ua, ud);
+    box(f.cjk, ca, cd);
+    box(f.icon, ia, id);
+    fwprintf(fp, L"[faces] ui=%d cjk=%d icon=%d\n",
+             f.ui ? 1 : 0, f.cjk ? 1 : 0, f.icon ? 1 : 0);
+    fwprintf(fp, L"[ui]   upem=%d asc=%.1f desc=%.1f box=%.1f\n",
+             f.ui ? f.ui->getUnitsPerEm() : 0, ua, ud, ud - ua);
+    fwprintf(fp, L"[cjk]  upem=%d asc=%.1f desc=%.1f box=%.1f\n",
+             f.cjk ? f.cjk->getUnitsPerEm() : 0, ca, cd, cd - ca);
+    fwprintf(fp, L"[icon] upem=%d asc=%.1f desc=%.1f box=%.1f\n",
+             f.icon ? f.icon->getUnitsPerEm() : 0, ia, id, id - ia);
+
+    // Same string through both backends, same nominal cell height.
+    const FontSpec bodySpec = RoleFontSpec(FontRole::Body);
+    HDC dc = GetDC(nullptr);
+    if (dc) {
+        HFONT hf = CreateFontW(-bodySpec.cell, 0, 0, 0, bodySpec.weight,
+                               FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                               OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                               CLEARTYPE_QUALITY, DEFAULT_PITCH, kFamilyUi);
+        HGDIOBJ old = SelectObject(dc, hf);
+        TEXTMETRICW tm{};
+        GetTextMetricsW(dc, &tm);
+        SIZE sz{};
+        const wchar_t* probe = L"AireRecord";
+        GetTextExtentPoint32W(dc, probe, 10, &sz);
+        fwprintf(fp, L"[gdi]  cell=%d tmHeight=%d width=%d\n",
+                 bodySpec.cell, (int)tm.tmHeight, (int)sz.cx);
+        SelectObject(dc, old);
+        DeleteObject(hf);
+        ReleaseDC(nullptr, dc);
+    }
+    {
+        SkFont p;
+        if (f.ui) p.setTypeface(f.ui);
+        p.setSize(f.em[static_cast<int>(FontRole::Body)]);
+        const char* s = "AireRecord";
+        fwprintf(fp, L"[skia] em=%.2f width=%.1f\n",
+                 (double)f.em[static_cast<int>(FontRole::Body)],
+                 (double)p.measureText(s, 10, SkTextEncoding::kUTF8));
+    }
+    fclose(fp);
+#else
+    (void)f;
+#endif
+}
+
 void FillSharedFaces(SharedFaces& f)
 {
 #if defined(_WIN32)
@@ -218,6 +294,7 @@ void FillSharedFaces(SharedFaces& f)
         const bool isIcon = (role == FontRole::Icon || role == FontRole::IconLarge);
         f.em[i] = EmForCell(isIcon ? f.icon : f.ui, spec.cell);
     }
+    DiagFonts(f);
 }
 
 const SharedFaces& GetSharedFaces()
@@ -308,10 +385,12 @@ struct SkiaPainter::Impl
         if (!ready[i]) {
             EnsureFaces();
             SkFont f;
+            // Typeface first, then size: SkFont carries both, and the
+            // order keeps the explicit size authoritative.
+            if (roleFace[i]) f.setTypeface(roleFace[i]);
             // roleSize is already an em size converted from the GDI cell
             // height, so both backends occupy the same box.
             f.setSize(roleSize[i] > 0 ? roleSize[i] : 13.f);
-            if (roleFace[i]) f.setTypeface(roleFace[i]);
             // GDI CLEARTYPE_QUALITY snaps stems to the pixel grid with
             // integer advances. Full hinting + no subpixel positioning is
             // the closest Skia equivalent, and is what keeps 13 px UI
