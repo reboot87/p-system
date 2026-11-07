@@ -127,128 +127,227 @@ static void CopyFaceName(TCHAR (&dst)[32], const wchar_t* src)
     }
 }
 
-// Skia sizes text by em, GDI's LOGFONT.lfHeight is the *cell* height
-// (ascent + descent). For Segoe UI the cell is ~1.33x the em, so feeding
-// a cell height straight into SkFont::setSize made every string a third
-// too large -- headings collided with the title bar and nav rows were
-// ellipsised. Metrics scale linearly with size, so one probe at 1000
-// gives an exact conversion for any cell height.
-static SkScalar EmForCell(const sk_sp<SkTypeface>& face, int cell)
-{
-    const SkScalar fallback = static_cast<SkScalar>(cell > 0 ? cell : 13);
-#if defined(_WIN32)
-    if (face && cell > 0) {
-        SkFont probe;
-        probe.setTypeface(face);
-        probe.setSize(1000.f);
-        SkFontMetrics fm{};
-        probe.getMetrics(&fm);
-        const float box = fm.fDescent - fm.fAscent;
-        if (box > 1.f) return static_cast<SkScalar>(cell) * 1000.f / box;
-    }
-#endif
-    return fallback;
-}
-
-// Process-wide typeface set.
+// ---- Typography calibration ----------------------------------------
 //
-// Building a typeface goes through GDI's font matcher
-// (SkCreateTypefaceFromLOGFONT) and costs tens of milliseconds. A
-// SkiaPainter is constructed once per *frame*, so caching the faces on
-// the painter instance meant every repaint re-resolved three faces --
-// measured at 78 ms for a 1120x780 window. Sharing one immutable set
-// removes that cost from every frame after the first.
+// GDI and Skia do not share a font-size unit:
+//   * LOGFONT.lfHeight is a *cell* height derived from the font's win
+//     metrics, so a 13 px cell is roughly a 9.8 px em for Segoe UI;
+//   * SkFont::setSize takes an *em* size, and SkFontMetrics reports the
+//     typographic (OS/2 typo) metrics, which for Segoe UI add up to
+//     0.9375 em.
+// Converting one to the other from Skia's side alone therefore
+// overshoots: measured on screen, "AireRecord" came out 101 px wide in
+// Skia where GDI drew 75 px, headings collided with the title bar and
+// every nav row was ellipsised.
+//
+// So the size is calibrated against GDI itself: render a reference
+// string with the exact LOGFONT the Win32 backend uses and solve for the
+// em that reproduces that advance width. That is font-, DPI- and
+// metric-source independent -- we measure what GDI does instead of
+// assuming it. The same pass records GDI's baseline offset (tmAscent) so
+// vertical alignment lands on the same pixels too.
+struct RoleMetrics
+{
+    SkScalar em      = 13.f;   // SkFont::setSize
+    float    ascent  = 10.f;   // GDI tmAscent: baseline offset from the cell top
+    float    descent = 3.f;    // GDI tmDescent
+    int      cell    = 13;     // GDI cell height, which is also the line advance
+};
+
+// Width reference: Latin plus digits, so the average advance is
+// representative of UI text. GDI measures it at a large cell height so
+// integer advance rounding cannot skew the ratio.
+constexpr wchar_t kRefText[] = L"AireRecord 0123456789";
+constexpr int     kRefCell   = 200;
+constexpr char    kRefUtf8[] = "AireRecord 0123456789";
+// One Segoe MDL2 glyph, for icon-role calibration.
+constexpr wchar_t kRefIcon   = 0xE700;
+
 struct SharedFaces
 {
-    sk_sp<SkTypeface> ui;        // Segoe UI           (shapes Latin/UI text)
+    sk_sp<SkTypeface> ui;        // Segoe UI           (UI text)
     sk_sp<SkTypeface> uiBold;    // Segoe UI Semibold  (reserved for weights)
     sk_sp<SkTypeface> cjk;       // Microsoft YaHei UI (what GDI font-links to)
     sk_sp<SkTypeface> icon;      // Segoe MDL2 Assets
     sk_sp<SkTypeface> fallback;  // system default, last resort
-    // Em size per role, derived once from the role's cell height.
-    SkScalar em[static_cast<int>(FontRole::Count)] = {};
 };
 
-// One-shot typography diagnostic (AIRUI_PAINT_TRACE=1). Text sizing is
-// the one thing that cannot be unit-tested without a real SDK, so this
-// writes the measured numbers next to GDI's own metrics for the same
-// string -- that pair is what tells us whether the two backends agree.
-void DiagFonts(const SharedFaces& f)
+#if defined(_WIN32)
+sk_sp<SkTypeface> MakeFace(const wchar_t* family, int weight, int cell)
+{
+    LOGFONT lf{};
+    lf.lfHeight         = -cell;
+    lf.lfWeight         = weight;
+    lf.lfCharSet        = DEFAULT_CHARSET;
+    lf.lfOutPrecision   = OUT_DEFAULT_PRECIS;
+    lf.lfClipPrecision  = CLIP_DEFAULT_PRECIS;
+    lf.lfQuality        = CLEARTYPE_QUALITY;
+    lf.lfPitchAndFamily = DEFAULT_PITCH | FF_DONTCARE;
+    CopyFaceName(lf.lfFaceName, family);
+    return SkCreateTypefaceFromLOGFONT(lf);
+}
+#endif
+
+const SharedFaces& GetSharedFaces()
+{
+    static const SharedFaces* faces = new SharedFaces([] {
+        SharedFaces f;
+#if defined(_WIN32)
+        f.ui     = MakeFace(kFamilyUi,   400, 13);
+        f.uiBold = MakeFace(kFamilyUi,   600, 13);
+        f.cjk    = MakeFace(kFamilyCjk,  400, 13);
+        f.icon   = MakeFace(kFamilyIcon, 400, 13);
+
+        if (!f.ui) {
+            // Last resort: let GDI pick the system default font.
+            LOGFONT lfDef{};
+            lfDef.lfHeight         = -13;
+            lfDef.lfCharSet        = DEFAULT_CHARSET;
+            lfDef.lfPitchAndFamily = DEFAULT_PITCH | FF_DONTCARE;
+            f.ui = SkCreateTypefaceFromLOGFONT(lfDef);
+        }
+        if (!f.uiBold) f.uiBold = f.ui;
+        if (!f.cjk)    f.cjk    = f.ui;
+
+        // Generic fallback for codepoints no family above covers (rare
+        // symbols / emoji): an empty-faced LOGFONT lets GDI resolve the
+        // best available system font.
+        LOGFONT lfFall{};
+        lfFall.lfHeight         = -13;
+        lfFall.lfCharSet        = DEFAULT_CHARSET;
+        lfFall.lfPitchAndFamily = DEFAULT_PITCH | FF_DONTCARE;
+        f.fallback = SkCreateTypefaceFromLOGFONT(lfFall);
+#endif
+        return f;
+    }());
+    // Deliberately leaked: these typefaces live for the whole process.
+    // A static destructor would run while the plugin DLL unloads, when
+    // Skia's own code may already be gone.
+    return *faces;
+}
+
+// Resolve one role against GDI: width ratio -> em, tmAscent -> baseline.
+#if defined(_WIN32) && !defined(AIRUI_SKIA_MOCK)
+RoleMetrics MeasureRole(HDC dc, const SharedFaces& f, FontRole role)
+{
+    RoleMetrics rm;
+    const FontSpec spec = RoleFontSpec(role);
+    const bool isIcon = (role == FontRole::Icon || role == FontRole::IconLarge);
+    rm.cell = spec.cell > 0 ? spec.cell : 13;
+    rm.em   = static_cast<SkScalar>(rm.cell);
+    rm.ascent  = static_cast<float>(rm.cell) * 0.8f;
+    rm.descent = static_cast<float>(rm.cell) - rm.ascent;
+
+    const sk_sp<SkTypeface>& face = isIcon ? f.icon : f.ui;
+    if (!face || !dc) return rm;
+
+    const wchar_t* family = isIcon ? kFamilyIcon : kFamilyUi;
+    auto makeFont = [&](int cell) {
+        return CreateFontW(-cell, 0, 0, 0, spec.weight, FALSE, FALSE, FALSE,
+                           DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                           CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                           DEFAULT_PITCH, family);
+    };
+
+    // (1) Target cell: exact tmAscent/tmDescent in device pixels.
+    if (HFONT hf = makeFont(rm.cell)) {
+        HGDIOBJ old = SelectObject(dc, hf);
+        TEXTMETRICW tm{};
+        if (GetTextMetricsW(dc, &tm)) {
+            rm.ascent  = static_cast<float>(tm.tmAscent);
+            rm.descent = static_cast<float>(tm.tmDescent);
+        }
+        SelectObject(dc, old);
+        DeleteObject(hf);
+    }
+
+    // (2) Large cell: advance width of the reference run, then solve for
+    // the em that reproduces it at the target cell. Both sides are pure
+    // ratios, so the large size drops out except for precision.
+    if (HFONT hf = makeFont(kRefCell)) {
+        HGDIOBJ old = SelectObject(dc, hf);
+        SIZE sz{};
+        const int n = isIcon ? 1 : static_cast<int>(sizeof(kRefText) / sizeof(kRefText[0])) - 1;
+        const wchar_t* s = isIcon ? &kRefIcon : kRefText;
+        if (GetTextExtentPoint32W(dc, s, n, &sz) && sz.cx > 0) {
+            SkFont probe;
+            probe.setTypeface(face);
+            probe.setSize(1000.f);
+            const float w1000 = isIcon
+                ? probe.measureText(s, sizeof(wchar_t), SkTextEncoding::kUTF16)
+                : probe.measureText(kRefUtf8, sizeof(kRefUtf8) - 1,
+                                    SkTextEncoding::kUTF8);
+            if (w1000 > 1.f) {
+                const float gdiAtCell =
+                    static_cast<float>(sz.cx) * static_cast<float>(rm.cell) /
+                    static_cast<float>(kRefCell);
+                rm.em = 1000.f * gdiAtCell / w1000;
+            }
+        }
+        SelectObject(dc, old);
+        DeleteObject(hf);
+    }
+    return rm;
+}
+#endif
+
+// Calibration is per DPI (a monitor change re-measures) and per process,
+// so the per-frame painter never pays for it after the first frame.
+struct Calibration
+{
+    int         dpi = -1;
+    RoleMetrics m[static_cast<int>(FontRole::Count)];
+};
+
+const Calibration& GetCalibration(void* nativeDc)
+{
+    static Calibration* cal = new Calibration();   // process lifetime
+
+#if defined(_WIN32) && !defined(AIRUI_SKIA_MOCK)
+    HDC dc = nativeDc ? static_cast<HDC>(nativeDc) : GetDC(nullptr);
+    if (dc) {
+        const int dpi = GetDeviceCaps(dc, LOGPIXELSY);
+        if (cal->dpi != dpi) {
+            const SharedFaces& faces = GetSharedFaces();
+            for (int i = 0; i < static_cast<int>(FontRole::Count); ++i)
+                cal->m[i] = MeasureRole(dc, faces, static_cast<FontRole>(i));
+            cal->dpi = dpi;
+        }
+        if (!nativeDc) ReleaseDC(nullptr, dc);
+    }
+#else
+    (void)nativeDc;
+#endif
+    return *cal;
+}
+
+// Opt-in trace of the calibration result (AIRUI_PAINT_TRACE=1).
+void DiagCalibration(const RoleMetrics* m)
 {
 #if defined(_WIN32) && !defined(AIRUI_SKIA_MOCK)
-    wchar_t dir[MAX_PATH] = {};
-    if (GetEnvironmentVariableW(L"AIRUI_PAINT_TRACE", dir, MAX_PATH) == 0) return;
-
+    wchar_t v[8] = {};
+    if (GetEnvironmentVariableW(L"AIRUI_PAINT_TRACE", v, 8) == 0) return;
     wchar_t path[MAX_PATH] = {};
     if (GetEnvironmentVariableW(L"LOCALAPPDATA", path, MAX_PATH) == 0) return;
     wcscat_s(path, L"\\AireRecord\\skia_font.log");
-
     FILE* fp = nullptr;
-    _wfopen_s(&fp, path, L"a");
+    _wfopen_s(&fp, path, L"w");     // once per calibration, not per call
     if (!fp) return;
-
-    auto box = [](const sk_sp<SkTypeface>& tf, SkScalar& asc, SkScalar& desc) {
-        SkFont p;
-        if (tf) p.setTypeface(tf);
-        p.setSize(1000.f);
-        SkFontMetrics m{};
-        p.getMetrics(&m);
-        asc = m.fAscent;
-        desc = m.fDescent;
-    };
-
-    SkScalar ua = 0, ud = 0, ca = 0, cd = 0, ia = 0, id = 0;
-    box(f.ui, ua, ud);
-    box(f.cjk, ca, cd);
-    box(f.icon, ia, id);
-    fwprintf(fp, L"[faces] ui=%d cjk=%d icon=%d\n",
-             f.ui ? 1 : 0, f.cjk ? 1 : 0, f.icon ? 1 : 0);
-    fwprintf(fp, L"[ui]   upem=%d asc=%.1f desc=%.1f box=%.1f\n",
-             f.ui ? f.ui->getUnitsPerEm() : 0, ua, ud, ud - ua);
-    fwprintf(fp, L"[cjk]  upem=%d asc=%.1f desc=%.1f box=%.1f\n",
-             f.cjk ? f.cjk->getUnitsPerEm() : 0, ca, cd, cd - ca);
-    fwprintf(fp, L"[icon] upem=%d asc=%.1f desc=%.1f box=%.1f\n",
-             f.icon ? f.icon->getUnitsPerEm() : 0, ia, id, id - ia);
-
-    // Same string through both backends, same nominal cell height.
-    const FontSpec bodySpec = RoleFontSpec(FontRole::Body);
-    HDC dc = GetDC(nullptr);
-    if (dc) {
-        HFONT hf = CreateFontW(-bodySpec.cell, 0, 0, 0, bodySpec.weight,
-                               FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                               OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                               CLEARTYPE_QUALITY, DEFAULT_PITCH, kFamilyUi);
-        HGDIOBJ old = SelectObject(dc, hf);
-        TEXTMETRICW tm{};
-        GetTextMetricsW(dc, &tm);
-        SIZE sz{};
-        const wchar_t* probe = L"AireRecord";
-        GetTextExtentPoint32W(dc, probe, 10, &sz);
-        fwprintf(fp, L"[gdi]  cell=%d tmHeight=%d width=%d\n",
-                 bodySpec.cell, (int)tm.tmHeight, (int)sz.cx);
-        SelectObject(dc, old);
-        DeleteObject(hf);
-        ReleaseDC(nullptr, dc);
-    }
-    {
-        SkFont p;
-        if (f.ui) p.setTypeface(f.ui);
-        p.setSize(f.em[static_cast<int>(FontRole::Body)]);
-        const char* s = "AireRecord";
-        fwprintf(fp, L"[skia] em=%.2f width=%.1f\n",
-                 (double)f.em[static_cast<int>(FontRole::Body)],
-                 (double)p.measureText(s, 10, SkTextEncoding::kUTF8));
+    fwprintf(fp, L"[calib] dpi-scaled calibration\n");
+    for (int i = 0; i < static_cast<int>(FontRole::Count); ++i) {
+        fwprintf(fp, L"[calib] role=%d cell=%d em=%.2f ascent=%.1f descent=%.1f\n",
+                 i, m[i].cell, (double)m[i].em,
+                 (double)m[i].ascent, (double)m[i].descent);
     }
     fclose(fp);
 #else
-    (void)f;
+    (void)m;
 #endif
 }
 
-// Per-call text trace (AIRUI_PAINT_TRACE=1). Records what the backend
-// actually draws -- role, resolved size, measured width, origin and the
-// string -- so a screenshot can be matched against the calls that made
-// it, instead of guessing which path produced the pixels.
+// Per-call text trace (AIRUI_PAINT_TRACE=1), appended after the
+// calibration dump: what the backend actually draws, so a screenshot can
+// be matched against the calls that produced it.
 void DiagText(int role, SkScalar size, float w, float x, float y,
               float canvasScale, const std::string& s)
 {
@@ -278,71 +377,6 @@ void DiagText(int role, SkScalar size, float w, float x, float y,
 #endif
 }
 
-void FillSharedFaces(SharedFaces& f)
-{
-#if defined(_WIN32)
-    auto make = [](const wchar_t* family, int weight, int cell) {
-        LOGFONT lf{};
-        lf.lfHeight         = -cell;
-        lf.lfWeight         = weight;
-        lf.lfCharSet        = DEFAULT_CHARSET;
-        lf.lfOutPrecision   = OUT_DEFAULT_PRECIS;
-        lf.lfClipPrecision  = CLIP_DEFAULT_PRECIS;
-        lf.lfQuality        = CLEARTYPE_QUALITY;
-        lf.lfPitchAndFamily = DEFAULT_PITCH | FF_DONTCARE;
-        CopyFaceName(lf.lfFaceName, family);
-        return SkCreateTypefaceFromLOGFONT(lf);
-    };
-
-    f.ui     = make(kFamilyUi,   400, 13);
-    f.uiBold = make(kFamilyUi,   600, 13);
-    f.cjk    = make(kFamilyCjk,  400, 13);
-    f.icon   = make(kFamilyIcon, 400, 13);
-
-    if (!f.ui) {
-        // Last resort: let GDI pick the system default font.
-        LOGFONT lfDef{};
-        lfDef.lfHeight         = -13;
-        lfDef.lfCharSet        = DEFAULT_CHARSET;
-        lfDef.lfPitchAndFamily = DEFAULT_PITCH | FF_DONTCARE;
-        f.ui = SkCreateTypefaceFromLOGFONT(lfDef);
-    }
-    if (!f.uiBold) f.uiBold = f.ui;
-    if (!f.cjk)    f.cjk    = f.ui;
-
-    // Generic fallback for codepoints no family above covers (rare
-    // symbols / emoji): an empty-faced LOGFONT lets GDI resolve the
-    // best available system font.
-    LOGFONT lfFall{};
-    lfFall.lfHeight         = -13;
-    lfFall.lfCharSet        = DEFAULT_CHARSET;
-    lfFall.lfPitchAndFamily = DEFAULT_PITCH | FF_DONTCARE;
-    f.fallback = SkCreateTypefaceFromLOGFONT(lfFall);
-#endif
-    // Em size per role: Latin (primary face) and icon roles are measured
-    // against the face that actually draws them.
-    for (int i = 0; i < static_cast<int>(FontRole::Count); ++i) {
-        const FontRole role = static_cast<FontRole>(i);
-        const FontSpec spec = RoleFontSpec(role);
-        const bool isIcon = (role == FontRole::Icon || role == FontRole::IconLarge);
-        f.em[i] = EmForCell(isIcon ? f.icon : f.ui, spec.cell);
-    }
-    DiagFonts(f);
-}
-
-const SharedFaces& GetSharedFaces()
-{
-    static const SharedFaces* faces = new SharedFaces([] {
-        SharedFaces f;
-        FillSharedFaces(f);
-        return f;
-    }());
-    // Deliberately leaked: these typefaces live for the whole process.
-    // A static destructor would run while the plugin DLL unloads, when
-    // Skia's own code may already be gone.
-    return *faces;
-}
-
 // CJK / fullwidth ranges. GDI resolves these through font linking to
 // Microsoft YaHei UI; doing the same here is what keeps Chinese text on
 // the same family (and therefore the same shapes) across backends.
@@ -360,20 +394,21 @@ bool IsCjk(uint32_t cp)
 
 struct SkiaPainter::Impl
 {
-    explicit Impl(SkCanvas* canvas) : canvas(canvas) {}
+    Impl(SkCanvas* canvas, void* nativeDc) : canvas(canvas), dc(nativeDc) {}
 
     SkCanvas* canvas = nullptr;
+    void*     dc = nullptr;        // HDC used once for GDI calibration
     SkFont    fonts[static_cast<int>(FontRole::Count)];
     bool      ready[static_cast<int>(FontRole::Count)] = {};
     int       clipDepth = 0;
 
-    // Font faces per role: Segoe UI for UI text, Segoe MDL2 Assets for
-    // icons -- exactly what the GDI backend selects -- plus a CJK face
-    // standing in for GDI's font linking. Lazy: resolved on first use.
+    // Faces and metrics per role: Segoe UI for UI text, Segoe MDL2
+    // Assets for icons -- exactly what the GDI backend selects -- plus a
+    // CJK face standing in for GDI's font linking.
     sk_sp<SkTypeface>      roleFace[static_cast<int>(FontRole::Count)];
+    RoleMetrics            roleM[static_cast<int>(FontRole::Count)] = {};
     sk_sp<SkTypeface>      cjkFace = nullptr;
     sk_sp<SkTypeface>      defaultFace = nullptr;
-    SkScalar               roleSize[static_cast<int>(FontRole::Count)] = {};
     bool                   facesReady = false;
 
     void EnsureFaces()
@@ -382,14 +417,16 @@ struct SkiaPainter::Impl
         facesReady = true;
 
         const SharedFaces& shared = GetSharedFaces();
+        const Calibration& cal = GetCalibration(dc);
         for (int i = 0; i < static_cast<int>(FontRole::Count); ++i) {
             const FontRole role = static_cast<FontRole>(i);
             const bool isIcon = (role == FontRole::Icon || role == FontRole::IconLarge);
             roleFace[i] = isIcon ? (shared.icon ? shared.icon : shared.ui) : shared.ui;
-            roleSize[i] = shared.em[i];
+            roleM[i] = cal.m[i];
         }
         cjkFace = shared.cjk;
         defaultFace = shared.fallback;
+        DiagCalibration(cal.m);
     }
 
     // Pick the typeface that can actually draw `cp` for this role. Order
@@ -421,9 +458,9 @@ struct SkiaPainter::Impl
             // Typeface first, then size: SkFont carries both, and the
             // order keeps the explicit size authoritative.
             if (roleFace[i]) f.setTypeface(roleFace[i]);
-            // roleSize is already an em size converted from the GDI cell
-            // height, so both backends occupy the same box.
-            f.setSize(roleSize[i] > 0 ? roleSize[i] : 13.f);
+            // roleM[i].em is calibrated against GDI, so the two backends
+            // draw the same string at the same pixel width.
+            f.setSize(roleM[i].em > 0 ? roleM[i].em : 13.f);
             // GDI CLEARTYPE_QUALITY snaps stems to the pixel grid with
             // integer advances. Full hinting + no subpixel positioning is
             // the closest Skia equivalent, and is what keeps 13 px UI
@@ -496,25 +533,35 @@ struct SkiaPainter::Impl
         return f.measureText(utf8.data(), utf8.size(), SkTextEncoding::kUTF8);
     }
 
-    float Baseline(const Rect& r, SkFont& f, skia::VAlign v) const
+    // GDI's DrawText lays text out inside a cell of `tmHeight` pixels and
+    // puts the baseline `tmAscent` from the top of that cell. Using the
+    // same numbers is what makes DT_TOP / DT_VCENTER / DT_BOTTOM land on
+    // the same pixels as the Win32 backend; Skia's own ascent/descent are
+    // typographic metrics and sit a couple of pixels elsewhere.
+    float Baseline(const Rect& r, int i, skia::VAlign v) const
     {
-        SkFontMetrics fm{};
-        f.getMetrics(&fm);
-        const float line = fm.fDescent - fm.fAscent;
+        const RoleMetrics& m = roleM[i];
+        const float cell = static_cast<float>(m.cell);
         switch (v) {
         case skia::VAlign::Middle:
             return static_cast<float>(r.top)
-                 + (static_cast<float>(r.Height()) - line) / 2.f - fm.fAscent;
+                 + (static_cast<float>(r.Height()) - cell) / 2.f + m.ascent;
         case skia::VAlign::Bottom:
-            return static_cast<float>(r.bottom) - fm.fDescent;
+            return static_cast<float>(r.bottom) - m.descent;
         default:
-            return static_cast<float>(r.top) - fm.fAscent;
+            return static_cast<float>(r.top) + m.ascent;
         }
+    }
+
+    int Index(FontRole role) const
+    {
+        int i = static_cast<int>(role);
+        return (i < 0 || i >= static_cast<int>(FontRole::Count)) ? 0 : i;
     }
 };
 
-SkiaPainter::SkiaPainter(SkCanvas* canvas)
-    : m(new Impl(canvas)) {}
+SkiaPainter::SkiaPainter(SkCanvas* canvas, void* nativeDc)
+    : m(new Impl(canvas, nativeDc)) {}
 
 SkiaPainter::~SkiaPainter() = default;
 
@@ -601,7 +648,7 @@ void SkiaPainter::Text(const Rect& r, const std::wstring& s,
     case skia::HAlign::Right:  x += static_cast<float>(r.Width()) - totalW;         break;
     default: break;
     }
-    const float y = m->Baseline(r, primary, skia::Vertical(fmt));
+    const float y = m->Baseline(r, m->Index(role), skia::Vertical(fmt));
     m->DrawRuns(primary, role, utf8, x, y, c);
     DiagText(static_cast<int>(role), primary.getSize(), totalW, x, y,
              m->canvas->getTotalMatrix().getScaleX(), utf8);
@@ -613,9 +660,9 @@ void SkiaPainter::TextBlock(const Rect& r, const std::wstring& s,
     if (!m->canvas || s.empty() || r.Empty()) return;
     const std::string utf8 = skia::WideToUtf8(s);
     SkFont& primary = m->Font(role);
-    SkFontMetrics fm{};
-    primary.getMetrics(&fm);
-    const float lineH = fm.fDescent - fm.fAscent;
+    const RoleMetrics& rm = m->roleM[m->Index(role)];
+    // GDI breaks lines at tmHeight, not at Skia's typographic line box.
+    const float lineH = static_cast<float>(rm.cell);
     const float avail = static_cast<float>(r.Width());
     const int limit = maxLines > 0 ? maxLines : 1;
 
@@ -643,9 +690,9 @@ void SkiaPainter::TextBlock(const Rect& r, const std::wstring& s,
     if (!cur.empty() && static_cast<int>(lines.size()) < limit)
         lines.push_back(cur);
 
-    float y = static_cast<float>(r.top) - fm.fAscent;
+    float y = static_cast<float>(r.top) + rm.ascent;
     for (const std::string& ln : lines) {
-        if (y - fm.fDescent > static_cast<float>(r.bottom)) break;
+        if (y - rm.ascent > static_cast<float>(r.bottom)) break;
         if (!ln.empty())
             m->DrawRuns(primary, role, ln, static_cast<float>(r.left), y, c);
         y += lineH;

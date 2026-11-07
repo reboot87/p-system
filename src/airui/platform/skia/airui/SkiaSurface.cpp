@@ -29,7 +29,7 @@ struct SkiaFrame::Impl
     Rect     bounds{};
 #endif
 
-    Impl(int width, int height) : w(width), h(height)
+    Impl(int width, int height, void* nativeDc = nullptr) : w(width), h(height)
     {
         if (w <= 0 || h <= 0) return;
         const SkImageInfo info = SkImageInfo::Make(
@@ -40,7 +40,10 @@ struct SkiaFrame::Impl
         if (!bitmap.getPixels()) return;
         canvas.reset(new SkCanvas(bitmap));
         canvas->clear(SK_ColorTRANSPARENT);
-        painter.reset(new SkiaPainter(canvas.get()));
+        // The target HDC (when there is one) is handed to the painter so
+        // text can be calibrated against GDI's own metrics once. An
+        // off-screen frame falls back to the screen DC.
+        painter.reset(new SkiaPainter(canvas.get(), nativeDc));
     }
 
 #ifdef _WIN32
@@ -110,7 +113,7 @@ struct SkiaFrame::Impl
 // ------------------------------------------------------------
 #ifdef _WIN32
 SkiaFrame::SkiaFrame(HDC dc, const Rect& bounds)
-    : m(new Impl(bounds.Width(), bounds.Height()))
+    : m(new Impl(bounds.Width(), bounds.Height(), static_cast<void*>(dc)))
 {
     if (m->canvas) m->Attach(dc, bounds);
 }

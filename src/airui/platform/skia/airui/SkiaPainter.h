@@ -21,7 +21,11 @@ class SkiaPainter : public IPainter
 {
 public:
     // The painter does not own the canvas. Caller keeps it alive.
-    explicit SkiaPainter(SkCanvas* canvas);
+    // `nativeDc` is optional: on Windows it is the HDC the frame will be
+    // composited onto, used once to calibrate text against GDI (the two
+    // backends must produce identical type size, and GDI's cell height
+    // and Skia's typographic metrics are not the same unit).
+    explicit SkiaPainter(SkCanvas* canvas, void* nativeDc = nullptr);
     ~SkiaPainter() override;
 
     SkCanvas* Canvas() const;
