@@ -125,7 +125,14 @@ jobs:
         shell: pwsh
         continue-on-error: true
         run: |
+          # Diagnostics: confirm the token is present (value is masked).
+          if ($env:GITHUB_TOKEN) { Write-Host "diag: GITHUB_TOKEN is set" } else { Write-Host "diag: GITHUB_TOKEN is EMPTY" }
           $env:GH_TOKEN = $env:GITHUB_TOKEN
+          if ($env:GH_TOKEN) { Write-Host "diag: GH_TOKEN set from GITHUB_TOKEN" } else { Write-Host "diag: GH_TOKEN EMPTY" }
+          Write-Host "diag: gh auth status ---"
+          gh auth status 2>&1 | ForEach-Object { Write-Host "  $_" }
+          Write-Host "diag: gh run list (raw) ---"
+          gh run list --workflow ci.yml --status success --limit 3 --json databaseId 2>&1 | ForEach-Object { Write-Host "  $_" }
           $runId = (gh run list --workflow ci.yml --status success --limit 1 `
                       --json databaseId --jq ".[0].databaseId") 2>$null
           if (-not $runId -or $runId -notmatch '^\d+$') {
