@@ -201,22 +201,29 @@ src/airui/platform/skia/airui/
 用 `SkFontMetrics` 的 typo 度量反解也不行：Segoe UI 的 typo 只有 ≈ 0.9375 em，反解出来仍然放大 1.4 倍（实测 Skia 标题 101px vs GDI 75px）。
 
 **（2）最终做法：用 GDI 实测宽度反解 em（标定法）。**
-`MeasureRole()` 在与后端完全相同的 `LOGFONT`（同字族、同 cell、同字重、同 `CLEARTYPE_QUALITY`）下，用 200px 大字号量参考串 `"AireRecord 0123456789"` 的 `GetTextExtentPoint32W` 宽度，再解出让 Skia 宽度相等的 em：
+`MeasureRole()` 在与后端完全相同的 `LOGFONT`（同字族、同 cell、同字重、同 `CLEARTYPE_QUALITY`）下，**就在目标字号上**量参考串 `"AireRecord 0123456789"` 的 `GetTextExtentPoint32W` 宽度，再解出让 Skia 宽度相等的 em：
 
 ```
-em = 1000 * (gdiWidth / gdiScale * cell / kRefCell) / skiaWidthAt1000
+em = 1000 * gdiWidth / skiaWidthAt1000
 ```
 
-两侧都是纯比例，大字号只用来提高精度；与字族、DPI、度量来源都无关。
+**（3）"GDI 报的 cell 比请求的大"不是 DPI 虚拟化，那是 cell 取整。**
+`CreateFontW(-13, ...)` 时 `GetTextMetricsW` 报 `tmHeight = 17`。曾经把它当成 DPI 缩放因子 `gdiScale = 17/13`，从 ascent/descent 和参考宽度里除掉——结果整个 UI 小了 25%~30%（导航中文 9.3px/字 vs GDI 13.7px/字，标题也明显偏小）。
+真实原因是 GDI 用**向上取整到字体单元格**的方式实现"字符高度"语义：请求 13、实际画 17。用 96 DPI + `SetProcessDPIAware()` 的裸探针（`scripts/probe_cjk.cpp`）就能复现同样的 17/13，与 DPI 无关。
+所以现在的做法是：**请求的字号直测，不缩放**；并且把 `RoleMetrics::cell` 取成**实际** `tmHeight`——`DrawText` 的 `DT_VCENTER` 与行高用的都是它，用请求值会让多行行距偏紧。
+另外不要用"200px 大字号量完再按比例缩回目标字号"：13→17 这个台阶在不同字号上不线性，缩回来的字号 GDI 根本不会画。
 
-**（3）标定用的 DC 是 DPI 虚拟化的，绘制面不是。**
-requested cell = 13 时 `GetTextMetricsW` 报 `tmHeight = 17`（1.31×），而 `SkiaFrame` 画布是未缩放的设备像素。所以要用同一 DC 的 `gdiScale = tmHeight / requestedCell` 把 `tmAscent` / `tmDescent` 和参考宽度一起除掉，否则字仍然偏大 1.31 倍。
+**（4）中文必须单独标定，而且只能在目标字号上量。**
+GDI 靠字体链接把中文交给 Microsoft YaHei UI，且**链接后的字号与拉丁 em 不同**：cell 13 时拉丁 em ≈ 12.8，而每个汉字的步进是 **16px**（`scripts/probe_cjk.cpp` 实测，weight 400：cell 11→13、13→16、15→16、18→19、20→20、28→29；weight 600 各加约 1px）。
+`GetTextExtentPoint32W` 在目标字号处**是**会走字体链接的（探针里 `GetTextExtentPoint32W` 与 `DrawText(DT_CALCRECT)` 的结果完全一致，例如 cell 13 的两个数都是 128/16），但**在大字号处不会**——早期在 200px 处量中文，解出 3.92 em 这种荒谬值，就是链接没生效。
+所以现在用「同字长串 + 单字」两笔量出净步进，避免左右 side bearing 污染：
 
-**（4）中文不单独标定。**
-GDI 靠字体链接把中文交给 Microsoft YaHei UI，但 `GetTextExtentPoint32W` **不做字体链接**（只在请求字号附近才链接），在 200px / 3× cell 处量中文会算出 3.92 em 这种荒谬值。结论：CJK 每字宽度恒为 1 em，`emCjk = em`（实测吻合：Title 角色 5 个汉字 71px = 14.2 em）。
+```
+emCjk = (width(8 个汉字) - width(1 个汉字)) / 7      // 汉字步进恒为 1 em
+```
 
 **（5）基线按 GDI 的 cell 内偏移算。**
-`DrawText` 以 `tmHeight` 为 cell、baseline 距 cell 顶 `tmAscent`：`DT_TOP → top + ascent`、`DT_VCENTER → top + floor((h - cell)/2) + ascent`、`DT_BOTTOM → bottom - descent`，最后对 y 取 `floor`。`ascent/descent` 本身 `round` 到整像素；行高与 `TextBlock` 起点同样用 `cell`/`ascent`。
+`DrawText` 以 `tmHeight` 为 cell、baseline 距 cell 顶 `tmAscent`：`DT_TOP → top + ascent`、`DT_VCENTER → top + floor((h - cell)/2) + ascent`、`DT_BOTTOM → bottom - descent`，最后对 y 取 `floor`。行高与 `TextBlock` 起点同样用实际 `cell`/`ascent`。
 
 **（6）`DT_END_ELLIPSIS` 只在放不下时才省略。**
 原实现无条件 `push_back("...")`，导致每个导航项都带尾点。现在先 `textW + dotsW > avail` 才截断，`avail` 加 1px 容差模拟 GDI 的整数像素取整。
