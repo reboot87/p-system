@@ -73,7 +73,7 @@ ShellOptions.skiaChrome    ← 旧字段兼容别名（true → "skia"）
 
 主程序侧的 `PluginPainter` 把 13 个 `IPainter` 方法转发给 DLL 内的对象，析构回调 `airui_skia_destroy`——**对象所有权不跨 CRT / 模块边界**。
 
-> **ABI 约束**：`IPainter` 的虚方法含 `const std::wstring&`，跨 DLL 依赖 MSVC C++ ABI 兼容（v140–v143 相同内存布局，需一致的 `/MD`、一致的 `_ITERATOR_DEBUG_LEVEL`）。CI 中 app 与 DLL 由同一 VS2022 构建；若用其它工具集编译 DLL，请同工具集重建。DLL 路径可用 `AIRUI_SKIA_DLL` 环境变量覆盖。
+> **ABI 约束（2026-11-07 下载 CI 产物实测修订）**：`IPainter` 的虚方法含 `const std::wstring&`，跨 DLL 依赖 MSVC C++ ABI 兼容。实测 **VS2017 (v141, x64) 主程序 → VS2022 (v143, x64) 插件** 可用：注册表选择、`Text()` 携带 `std::wstring` 跨模块、`Skia → AlphaBlend → Win32 HDC` 合成像素全部通过，说明 v140–v143 同族工具集可以跨代使用，并非必须同代重建。硬约束是 **位数必须一致**（x86 进程加载 x64 DLL 会失败并静默回退 gdi）、MSVC 同族、一致的 `/MD` 与 `_ITERATOR_DEBUG_LEVEL`；MinGW / Clang 等非 MSVC 工具集不在保证范围。DLL 路径可用 `AIRUI_SKIA_DLL` 环境变量覆盖。
 
 ### 1.4 应用接线（`src/airui/platform/win32/Shell.cpp`）
 
@@ -182,6 +182,7 @@ src/airui/platform/skia/airui/
 | 真实编译 / 链接 / **动态加载** + C ABI + 光栅像素 | `airui-skia.dll` + `test_skia_plugin` | ✅ | **已实跑通过**（run `42337859169`）：CI 产出 `airui-skia.dll`，跨模块虚调用 + C ABI 光栅像素全绿，日志 `test_skia_plugin: runtime DLL backend + C ABI + raster OK` |
 | 真实编译 / 链接 / 运行 + **G5 双后端序列断言** | `test_skia_backend` | ✅ | **已实跑通过**：`G5 parity + raster OK`（run `42335700042`） |
 | 默认工具链零回归 | VS2017 全量 `cmake --build` + `ctest -C Release` | ❌ | **19/19 通过**（新增 2 个用例） |
+| **下载 CI 产物、跨工具链 / 跨机器实测** | `gh run download` + 本机 VS2017 x64 harness | ✅ | **已实跑通过**（run `42338618815`）：见 §5.2，含位数不匹配回退、跨代 MSVC ABI、真实 HDC 上屏像素 |
 
 `test_skia_backend` 是 G5 的落地：同一场景先由 core 的 `PaintRecorder` 录成金样，再经 `TeePainter` 一边驱动真实 Skia 后端、一边记录后端**实际收到**的 `IPainter` 调用，最后断言 `SequenceEquals` / `Diff().empty()`，并校验光栅像素确为 `BGRA + premultiplied`。
 
@@ -205,15 +206,37 @@ CI 首次跑完 vcpkg 源码编译（约 35 分钟）并成功 Configure，Build
 
 > **约定**：`SkiaApi.h`（真 SDK 入口）与 `SkiaApiMock.h`（契约门禁）必须**同改**。真 SDK 的权威结论以 `skia-windows` 的 Build + 测试运行为准，本地 mock 只保证形状。
 
+### 5.2 下载 CI 产物到本机实测（2026-11-07）
+
+`skia-windows` 作业每次运行都打包 `airui-skia-windows-x64` artifact（`actions/upload-artifact@v4`，保留 14 天）：`airui-skia.dll`、`test_skia_plugin.exe`、`test_skia_backend.exe`、**全套 vcpkg x64 运行时 DLL**（`skia.dll`、`icu*79.dll`、`harfbuzz*.dll`、`freetype.dll`、`z.dll` 等，共 37 个文件约 53 MB）与 `README.txt`。
+
+```
+gh run download <run-id> -n airui-skia-windows-x64 -D build\ci-artifacts
+```
+
+> 只拷 `airui-skia.dll` **不够**：插件依赖的 Skia / ICU / HarfBuzz 等 DLL 必须在 exe 同目录（或 PATH）里，否则 `LoadLibraryW` 因缺依赖失败，注册表静默回退 gdi。
+
+本机实测（run `42338618815`，CI 4/4 作业全绿）：
+
+| 组合 | 结果 |
+|---|---|
+| CI 自带 VS2022 x64 `test_skia_plugin.exe` + 同目录 DLL | `runtime DLL backend + C ABI + raster OK`；`test_skia_backend` → `G5 parity + raster OK` |
+| 官方 VS2017 **x86** `test_paint_runtime.exe` + x64 DLL | 位数不匹配 → `skia backend not deployed (fallback path under test)`，仍 `runtime selection + fallback OK`（优雅降级，不崩） |
+| VS2017 **x64** `test_paint_runtime.exe` + x64 DLL | `skia backend available (linked or DLL loaded)`，运行时选择 + 跨模块虚调用全绿 |
+| VS2017 x64 harness（同一份 `test_skia_plugin.cpp`，含 `std::wstring` 跨模块） | `runtime DLL backend + C ABI + raster OK` |
+| VS2017 x64 harness + 真实 HDC（`CreateDIBSection` → `AlphaBlend`） | 合成像素 `BGRA 00 00 DD FF`，`Skia -> AlphaBlend -> Win32 HDC OK` |
+
+> 本机官方 `build/` 是 **x86**（`CMAKE_GENERATOR_PLATFORM` 为空），CI 产物是 **x64**；要直接用需另配 VS2017 x64 构建树：`cmake -S . -B build/vs2017-x64 -G "Visual Studio 15 2017" -A x64`。另外主程序窗口壳 `ShellOptions.coreShell` 默认关，`--paint-backend=skia` 目前不改变主窗口绘制路径（注册表分支只在 coreShell 路由生效），GUI 级截图仍未做。
+
 ---
 
 ## 6. 已知边界（不要误当成已完成）
 
 - **没有 Skia 版 `IWindow`**：目前只有绘制后端。窗口壳、消息泵、事件注入仍由 `Win32Window` 负责；Linux/macOS 应用本体仍不可构建。
-- **插件 ABI 依赖 MSVC 兼容工具集**：`IPainter` 虚方法带 `std::wstring`，跨 DLL 要求同代 MSVC ABI 与一致的 CRT 选项（§1.3）。尚未做纯 C 绘制桥，也未做跨编译器验证。
+- **插件 ABI 有工具集与位数边界**：实测 MSVC v141 (VS2017 x64) ↔ v143 (VS2022 x64) 跨代可用（§5.2），但 **x86 进程无法加载 x64 DLL**——本机官方 `build/` 是 x86、CI 产物是 x64，直接放旁边只会静默回退 gdi。仍要求 MSVC 同族、一致 `/MD` 与 `_ITERATOR_DEBUG_LEVEL`；纯 C 绘制桥与非 MSVC 编译器验证均未做。
 - **字体度量未对齐**：后端用 `SkFont` 的平台默认 typeface，与 GDI 的 "Segoe UI" 族、CJK 回退、hinting 的差异尚未校准（设计稿 R2/R7）。
 - **像素级 GDI vs Skia 截图 diff 未做**：当前断言的是**调用序列一致性**与「Skia 确实产出像素」，不是 SSIM 截图比对。
-- **VS2017 + Skia 代码未验证**：真 SDK 路径只在 VS2022 CI 上验证；官方 VS2017 产物通过 DLL 使用 Skia 的端到端效果尚未在真机截图确认。
+- **VS2017 只验证了「使用 DLL」，未验证「编译 Skia」**：真 SDK 源码编译仍只在 VS2022 CI 上做；官方 VS2017 工具链 x64 产物通过下载 DLL 使用 Skia 已实测（含真实 HDC 合成像素，§5.2），但主程序窗口壳 `coreShell` 默认关，完整 GUI 窗口截图效果未确认。CI 目前只出 **x64** 插件，x86 官方产物需 x64 构建或另出 x86 artifact。
 - **Skia API 版本漂移**：所有 Skia 头集中在 `SkiaApi.h`；已在 vcpkg `skia@148` 上校准（§5.1），但 `drawSimpleText` / `measureText` 等仍可能随版本变化。
 
 ---
