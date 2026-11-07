@@ -249,6 +249,14 @@ private:
     int           m_capHover = 0;
     bool          m_paintBtnHover = false;
     bool          m_active  = true;
+    // Set while a page switch is being assembled. Lifting WM_SETREDRAW
+    // makes Windows repaint the whole client area WITH an erase first,
+    // which painted a full-window background frame a whole Skia frame
+    // (46-63 ms) before the real content arrived -- the visible "flash".
+    bool          m_eraseSuppressed = false;
+    // First paint of a window has nothing on screen yet; erasing then is
+    // what keeps the exposed area from showing as uninitialised black.
+    bool          m_paintedOnce = false;
     std::function<void(const std::string&, bool)> m_paintBackendChanged;
 
     // Caption / Status state lives in m_shellCore (the single source of

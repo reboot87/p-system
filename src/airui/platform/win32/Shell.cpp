@@ -273,6 +273,11 @@ bool Shell::SwitchPage(int id)
     // GDI repaint. With everything inside the freeze only the finished
     // frame is ever presented.
     SendMessageW(m_hwnd, WM_SETREDRAW, FALSE, 0);
+    // Lifting the freeze repaints the client area WITH an erase. Suppress
+    // that fill for the duration of the switch, otherwise the user sees a
+    // flat background frame until the (slow) Skia frame lands. Only safe
+    // once something has been painted at least once.
+    m_eraseSuppressed = m_paintedOnce;
 
     if (prev) prev->OnShow(false);
 
@@ -293,6 +298,7 @@ bool Shell::SwitchPage(int id)
     ::RedrawWindow(m_hwnd, nullptr, nullptr,
                    RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE |
                    RDW_ALLCHILDREN);
+    m_eraseSuppressed = false;
     uiDebugLog(L"[switch] id=%d sync_ms=%llu", id,
                (unsigned long long)(GetTickCount64() - t0));
     return true;
@@ -723,7 +729,9 @@ void Shell::Paint(HDC dc)
         }
     }
 
+    const ULONGLONG tBegan = GetTickCount64();
     gfx::Fill(dc, rc, Pal().bg);
+
 
     if (m_opt.coreShell) {
         // HAL chrome still owns state and layout; its IPainter calls now
@@ -753,6 +761,8 @@ void Shell::Paint(HDC dc)
     if (m_opt.coreShell) DrawCaptionButtons(dc, rc);
     DrawPaintBackendButton(dc);
 
+    const ULONGLONG tDrawn = GetTickCount64();
+
     // ---- Close the frame -------------------------------------------
     // Order matters: the backend's destructor composites its raster
     // onto the DC; host-rasterised text must be drawn AFTER that or it
@@ -765,9 +775,13 @@ void Shell::Paint(HDC dc)
         frame.Clear();
     }
 
-    uiDebugLog(L"[paint] page=%d active=%d ms=%llu", m_pageId,
-               frameActive ? 1 : 0,
-               (unsigned long long)(GetTickCount64() - tPaint0));
+    uiDebugLog(L"[paint] page=%d active=%d ms=%llu (begin=%llu draw=%llu present=%llu)",
+               m_pageId, frameActive ? 1 : 0,
+               (unsigned long long)(GetTickCount64() - tPaint0),
+               (unsigned long long)(tBegan - tPaint0),
+               (unsigned long long)(tDrawn - tBegan),
+               (unsigned long long)(GetTickCount64() - tDrawn));
+    m_paintedOnce = true;
 }
 
 // ------------------------------------------------------------
@@ -1032,6 +1046,17 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         HDC dc = (HDC)wParam;
         RECT rcClient;
         GetClientRect(hwnd, &rcClient);
+        uiDebugLog(L"[erase] page=%d %dx%d suppressed=%d", m_pageId,
+                   (int)(rcClient.right - rcClient.left),
+                   (int)(rcClient.bottom - rcClient.top),
+                   m_eraseSuppressed ? 1 : 0);
+        if (m_eraseSuppressed) {
+            // A switch is assembling its frame. Filling here would put a
+            // flat background frame on screen for the whole duration of
+            // the next paint (tens of ms with Skia). The paint that
+            // follows covers every pixel anyway, so claim it as erased.
+            return 1;
+        }
         // Cache the brush but re-create it when the palette changes:
         // a once-only static brush keeps erasing with the old theme's
         // colour after a light/dark switch, which reads as a flash of
