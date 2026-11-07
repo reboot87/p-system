@@ -46,17 +46,18 @@ int main()
     Check(ToSkColor(c, 0x80) == 0x80123456u, "color conversion applies alpha");
     Check(ToSkColor(c, 0) == 0x00123456u, "color conversion allows zero alpha");
 
-    // Font roles must match GdiPainter's table byte for byte.
-    Check(RoleFontSize(FontRole::Body)      == 13, "role size Body");
-    Check(RoleFontSize(FontRole::Meta)      == 11, "role size Meta");
-    Check(RoleFontSize(FontRole::Title)     == 20, "role size Title");
-    Check(RoleFontSize(FontRole::Section)   == 15, "role size Section");
-    Check(RoleFontSize(FontRole::Button)    == 13, "role size Button");
-    Check(RoleFontSize(FontRole::Icon)      == 13, "role size Icon");
-    Check(RoleFontSize(FontRole::IconLarge) == 18, "role size IconLarge");
-    Check(RoleFontSize(FontRole::Display)   == 28, "role size Display");
-    Check(RoleFontSize(static_cast<FontRole>(999)) == 13,
-          "out-of-range role falls back to Body");
+    // Font roles must match the design system (Metrics in Theme.h) and
+    // therefore GdiPainter / Fonts byte for byte.
+    Check(RoleFontSize(FontRole::Body)      == 14, "role size Body");
+    Check(RoleFontSize(FontRole::Meta)      == 12, "role size Meta");
+    Check(RoleFontSize(FontRole::Title)     == 13, "role size Title");
+    Check(RoleFontSize(FontRole::Section)   == 14, "role size Section");
+    Check(RoleFontSize(FontRole::Button)    == 14, "role size Button");
+    Check(RoleFontSize(FontRole::Icon)      == 11, "role size Icon");
+    Check(RoleFontSize(FontRole::IconLarge) == 16, "role size IconLarge");
+    Check(RoleFontSize(FontRole::Display)   == 22, "role size Display");
+    Check(RoleFontSize(static_cast<FontRole>(999)) == 14,
+          "out-of-range role size falls back to Body");
 
     // Wide -> UTF-8, covering 1/2/3/4-byte encodings and both wchar_t
     // layouts (Windows UTF-16 vs Linux/macOS UTF-32).
@@ -71,12 +72,12 @@ int main()
     // not trip C4309 (constant truncation) on Windows builds where wchar_t
     // is 16 bits -- `if constexpr` outside a template still type-checks the
     // discarded branch.
-    static const unsigned long kEmojiCodePoint = 0x1F600UL;
+    volatile unsigned long emojiCp = 0x1F600UL;
     if constexpr (kUtf16) {
         emoji.push_back(static_cast<wchar_t>(0xD83D));
         emoji.push_back(static_cast<wchar_t>(0xDE00));
     } else {
-        emoji.push_back(static_cast<wchar_t>(kEmojiCodePoint));
+        emoji.push_back(static_cast<wchar_t>(emojiCp));
     }
     Check(Hex(WideToUtf8(emoji)) == "F09F9880", "4-byte UTF-8 / surrogate pair");
 
@@ -97,8 +98,10 @@ int main()
     // Typography contract. Skia sizes by em, GDI by cell height, so the
     // two backends drifted once already (Skia text came out ~33% too big
     // and every nav label was ellipsised). Pin the table and the unit.
+    // Mirrors Metrics' defaults in Theme.h: body 14, meta 12, title 13,
+    // section 14, button 14, icon 11, iconLarge 16, display 22.
     static const int kExpected[(int)FontRole::Count] = {
-        13, 11, 20, 15, 13, 13, 18, 28
+        14, 12, 13, 14, 14, 11, 16, 22
     };
     for (int i = 0; i < (int)FontRole::Count; ++i) {
         const FontRole role = static_cast<FontRole>(i);
@@ -109,7 +112,7 @@ int main()
               RoleFontSpec(role).weight <= 700, "role weight is a LOGFONT weight");
     }
     const FontSpec oob = RoleFontSpec(static_cast<FontRole>((int)FontRole::Count));
-    Check(oob.cell == 13 && oob.weight == 400,
+    Check(oob.cell == kExpected[0] && oob.weight == 400,
           "out-of-range role falls back to Body");
 
     if (g_fail == 0) std::printf("test_skia_types: all checks passed\n");

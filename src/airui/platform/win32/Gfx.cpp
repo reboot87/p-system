@@ -138,6 +138,44 @@ void ProgressBar(HDC dc, const RECT& rc, int pct, COLORREF track,
 // ============================================================
 // 文本
 // ============================================================
+namespace {
+
+// Opt-in per-call trace (AIRUI_PAINT_TRACE=1) of what the GDI path
+// actually draws: font height, rect, and the extent GDI reports for the
+// string. Mirrors the Skia backend's log so the two can be diffed.
+void TraceText(HDC dc, HFONT font, const RECT& rc, const wchar_t* s)
+{
+    static const bool on = [] {
+        wchar_t v[8] = {};
+        return GetEnvironmentVariableW(L"AIRUI_PAINT_TRACE", v, 8) > 0;
+    }();
+    if (!on) return;
+    static int budget = 200;
+    if (budget-- <= 0) return;
+    if (!dc || !s) return;
+
+    wchar_t path[MAX_PATH] = {};
+    if (GetEnvironmentVariableW(L"LOCALAPPDATA", path, MAX_PATH) == 0) return;
+    wcscat_s(path, L"\\AireRecord\\gdi_font.log");
+    FILE* fp = nullptr;
+    _wfopen_s(&fp, path, L"a");
+    if (!fp) return;
+
+    LOGFONTW lf{};
+    if (font) GetObjectW(font, sizeof(lf), &lf);
+    SIZE sz{};
+    GetTextExtentPoint32W(dc, s, (int)wcslen(s), &sz);
+    std::string narrow;
+    for (const wchar_t* p = s; *p; ++p)
+        narrow += (*p < 128) ? static_cast<char>(*p) : '?';
+    fprintf(fp, "[text] h=%d rect=%ld,%ld..%ld,%ld w=%d | %s\n",
+            (int)lf.lfHeight, rc.left, rc.top, rc.right, rc.bottom,
+            (int)sz.cx, narrow.c_str());
+    fclose(fp);
+}
+
+} // namespace
+
 void Text(HDC dc, HFONT font, COLORREF color, const RECT& rc,
           const wchar_t* s, UINT format)
 {
@@ -149,6 +187,7 @@ void Text(HDC dc, HFONT font, COLORREF color, const RECT& rc,
     SetBkMode(dc, TRANSPARENT);
     SetTextColor(dc, color);
     UseFont uf(dc, font);
+    TraceText(dc, font, rc, s);
     DrawTextW(dc, s, -1, &r, format);
 }
 

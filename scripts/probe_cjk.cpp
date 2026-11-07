@@ -16,15 +16,26 @@ static int CalcWidth(HDC dc, const wchar_t* text, int n)
     return rc.right - rc.left;
 }
 
-int main()
+int main(int argc, char** argv)
 {
+    const wchar_t* family = L"Microsoft YaHei UI";
+    if (argc > 1) {
+        static wchar_t buf[64];
+        MultiByteToWideChar(CP_ACP, 0, argv[1], -1, buf, 64);
+        family = buf;
+    }
+    printf("family=%ls\n", family);
     SetProcessDPIAware();
     HDC screen = GetDC(NULL);
     HDC dc = CreateCompatibleDC(screen);
     printf("screen dpi=%d logpx=%d\n", GetDeviceCaps(screen, LOGPIXELSY),
            GetDeviceCaps(screen, LOGPIXELSY));
 
-    const int cells[] = { 11, 13, 15, 18, 20, 28 };
+    const int cells[] = { 12, 13, 14, 22 };
+    const UINT outPrecs[] = { OUT_DEFAULT_PRECIS, OUT_TT_PRECIS };
+    for (int op = 0; op < 2; ++op) {
+    const UINT outPrec = outPrecs[op];
+    printf("-- outPrec=%s\n", op ? "TT" : "DEFAULT");
     const int weights[] = { 400, 600 };
     const wchar_t* cjk = L"\u5DE5\u4F5C\u53F0\u603B\u89C8\u526A\u8D34\u677F"; // 8 chars
     const wchar_t* one = L"\u5DE5";
@@ -33,7 +44,7 @@ int main()
     for (int w = 0; w < 2; ++w) {
         for (int c = 0; c < 6; ++c) {
             HFONT f = CreateFontW(-cells[c], 0, 0, 0, weights[w], FALSE, FALSE, FALSE,
-                                  DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                                  DEFAULT_CHARSET, outPrec, CLIP_DEFAULT_PRECIS,
                                   CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
             HGDIOBJ old = SelectObject(dc, f);
             TEXTMETRICW tm{};
@@ -52,6 +63,7 @@ int main()
             SelectObject(dc, old);
             DeleteObject(f);
         }
+    }
     }
     DeleteDC(dc);
     ReleaseDC(NULL, screen);

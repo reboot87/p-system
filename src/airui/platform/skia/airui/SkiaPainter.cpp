@@ -158,18 +158,11 @@ struct RoleMetrics
 
 // Width reference: Latin plus digits, so the average advance is
 // representative of UI text and the ratio fixes the advance scale rather
-// than one glyph's bearing.
+// than one glyph's bearing. Measured in the role's own family, so it is
+// the same face GDI selects.
 constexpr wchar_t kRefText[] = L"AireRecord 0123456789";
 // One Segoe MDL2 glyph, for icon-role calibration.
 constexpr wchar_t kRefIcon   = 0xE700;
-// CJK reference ("workbench overview clipboard"), written as code points so
-// this file stays ASCII-only whatever the compiler's source charset is.
-// GDI resolves it through font linking to Microsoft YaHei UI, which is a
-// different size than the Latin em (see MeasureRole step 3).
-constexpr wchar_t kRefCjk[] = {
-    0x5DE5, 0x4F5C, 0x53F0, 0x603B, 0x89C8, 0x526A, 0x8D34, 0x677F, 0
-};
-constexpr int kRefCjkCount = 8;
 
 struct SharedFaces
 {
@@ -257,11 +250,11 @@ const sk_sp<SkTypeface>& CjkFaceFor(const SharedFaces& f, FontRole role)
 // the em that reproduces GDI's advance widths.
 //
 // Measured at the target cell, NOT extrapolated from a large size:
-// CreateFontW(-13) realises a 17px cell for Segoe UI (GDI emulates the
-// requested character height by picking the nearest bigger cell), and the
-// 17/13 step is not linear across sizes, so scaling a 200px measurement
-// down by cell/200 lands on a size GDI never draws. Everything here is
-// therefore read straight off the DC at the size we actually ask for.
+// CreateFontW(-13) realises a 17px cell (GDI implements the requested
+// character height by picking the nearest bigger cell), and that step is
+// not linear across sizes, so scaling a 200px measurement down by
+// cell/200 lands on a size GDI never draws. Everything here is therefore
+// read straight off the DC at the size we actually ask for.
 #if defined(_WIN32) && !defined(AIRUI_SKIA_MOCK)
 RoleMetrics MeasureRole(HDC dc, const SharedFaces& f, FontRole role)
 {
@@ -286,9 +279,9 @@ RoleMetrics MeasureRole(HDC dc, const SharedFaces& f, FontRole role)
     HGDIOBJ old = SelectObject(dc, hf);
 
     // (1) Cell + baseline: GDI's own metrics at this size. tmHeight is the
-    // cell GDI actually realises (a -13 request yields 17 for Segoe UI),
-    // and that realised cell -- not the request -- is what DrawText uses
-    // for DT_VCENTER and for line advance.
+    // cell GDI actually realises (a -13 request yields 17), and that
+    // realised cell -- not the request -- is what DrawText uses for
+    // DT_VCENTER and for line advance.
     TEXTMETRICW tm{};
     if (GetTextMetricsW(dc, &tm)) {
         if (tm.tmHeight > 0)  rm.cell    = tm.tmHeight;
@@ -318,22 +311,10 @@ RoleMetrics MeasureRole(HDC dc, const SharedFaces& f, FontRole role)
               face, SkTextEncoding::kUTF16,
               (int)(sizeof(kRefText) - sizeof(wchar_t)), rm.em);
 
-        // (3) CJK em: GDI hands Chinese to Microsoft YaHei UI through font
-        // linking, at a size that is NOT the Latin em -- at cell 13 GDI
-        // advances a hanzi 16px while the Latin em is ~12.8. So measure it:
-        // two runs of the same glyph, one long one short, give the per-glyph
-        // advance without any bearing contamination. Linking only kicks in
-        // near the requested size (measuring at 200px returns unlinked
-        // metrics), which is why this must run at the target cell.
-        SIZE many{}, one{};
-        if (GetTextExtentPoint32W(dc, kRefCjk, kRefCjkCount, &many) &&
-            GetTextExtentPoint32W(dc, kRefCjk, 1, &one) &&
-            many.cx > one.cx) {
-            const float adv = static_cast<float>(many.cx - one.cx) /
-                              static_cast<float>(kRefCjkCount - 1);
-            // One hanzi advances exactly one em, so the advance is the em.
-            if (adv > 0.f) rm.emCjk = adv;
-        }
+        // Chinese needs no separate size: the UI family *is* Microsoft
+        // YaHei UI, so GDI never font-links here and Latin and CJK share
+        // one em (a hanzi advances exactly 1 em in that face).
+        rm.emCjk = rm.em;
     }
 
     SelectObject(dc, old);
