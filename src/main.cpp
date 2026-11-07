@@ -48,12 +48,16 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int)
     //   --paint-backend=<id>  运行时绘制后端：gdi / skia / auto
     //                       skia 可来自静态链接或 airui-skia.dll 动态加载；
     //                       不可用时自动回退 gdi，无需重新编译
+    //   --core-shell          启用 ShellCore/HAL 外壳渲染路径。只有这条路径
+    //                       才走 PainterRegistry，因此要真正用 Skia 画窗口
+    //                       外壳必须同时带此参数（默认仍为旧版富渲染）。
     //
     // 为什么要延迟显示：部分终端管控/DLP 会在进程启动后约 0.3~0.6s 检查
     // "新出现的可见窗口"并投递 WM_CLOSE 后强杀；隐藏建窗、>600ms 再显示
     // 可稳定通过（实测 300ms 被杀、600ms 起存活）。
     bool startHidden = false;
     bool noActivate  = false;
+    bool coreShell   = false;
     int  showAfterMs = -1;
     std::string paintBackend;
     {
@@ -64,6 +68,8 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int)
                 startHidden = true;
             else if (_wcsicmp(argv[i], L"--no-activate") == 0)
                 noActivate = true;
+            else if (_wcsicmp(argv[i], L"--core-shell") == 0)
+                coreShell = true;
             else if (_wcsnicmp(argv[i], L"--show-after=", 13) == 0)
                 showAfterMs = _wtoi(argv[i] + 13);
             else if (_wcsnicmp(argv[i], L"--paint-backend=", 16) == 0) {
@@ -107,6 +113,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int)
     }
 
     App app;
+    if (coreShell) app.SetCoreShell(true);
     if (!paintBackend.empty()) app.SetPaintBackend(paintBackend);
     app.SetServicePath(ExeDir() + L"\\airecordd.exe");
     app.SetStartHidden(startHidden);

@@ -71,6 +71,10 @@ public:
     // 不需要重新编译，也不需要本机安装 Skia SDK（插件按需加载）。
     void SetPaintBackend(const std::string& id) { m_paintBackend = id; }
 
+    // 启用 ShellCore / HAL 外壳渲染路径（--core-shell）。注册表只在
+    // 这条路径上生效：不打开它，--paint-backend 不会改变主窗口绘制。
+    void SetCoreShell(bool on) { m_coreShell = on; }
+
     // ---- 外壳 ----
     air::ui::Shell& Shell() { return m_shell; }
     HWND Hwnd();
@@ -132,4 +136,5 @@ private:
     int          m_showDelayMs = 0;
     bool         m_showNoActivate = false;
     std::string  m_paintBackend;   // empty = auto (env / gdi)
+    bool         m_coreShell = false;
 };

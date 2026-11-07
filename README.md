@@ -69,12 +69,23 @@ cmake --build build-linux --target airui-core
 后端由 core 层 `PainterRegistry` 在**运行时**按 id 选择，默认 `gdi`；请求不可用时自动回退 gdi 并记录原因。应用绘制路径里没有 `#ifdef AIRUI_HAVE_SKIA`。
 
 ```
-airecord.exe --paint-backend=skia        # 命令行（优先级最高）
-set AIRUI_PAINT_BACKEND=skia             # 环境变量
-ShellOptions.paintBackend = "skia";      // 代码
-shell.SetPaintBackend("skia");           // 运行中热切换，下一帧生效
+airecord.exe --core-shell --paint-backend=skia   # 命令行（优先级最高）
+set AIRUI_PAINT_BACKEND=skia                    # 环境变量
+ShellOptions.coreShell = true;                  // 代码：打开 HAL 外壳路径
+ShellOptions.paintBackend = "skia";             // 代码：选后端
+shell.SetPaintBackend("skia");                  // 运行中热切换，下一帧生效
 ```
-`Shell::AvailablePaintBackends()` 列出当前可用后端；`auto` 取注册表默认（gdi）。
+
+> **`--core-shell` 不能省**：注册表只在 `ShellCore` / HAL 外壳路径上生效，该路径默认关闭（旧版富渲染零回归）。只传 `--paint-backend=skia` 时后端会被解析、DLL 也会被加载，但主窗口仍由旧版 GDI 富渲染绘制。
+
+启动时 `client.log` 会写一行 `[paint] coreShell=? requested=? resolved=? available=[...] skiaDll=? probe=?`，可直接确认**实际生效的后端**以及是否发生回退；`probe` 会真实开一帧，DLL 缺失/ABI 不符时会显示 `fell back to gdi`。`Shell::AvailablePaintBackends()` 也列出当前可用后端；`auto` 取注册表默认（gdi）。
+
+**怎么分辨与 GDI 的差别**：`test_paint_compare.exe` 让两个后端在同一块 32bpp DIB 上接收**完全相同**的 `IPainter` 调用序列，读回像素并按图元统计差异：
+
+```
+.\build\Release\test_paint_compare.exe       # 默认构建：GDI 基线（无 DLL 时跳过对比）
+```
+把 exe 放到含 `airui-skia.dll` 与全套 vcpkg 运行时 DLL 的目录再跑，即输出圆角抗锯齿、虚线、文字等各区域的差异像素数与平均色差。实测数据与判读方法见 `docs/skia-backend.md` §5.3。
 
 Skia 有两种来源，注册同一个 id `skia`：
 - **插件 DLL（推荐）**：把 `airui-skia.dll` 放到 exe 同目录即可启用，官方 **CMake + VS2017 + GDI** 产物无需 SDK、无需重编；首次请求时动态加载，ABI 不匹配或缺失即回退 gdi。可用 `AIRUI_SKIA_DLL` 指定路径。

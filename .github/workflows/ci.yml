@@ -344,12 +344,17 @@ jobs:
             "",
             "Usage on Windows (x64):",
             "  1. Copy ALL files in this bundle next to your application exe.",
-            "  2. Run: airecord.exe --paint-backend=skia",
+            "  2. Run: airecord.exe --core-shell --paint-backend=skia",
+            "     --core-shell is REQUIRED: the backend registry is only",
+            "     used by the ShellCore/HAL chrome path (default off).",
             "     or set AIRUI_PAINT_BACKEND=skia.",
-            "  3. Without the DLL the app silently falls back to GDI.",
+            "  3. Without the DLL the app silently falls back to GDI;",
+            "     check the [paint] line in client.log for the active backend.",
             "",
             "test_skia_plugin.exe / test_skia_backend.exe are console tests",
-            "built with the same toolchain as the plugin."
+            "built with the same toolchain as the plugin.",
+            "test_paint_compare.exe prints a per-primitive GDI vs Skia",
+            "pixel diff when the plugin DLL is available."
           ) -join "`r`n"
           Set-Content -Path "$dst\README.txt" -Value $readme -Encoding ascii
           Get-ChildItem $dst | Select-Object Name, Length | Format-Table -AutoSize

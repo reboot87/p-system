@@ -168,3 +168,10 @@
   - **下载实测**：`gh run download 42339972398 -D build/ci-all`；PE 检出的架构正确（x64 / x86 / x64），下载后的 `test_paint_backend` / `test_paint_runtime` / `test_skia_plugin` / `test_skia_backend` 全通过，两个 `airecord.exe --hidden` 启动 5 秒无崩溃。本机官方 VS2017 全量 `BUILD=0` + `ctest` **19/19**。
   - **交付**：合并 5 个 CI 包 + 本机 `build/Release`（26 个 exe/lib）为 `build/p-system-all-artifacts.zip`（46 MB，含 `MANIFEST.txt`）；Skia 全量包另存 `build/ci-all/airui-skia-windows-x64-FULL.zip`（27 MB）。
   - **边界**：仍无 x86 Skia 插件（需 `skia:x86-windows` 约 35 分钟源码编译）；主程序 `coreShell` 默认关，`--paint-backend` 不改主窗口绘制路径；GUI 截图 diff 未做。业务模块仍留最后。
+
+- **2026-11-07 — 打通「用 Skia 渲染」并给出可量化的 GDI/Skia 分辨方法**
+  - 起因：核查发现仓库里**没有任何地方把 `ShellOptions.coreShell` 设为 true**，注册表的 `PainterRegistry::Begin()` 只在 `coreShell` 分支里被调用，因此此前 `airecord.exe --paint-backend=skia` 实际不改变主窗口绘制路径（README / artifact README 的示例有误导性）。
+  - **入口打通**：新增 `--core-shell`（`main.cpp` → `App::SetCoreShell()` → `opt.coreShell`），必须 `--core-shell --paint-backend=skia` 才真正由 Skia 画外壳；`App::Run()` 在 `Shell::Create()` 后往 `client.log` 写 `[paint] coreShell=? requested=? resolved=? available=[...] skiaDll=? probe=?`，`probe` 真实开一帧以暴露回退。
+  - **像素对比工具**：新增 `tests/test_paint_compare.cpp`（Windows，接 ctest）——同一 240×120 32bpp DIB、同一 `IPainter` 调用序列，分别由 gdi / skia 绘制，读回 BGRA 后按图元分区输出差异像素数、平均通道差、光栅 checksum 与圆角中间色像素数；无 DLL 时只出 GDI 基线并跳过（默认构建仍可跑）。
+  - **本机实测**（VS2017 x64 产物 + 已下载的 CI VS2022 x64 插件包）：`ctest -C Release` **20/20**；圆角中间色像素 GDI **0** vs Skia **69**（抗锯齿）；整帧差异 1274/28800（4.4%）、半透明矩形 **0** 差异、虚线 400/6912（5.8%）、文字 415/2592（**16.0%**、平均差 44.1，字体族未对齐所致）。四组启动日志实测：`coreShell=0`（旧版 GDI 路径）、`coreShell=1 + skia`（`probe=ok`）、`coreShell=1 + gdi`、以及 `AIRUI_SKIA_DLL` 指向不存在文件时 `available=[gdi] ... fell back to gdi`。
+  - **边界**：仍是合成场景的像素 diff，不是完整 GUI 窗口截图比对；字体族/hinting 未对齐；x86 Skia 插件仍未做。业务模块仍留最后。

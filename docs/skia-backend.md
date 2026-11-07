@@ -86,7 +86,9 @@ if (painter) m_shellCore.Paint(*painter, Pal(), Mx());   // 析构时 Skia 上�
 else        { GdiPainter fallback(dc); m_shellCore.Paint(fallback, Pal(), Mx()); }
 ```
 
-`AIRUI_HAVE_SKIA` 现在**只**决定 `PaintProviders.cpp` 注册静态还是插件 provider，不出现在绘制路径里。`ShellOptions.skiaChrome` 保留为兼容别名（默认 false）；新代码用 `paintBackend`。`coreShell` 仍是 HAL 外壳的开关（默认关，富渲染零回归）。
+`AIRUI_HAVE_SKIA` 现在**只**决定 `PaintProviders.cpp` 注册静态还是插件 provider，不出现在绘制路径里。`ShellOptions.skiaChrome` 保留为兼容别名（默认 false）；新代码用 `paintBackend`。
+
+> **`coreShell` 是唯一的闸门**：注册表分支只在 `ShellCore` / HAL 外壳路径里，该路径默认关闭以保护旧版富渲染。要让 Skia 真正画主窗口外壳，必须打开它——命令行 `--core-shell`（`main.cpp` → `App::SetCoreShell()` → `ShellOptions.coreShell`），或代码里直接设 `opt.coreShell = true`。只传 `--paint-backend=skia` 时后端会被解析、DLL 也会加载，但绘制仍走旧版 GDI 路径。
 
 ---
 
@@ -117,11 +119,12 @@ cmake --build build-skia --config Release --target test_skia_backend
 .\build-skia\Release\test_skia_backend.exe    # G5 双后端序列断言
 ```
 
-产物 `build-skia\Release\airui-skia.dll`（导入库 `airui-skia-import.lib`，避免与静态 `airui-skia.lib` 同名冲突）。把它放到 `airecord.exe` 同目录即可让**默认 VS2017 产物**直接使用：
+产物 `build-skia\Release\airui-skia.dll`（导入库 `airui-skia-import.lib`，避免与静态 `airui-skia.lib` 同名冲突）。把它连同全套依赖 DLL 放到 `airecord.exe` 同目录即可让**默认 VS2017 产物**直接使用：
 
 ```bat
-airecord.exe --paint-backend=skia
+airecord.exe --core-shell --paint-backend=skia
 ```
+`--core-shell` 打开 ShellCore/HAL 外壳路径，注册表只在那里生效（§1.4）。
 
 手动 prefix（预编译 release 或自建产物）布局要求：
 
@@ -230,7 +233,46 @@ gh run download <run-id> -n airui-skia-windows-x64 -D <dir>          # 只要 Sk
 
 全量产物 run `42339972398`（5 个 artifact、5 个 job 全绿）下载后复核：Windows 包的 `airecord.exe` 分别检出 x64 / x86 / x64；直接运行下载后的 `test_paint_backend`、`test_paint_runtime`、`test_skia_plugin`、`test_skia_backend` 全通过；Skia x64 与 GDI x86 两个 `airecord.exe --hidden` 启动 5 秒无崩溃。本机官方 VS2017 全量构建也重新跑过 `BUILD=0` + `ctest -C Release` **19/19**。
 
-> 本机官方 `build/` 是 **x86**（`CMAKE_GENERATOR_PLATFORM` 为空），CI 产物是 **x64**；要直接用需另配 VS2017 x64 构建树：`cmake -S . -B build/vs2017-x64 -G "Visual Studio 15 2017" -A x64`。另外主程序窗口壳 `ShellOptions.coreShell` 默认关，`--paint-backend=skia` 目前不改变主窗口绘制路径（注册表分支只在 coreShell 路由生效），GUI 级截图仍未做。
+> 本机官方 `build/` 是 **x86**（`CMAKE_GENERATOR_PLATFORM` 为空），CI 产物是 **x64**；要直接用需另配 VS2017 x64 构建树：`cmake -S . -B build/vs2017-x64 -G "Visual Studio 15 2017" -A x64`。主程序外壳需再加 `--core-shell` 才走注册表（§1.4）；完整 GUI 窗口截图仍未做。
+
+### 5.3 如何用 Skia 渲染 / 如何分辨与 GDI 的差别
+
+**完整用法**（x64 产物 + 已下载的 CI 插件包，整套 DLL 必须与 exe 同目录）：
+
+```bat
+airecord.exe --core-shell --paint-backend=skia
+```
+或用环境变量 / 代码 / 热切换（§1.1）。`AIRUI_WITH_SKIA` 保持默认 OFF 即可——选择发生在运行时，官方 VS2017 产物不需要 SDK、不需要重编。
+
+**① 确认后端是否真的生效（最快的分辨方式）**：启动时 `App::Run()` 往 `%LOCALAPPDATA%\AireRecord\client.log` 写一行诊断，`probe` 会真实开一帧，因此能区分「DLL 加载成功」与「开帧失败回退」：
+
+```
+[paint] coreShell=1 requested=skia resolved=skia available=[gdi,skia] skiaDll=1 probe=ok
+[paint] coreShell=0 requested=skia resolved=skia available=[gdi,skia] skiaDll=1 probe=ok
+[paint] coreShell=1 requested=skia resolved=skia available=[gdi]       skiaDll=0 probe=backend 'skia' is unavailable; fell back to gdi
+```
+第 2 行说明后端解析、DLL 都正常，但 `coreShell=0` → 主窗口仍由旧版 GDI 绘制；第 3 行是 DLL 缺失（`AIRUI_SKIA_DLL` 指向不存在路径）时的可观测回退。以上三行均为本机 VS2017 x64 产物实测。
+
+**② 调用序列层**：`test_skia_backend` 用 `PaintRecorder` 把 core 金样与后端实收的 `IPainter` 调用序列做 `Diff()`，两后端必须**完全一致**。这保证差别只来自光栅化，而不是布局或漏画。
+
+**③ 像素层（真正看出差别）**：`test_paint_compare.exe` 让 gdi 与 skia 在同一块 240×120 32bpp BGRA DIB 上接收**完全相同**的调用序列（背景、圆角、半透明矩形、虚线框、文字），读回像素后分区统计。默认构建无 DLL 时只打印 GDI 基线并跳过；把 exe 放进插件包目录即输出完整报告：
+
+```
+  gdi  checksum    : 0xBB956986   round-edge intermediates: 0
+  skia checksum    : 0xB1926836   round-edge intermediates: 69
+```
+
+本机实测（VS2017 x64 exe + VS2022 x64 `airui-skia.dll`，判据 `|dB|+|dG|+|dR| > 12`）：
+
+| 区域 | 差异像素 / 总像素 | 平均通道差 | 差异来源 |
+|---|---|---|---|
+| 整帧 | 1274 / 28800（4.4%） | 14.1 | 累加 |
+| 圆角矩形 | 209 / 4992（4.2%） | 12.3 | GDI `CreateRoundRectRgn` 硬边（中间色像素 **0**）vs Skia `drawRRect` 开抗锯齿（**69** 个过渡像素） |
+| 半透明矩形 | 0 / 3456（**0.0%**） | 0.0 | 两端最终都走 `AlphaBlend`，结果完全一致 |
+| 虚线框 | 400 / 6912（5.8%） | 22.9 | `PS_USERSTYLE` 硬边 vs `SkDashPathEffect` + AA，虚线相位也不同 |
+| 文字 | 415 / 2592（**16.0%**） | 44.1 | GDI Segoe UI + hinting vs `SkFont` 平台默认 typeface，字形/字距差异最大 |
+
+**肉眼分辨要点**：看圆角与斜线边缘是否平滑、字形与字距、虚线相位；纯色矩形和半透明矩形基本看不出区别。文字差异最大正是 §6「字体度量未对齐」的直接证据——这不是渲染 bug，而是字体族尚未校准。
 
 ---
 
@@ -239,8 +281,8 @@ gh run download <run-id> -n airui-skia-windows-x64 -D <dir>          # 只要 Sk
 - **没有 Skia 版 `IWindow`**：目前只有绘制后端。窗口壳、消息泵、事件注入仍由 `Win32Window` 负责；Linux/macOS 应用本体仍不可构建。
 - **插件 ABI 有工具集与位数边界**：实测 MSVC v141 (VS2017 x64) ↔ v143 (VS2022 x64) 跨代可用（§5.2），但 **x86 进程无法加载 x64 DLL**——本机官方 `build/` 是 x86、CI 产物是 x64，直接放旁边只会静默回退 gdi。仍要求 MSVC 同族、一致 `/MD` 与 `_ITERATOR_DEBUG_LEVEL`；纯 C 绘制桥与非 MSVC 编译器验证均未做。
 - **字体度量未对齐**：后端用 `SkFont` 的平台默认 typeface，与 GDI 的 "Segoe UI" 族、CJK 回退、hinting 的差异尚未校准（设计稿 R2/R7）。
-- **像素级 GDI vs Skia 截图 diff 未做**：当前断言的是**调用序列一致性**与「Skia 确实产出像素」，不是 SSIM 截图比对。
-- **VS2017 只验证了「使用 DLL」，未验证「编译 Skia」**：真 SDK 源码编译仍只在 VS2022 CI 上做；官方 VS2017 工具链 x64 产物通过下载 DLL 使用 Skia 已实测（含真实 HDC 合成像素，§5.2），但主程序窗口壳 `coreShell` 默认关，完整 GUI 窗口截图效果未确认。CI 目前只出 **x64** 插件，x86 官方产物需 x64 构建或另出 x86 artifact。
+- **真实 GUI 窗口截图 diff 未做**：`test_paint_compare` 已能在同一 DIB 上给出逐像素分区差异（§5.3），但那是合成场景，不是整个主窗口的截图比对；SSIM / 截图基线仍未建立。
+- **VS2017 只验证了「使用 DLL」，未验证「编译 Skia」**：真 SDK 源码编译仍只在 VS2022 CI 上做；官方 VS2017 工具链 x64 产物通过下载 DLL 使用 Skia 已实测（含真实 HDC 合成像素、分区像素差异与 `--core-shell` 启动诊断，§5.2 / §5.3），但完整 GUI 窗口截图效果仍未确认。CI 目前只出 **x64** 插件，x86 官方产物需 x64 构建或另出 x86 artifact。
 - **Skia API 版本漂移**：所有 Skia 头集中在 `SkiaApi.h`；已在 vcpkg `skia@148` 上校准（§5.1），但 `drawSimpleText` / `measureText` 等仍可能随版本变化。
 
 ---

@@ -494,6 +494,20 @@ if(WIN32)
     if(MSVC)
         set_target_properties(test_paint_runtime PROPERTIES LINK_FLAGS "/SUBSYSTEM:CONSOLE")
     endif()
+
+    # GDI vs Skia raster diff on an identical IPainter call sequence.
+    # Runs without a Skia SDK (GDI baseline); with airui-skia.dll deployed
+    # it reports the per-primitive pixel difference. See the command
+    # `test_paint_compare` in docs/skia-backend.md.
+    add_executable(test_paint_compare tests/test_paint_compare.cpp)
+    target_link_libraries(test_paint_compare PRIVATE airui-win32 airui-core)
+    set_target_properties(test_paint_compare PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+        RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
+    )
+    if(MSVC)
+        set_target_properties(test_paint_compare PROPERTIES LINK_FLAGS "/SUBSYSTEM:CONSOLE")
+    endif()
 endif()
 
 # Skia backend value mapping. NO Skia SDK needed: this is a pure-C++
@@ -601,7 +615,7 @@ endif()
 # test_ui is an end-to-end script that drives a *running* airecord.exe
 # (window lookup + IPC), so it is not registered as a ctest case.
 enable_testing()
-foreach(_t test_core_layout test_controls_core test_shell_hal test_paint_recorder test_paint_backend test_paint_runtime test_skia_types test_skia_backend test_skia_plugin test_data_controls test_overlay_core test_framework_extra test_advanced_controls test_enterprise_controls test_studio_controls test_control_classes test_theme_manager test_draw_calls test_locale test_component_gallery test_ipc_pipe)
+foreach(_t test_core_layout test_controls_core test_shell_hal test_paint_recorder test_paint_backend test_paint_runtime test_paint_compare test_skia_types test_skia_backend test_skia_plugin test_data_controls test_overlay_core test_framework_extra test_advanced_controls test_enterprise_controls test_studio_controls test_control_classes test_theme_manager test_draw_calls test_locale test_component_gallery test_ipc_pipe)
     if(TARGET ${_t})
         add_test(NAME ${_t} COMMAND ${_t})
     endif()

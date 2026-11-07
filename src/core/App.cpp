@@ -1,6 +1,8 @@
 #include "App.h"
 #include "DiagLog.h"
 #include "SysInfo.h"
+#include "airui/PaintBackend.h"
+#include "airui/PaintProviders.h"
 #include "../ipc/Ipc.h"
 #include "pages/OverviewPage.h"
 #include "pages/ClipsPage.h"
@@ -29,10 +31,44 @@ int App::Run(HINSTANCE hInstance)
     opt.showOnCreate = !m_startHidden && m_showDelayMs <= 0;
     // 运行时后端选择（--paint-backend / AIRUI_PAINT_BACKEND / 默认 gdi）
     opt.paintBackend = m_paintBackend;
+    // 注册表只在 ShellCore/HAL 外壳路径上生效；--core-shell 打开它。
+    opt.coreShell = m_coreShell;
 
     if (!m_shell.Create(hInstance, opt)) {
         diag::Log(L"[fatal] shell create failed, gle=%lu", GetLastError());
         return 1;
+    }
+
+    // 后端可观测性：把「请求了什么 / 解析成什么 / 哪些真正可用 / 是否
+    // 发生回退」写进 client.log，避免「以为在用 Skia，其实回退了 GDI」
+    // 无从分辨。AvailablePaintBackends() 会触发插件 DLL 的按需加载。
+    {
+        using air::ui::PainterRegistry;
+        PainterRegistry& reg = PainterRegistry::Instance();
+        std::string available;
+        for (const std::string& id : m_shell.AvailablePaintBackends()) {
+            if (!available.empty()) available += ",";
+            available += id;
+        }
+        const std::string& resolved = m_shell.PaintBackendChoice();
+
+        // Available() 只证明 DLL 能加载；再探测一次真实开帧，才能发现
+        // ABI 版本不符、像素缓冲失败等运行时回退。
+        std::string probeError;
+        if (resolved == "skia") {
+            air::ui::PaintTarget probe{ nullptr, air::ui::Rect{ 0, 0, 16, 16 } };
+            std::unique_ptr<air::ui::IPainter> frame = reg.Begin(resolved, probe);
+            probeError = reg.LastError();
+            frame.reset();
+        }
+
+        diag::Log(L"[paint] coreShell=%d requested=%hs resolved=%hs available=[%hs] skiaDll=%d probe=%hs",
+                  (int)m_coreShell,
+                  m_paintBackend.empty() ? "auto" : m_paintBackend.c_str(),
+                  resolved.c_str(),
+                  available.c_str(),
+                  (int)air::ui::SkiaPluginLoaded(),
+                  probeError.empty() ? "ok" : probeError.c_str());
     }
 
     // 插件钩子：所有窗口消息先过插件分发（F3/F4 等）
