@@ -199,7 +199,8 @@ class SkBitmap
 {
 public:
     void        allocPixels(const SkImageInfo&) {}
-    const void* getPixels() const { return nullptr; }
+    // Matches real Skia: mutable pointer even on a const bitmap.
+    void*       getPixels() const { return nullptr; }
     size_t      rowBytes() const { return 0; }
 };
 
@@ -221,4 +222,41 @@ public:
 
 private:
     SkMatrix m_matrix;
+};
+
+// Device surface properties carry the subpixel geometry; without a known
+// geometry Skia degrades LCD text to greyscale, so the shape of this type
+// matters to the real build.
+enum SkPixelGeometry
+{
+    kUnknown_SkPixelGeometry = 0,
+    kRGB_H_SkPixelGeometry   = 1,
+    kBGR_H_SkPixelGeometry   = 2,
+};
+
+class SkSurfaceProps
+{
+public:
+    SkSurfaceProps() = default;
+    SkSurfaceProps(uint32_t flags, SkPixelGeometry geo)
+        : m_flags(flags), m_geo(geo) {}
+    uint32_t        flags() const         { return m_flags; }
+    SkPixelGeometry pixelGeometry() const { return m_geo; }
+
+private:
+    uint32_t        m_flags = 0;
+    SkPixelGeometry m_geo   = kUnknown_SkPixelGeometry;
+};
+
+class SkSurface
+{
+public:
+    static sk_sp<SkSurface> MakeRasterDirect(const SkImageInfo&, void*,
+                                             size_t,
+                                             const SkSurfaceProps* = nullptr)
+    { return sk_sp<SkSurface>(nullptr); }
+    SkCanvas* getCanvas() { return &m_canvas; }
+
+private:
+    SkCanvas m_canvas{SkBitmap{}};
 };

@@ -11,12 +11,43 @@
 namespace air {
 namespace ui {
 
+namespace {
+// Subpixel text is only produced when the device reports its pixel
+// geometry. With the default (unknown) props Skia silently degrades to
+// greyscale antialiasing, which is why Skia text looked softer and
+// muddier next to the GDI backend's ClearType. Windows stores the
+// monitor's stripe order in the desktop settings; follow it so the
+// fringes land on the same subpixels ClearType uses.
+SkPixelGeometry LcdPixelGeometry()
+{
+#if defined(_WIN32) && !defined(AIRUI_SKIA_MOCK)
+    wchar_t order[8] = {};
+    DWORD   bytes    = sizeof(order) - sizeof(wchar_t);
+    if (RegGetValueW(HKEY_CURRENT_USER, L"Control Panel\\Desktop",
+                     L"FontSmoothingOrientation", RRF_RT_REG_SZ, nullptr,
+                     order, &bytes) == ERROR_SUCCESS)
+    {
+        // 1 = RGB stripe order (the default), 2 = BGR.
+        return (order[0] == L'2') ? kBGR_H_SkPixelGeometry
+                                  : kRGB_H_SkPixelGeometry;
+    }
+    return kRGB_H_SkPixelGeometry;
+#else
+    return kUnknown_SkPixelGeometry;
+#endif
+}
+} // namespace
+
 struct SkiaFrame::Impl
 {
     int  w = 0;
     int  h = 0;
     SkBitmap bitmap;
-    std::unique_ptr<SkCanvas>      canvas;
+    // Owning surface; the canvas below is a borrowed pointer into it.
+    // Skia needs a surface (not a bare SkCanvas over pixels) to carry
+    // the surface properties that enable LCD text.
+    sk_sp<SkSurface> surface;
+    SkCanvas*        canvas = nullptr;
     std::unique_ptr<SkiaPainter>   painter;
     bool presented = false;
 
@@ -38,12 +69,23 @@ struct SkiaFrame::Impl
         // is the failure signal (the old bool-returning overload is gone).
         bitmap.allocPixels(info);
         if (!bitmap.getPixels()) return;
-        canvas.reset(new SkCanvas(bitmap));
+
+        // The whole client area is filled by the shell before anything is
+        // drawn, so the device is opaque by the time text lands on it --
+        // the precondition for subpixel coverage. Where a draw does hit
+        // transparent pixels Skia falls back to greyscale for that draw,
+        // so mixing stays correct.
+        const SkSurfaceProps props(0, LcdPixelGeometry());
+        surface = SkSurface::MakeRasterDirect(info, bitmap.getPixels(),
+                                              bitmap.rowBytes(), &props);
+        if (!surface) return;
+        canvas = surface->getCanvas();
+        if (!canvas) return;
         canvas->clear(SK_ColorTRANSPARENT);
         // The target HDC (when there is one) is handed to the painter so
         // text can be calibrated against GDI's own metrics once. An
         // off-screen frame falls back to the screen DC.
-        painter.reset(new SkiaPainter(canvas.get(), nativeDc));
+        painter.reset(new SkiaPainter(canvas, nativeDc));
     }
 
 #ifdef _WIN32
@@ -132,7 +174,7 @@ SkiaFrame::~SkiaFrame()
 // ------------------------------------------------------------
 bool      SkiaFrame::Valid() const    { return m && m->painter != nullptr; }
 void      SkiaFrame::Present()        { if (m) m->Present(); }
-SkCanvas* SkiaFrame::Canvas() const   { return m ? m->canvas.get() : nullptr; }
+SkCanvas* SkiaFrame::Canvas() const   { return m ? m->canvas : nullptr; }
 const void* SkiaFrame::Pixels() const { return m ? m->bitmap.getPixels() : nullptr; }
 size_t    SkiaFrame::RowBytes() const { return m ? m->bitmap.rowBytes() : 0u; }
 int       SkiaFrame::Width()  const   { return m ? m->w : 0; }

@@ -51,6 +51,8 @@
 #include <include/core/SkRect.h>
 #include <include/core/SkRefCnt.h>
 #include <include/core/SkSpan.h>
+#include <include/core/SkSurface.h>
+#include <include/core/SkSurfaceProps.h>
 #include <include/core/SkTypeface.h>
 #include <include/effects/SkDashPathEffect.h>
 #endif

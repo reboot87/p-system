@@ -331,7 +331,7 @@ RoleMetrics MeasureRole(HDC dc, const SharedFaces& f, FontRole role)
             f.setSize(em);
             f.setHinting(SkFontHinting::kFull);
             f.setSubpixel(false);
-            f.setEdging(SkFont::Edging::kAntiAlias);
+            f.setEdging(SkFont::Edging::kSubpixelAntiAlias);
             const float w =
                 f.measureText(text, (size_t)bytes, SkTextEncoding::kUTF16);
             if (w <= 1.f) break;
@@ -545,12 +545,15 @@ struct SkiaPainter::Impl
             // draw the same string at the same pixel width.
             f.setSize(roleM[i].em > 0 ? roleM[i].em : 13.f);
             // GDI CLEARTYPE_QUALITY snaps stems to the pixel grid with
-            // integer advances. Full hinting + no subpixel positioning is
-            // the closest Skia equivalent, and is what keeps 13 px UI
-            // text from looking soft and blurry next to GDI's.
+            // integer advances and colours the coverage per subpixel.
+            // Full hinting + no subpixel positioning reproduces the grid,
+            // and LCD edging reproduces the ClearType coverage -- without
+            // it Skia falls back to greyscale AA and the same glyph looks
+            // softer and muddier than GDI's, which is exactly the
+            // difference the two backends were showing.
             f.setHinting(SkFontHinting::kFull);
             f.setSubpixel(false);
-            f.setEdging(SkFont::Edging::kAntiAlias);
+            f.setEdging(SkFont::Edging::kSubpixelAntiAlias);
             fonts[i] = f;
             ready[i] = true;
         }
