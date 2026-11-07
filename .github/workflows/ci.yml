@@ -31,15 +31,18 @@ jobs:
       - name: Configure (CMake + Unix Makefiles)
         run: cmake -S . -B build-core -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release
 
-      - name: Build airui-core
-        run: cmake --build build-core --config Release --target airui-core
-
-      - name: Build + run platform-free HAL tests (CMake)
+      # On non-Windows the Win32 app/gallery targets are not buildable;
+      # airui-core + the platform-free tests are the complete buildable set.
+      - name: Build ALL platform-free targets
         run: |
+          cmake --build build-core --config Release --target airui-core
           cmake --build build-core --config Release --target test_shell_hal
           cmake --build build-core --config Release --target test_paint_recorder
           cmake --build build-core --config Release --target test_paint_backend
           cmake --build build-core --config Release --target test_skia_types
+
+      - name: Run platform-free HAL tests
+        run: |
           ./build-core/test_shell_hal
           ./build-core/test_paint_recorder
           ./build-core/test_paint_backend
@@ -50,6 +53,26 @@ jobs:
 
       - name: Core smoke test (compile + link + run core tests)
         run: bash scripts/check-core-linux-smoke.sh
+
+      # Publish every build output of this platform, not just the tests.
+      - name: Stage core artifacts
+        run: |
+          mkdir -p artifact-staging
+          cp build-core/libairui-core.a artifact-staging/
+          for t in test_shell_hal test_paint_recorder test_paint_backend test_skia_types; do
+            cp "build-core/$t" artifact-staging/
+          done
+          printf 'airui-core + platform-free tests, built on %s\n' "${{ matrix.os }}" \
+            > artifact-staging/README.txt
+          ls -lh artifact-staging/
+
+      - name: Upload core artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: p-system-core-${{ matrix.os }}
+          path: artifact-staging/
+          if-no-files-found: error
+          retention-days: 14
 
   # ---------------------------------------------------------------
   # Windows compile gate.
@@ -85,13 +108,71 @@ jobs:
       - name: Configure (CMake + VS2022)
         run: cmake -S . -B build-core -G "Visual Studio 17 2022" -A x64
 
-      - name: Build airui-core
-        run: cmake --build build-core --config Release --target airui-core
+      - name: Build ALL targets (app, gallery, tests, libs)
+        run: cmake --build build-core --config Release
 
-      - name: Build + run runtime backend registry test
+      - name: Run full ctest suite
+        run: ctest --test-dir build-core -C Release --output-on-failure
+
+      # Publish the complete default (GDI) x64 build: every exe, dll, lib.
+      - name: Stage full x64 (GDI) artifacts
+        shell: pwsh
         run: |
-          cmake --build build-core --config Release --target test_paint_backend
-          .\build-core\Release\test_paint_backend.exe
+          $dst = "artifact-staging"
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          Get-ChildItem "build-core\Release" -File |
+            Where-Object { $_.Extension -in @(".exe", ".dll", ".lib") } |
+            ForEach-Object { Copy-Item $_.FullName $dst -Force }
+          "Complete default build (VS2022 x64, GDI, no Skia SDK).`r`nAll exe/dll/lib from build-core/Release." |
+            Set-Content -Path "$dst\README.txt" -Encoding ascii
+          Get-ChildItem $dst | Select-Object Name, Length | Format-Table -AutoSize
+
+      - name: Upload full x64 (GDI) artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: p-system-windows-x64-gdi
+          path: artifact-staging/
+          if-no-files-found: error
+          retention-days: 14
+
+  # ---------------------------------------------------------------
+  # A2. Second architecture: the official local build is x86, so also
+  # publish a complete Win32 build for users who need 32-bit binaries.
+  # ---------------------------------------------------------------
+  windows-x86:
+    name: full build (windows / VS2022 Win32)
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (CMake + VS2022 Win32)
+        run: cmake -S . -B build-x86 -G "Visual Studio 17 2022" -A Win32
+
+      - name: Build ALL targets
+        run: cmake --build build-x86 --config Release
+
+      - name: Run full ctest suite
+        run: ctest --test-dir build-x86 -C Release --output-on-failure
+
+      - name: Stage full x86 (GDI) artifacts
+        shell: pwsh
+        run: |
+          $dst = "artifact-staging"
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          Get-ChildItem "build-x86\Release" -File |
+            Where-Object { $_.Extension -in @(".exe", ".dll", ".lib") } |
+            ForEach-Object { Copy-Item $_.FullName $dst -Force }
+          "Complete default build (VS2022 Win32 / x86, GDI, no Skia SDK).`r`nAll exe/dll/lib from build-x86/Release." |
+            Set-Content -Path "$dst\README.txt" -Encoding ascii
+          Get-ChildItem $dst | Select-Object Name, Length | Format-Table -AutoSize
+
+      - name: Upload full x86 (GDI) artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: p-system-windows-x86-gdi
+          path: artifact-staging/
+          if-no-files-found: error
+          retention-days: 14
 
   # ---------------------------------------------------------------
   # B. Real Skia SDK verification — automatic on every push / PR.
@@ -205,13 +286,12 @@ jobs:
             -DAIRUI_WITH_SKIA=ON "-DCMAKE_TOOLCHAIN_FILE=$tc"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Build Skia backend, plugin DLL + tests
+      # Full build, not just the Skia targets: app, gallery, every test,
+      # static libs and the plugin DLL are all produced and published.
+      - name: Build ALL targets (app, gallery, tests, Skia plugin DLL)
         shell: pwsh
         run: |
-          cmake --build build-skia --config Release --target airui-skia
-          cmake --build build-skia --config Release --target airui-skia-plugin
-          cmake --build build-skia --config Release --target test_skia_backend
-          cmake --build build-skia --config Release --target test_skia_plugin
+          cmake --build build-skia --config Release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run G5 dual-backend parity test
@@ -228,18 +308,25 @@ jobs:
           & .\build-skia\Release\test_skia_plugin.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      # The plugin is meant to be dropped next to an already-built exe
-      # (including the official VS2017 build, which has no Skia SDK).
-      # Publish it as a downloadable bundle so that cross-toolchain,
-      # cross-machine loading can be verified without rebuilding Skia.
-      - name: Stage downloadable plugin bundle
+      - name: Run full ctest suite (Skia ON)
+        shell: pwsh
+        run: |
+          $env:PATH = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\bin;$env:PATH"
+          ctest --test-dir build-skia -C Release --output-on-failure
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # Publish EVERYTHING this build produced: all app/test exes, all
+      # static libs, the plugin DLL and the full vcpkg runtime DLL set.
+      # The bundle is directly deployable next to an x64 exe (including
+      # the VS2017 official build, which has no Skia SDK).
+      - name: Stage FULL Skia build artifacts
         shell: pwsh
         run: |
           $dst = "artifact-staging"
           New-Item -ItemType Directory -Force -Path $dst | Out-Null
-          Copy-Item "build-skia\Release\airui-skia.dll" $dst -ErrorAction Stop
-          Copy-Item "build-skia\Release\test_skia_plugin.exe" $dst -ErrorAction Stop
-          Copy-Item "build-skia\Release\test_skia_backend.exe" $dst -ErrorAction Stop
+          Get-ChildItem "build-skia\Release" -File |
+            Where-Object { $_.Extension -in @(".exe", ".dll", ".lib") } |
+            ForEach-Object { Copy-Item $_.FullName $dst -Force }
           $bin = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\bin"
           if (Test-Path $bin) {
             Get-ChildItem -Path $bin -Filter "*.dll" -File | ForEach-Object {
@@ -249,10 +336,13 @@ jobs:
             Write-Host "No vcpkg bin directory; plugin is self-contained."
           }
           $readme = @(
-            "airui-skia.dll - runtime Skia painter plugin (VS2022 + vcpkg skia).",
+            "Complete p-system build with Skia ON (VS2022 x64 + vcpkg skia).",
             "Built by the GitHub Actions skia-windows job.",
             "",
-            "Usage on Windows:",
+            "Contents: ALL exe/dll/lib from build-skia/Release, plus the",
+            "full vcpkg runtime DLL set required by airui-skia.dll.",
+            "",
+            "Usage on Windows (x64):",
             "  1. Copy ALL files in this bundle next to your application exe.",
             "  2. Run: airecord.exe --paint-backend=skia",
             "     or set AIRUI_PAINT_BACKEND=skia.",
@@ -264,7 +354,7 @@ jobs:
           Set-Content -Path "$dst\README.txt" -Value $readme -Encoding ascii
           Get-ChildItem $dst | Select-Object Name, Length | Format-Table -AutoSize
 
-      - name: Upload plugin bundle
+      - name: Upload full Skia build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: airui-skia-windows-x64
