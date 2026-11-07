@@ -54,6 +54,53 @@ size_t Utf8Unit(const std::string& s, size_t i)
     return (i + n <= s.size()) ? n : 1;
 }
 
+// UTF-8 -> Unicode codepoints (text rendering needs per-codepoint font
+// fallback, so we work in codepoints, not bytes).
+void DecodeUtf8(const std::string& s, std::vector<uint32_t>& out)
+{
+    out.clear();
+    size_t i = 0;
+    while (i < s.size()) {
+        const unsigned char b = static_cast<unsigned char>(s[i]);
+        uint32_t cp;
+        size_t   n;
+        if      (b < 0x80u) { cp = b;             n = 1; }
+        else if (b < 0xE0u) { cp = b & 0x1Fu;     n = 2; }
+        else if (b < 0xF0u) { cp = b & 0x0Fu;     n = 3; }
+        else                { cp = b & 0x07u;     n = 4; }
+        if (i + n > s.size()) { out.push_back(0xFFFDu); i = s.size(); break; }
+        for (size_t k = 1; k < n; ++k)
+            cp = (cp << 6) | (static_cast<unsigned char>(s[i + k]) & 0x3Fu);
+        out.push_back(cp);
+        i += n;
+    }
+}
+
+// Unicode codepoints -> UTF-8 (used to feed each font run back to Skia).
+std::string EncodeUtf8(const uint32_t* cps, size_t n)
+{
+    std::string out;
+    out.reserve(n * 3 + 1);
+    for (size_t i = 0; i < n; ++i) {
+        const uint32_t cp = cps[i];
+        if      (cp <= 0x7Fu) out.push_back(static_cast<char>(cp));
+        else if (cp <= 0x7FFu) {
+            out.push_back(static_cast<char>(0xC0u | (cp >> 6)));
+            out.push_back(static_cast<char>(0x80u | (cp & 0x3Fu)));
+        } else if (cp <= 0xFFFFu) {
+            out.push_back(static_cast<char>(0xE0u | (cp >> 12)));
+            out.push_back(static_cast<char>(0x80u | ((cp >> 6) & 0x3Fu)));
+            out.push_back(static_cast<char>(0x80u | (cp & 0x3Fu)));
+        } else {
+            out.push_back(static_cast<char>(0xF0u | (cp >> 18)));
+            out.push_back(static_cast<char>(0x80u | ((cp >> 12) & 0x3Fu)));
+            out.push_back(static_cast<char>(0x80u | ((cp >> 6) & 0x3Fu)));
+            out.push_back(static_cast<char>(0x80u | (cp & 0x3Fu)));
+        }
+    }
+    return out;
+}
+
 } // namespace
 
 struct SkiaPainter::Impl
@@ -65,22 +112,123 @@ struct SkiaPainter::Impl
     bool      ready[static_cast<int>(FontRole::Count)] = {};
     int       clipDepth = 0;
 
+    // Font fallback: the platform font manager (DirectWrite on Windows)
+    // plus one explicit typeface per role so we match GDI's families
+    // (Microsoft YaHei UI for UI text, Segoe MDL2 Assets for icons).
+    // Lazy: created on first use, never fails the whole painter.
+    sk_sp<SkFontMgr>       mgr = nullptr;
+    sk_sp<SkTypeface>      roleFace[static_cast<int>(FontRole::Count)];
+    bool                   facesReady = false;
+
+    void EnsureFaces()
+    {
+        if (facesReady) return;
+        facesReady = true;
+        mgr = SkFontMgr::RefDefault();
+        sk_sp<SkTypeface> body =
+            mgr ? mgr->matchFamily("Microsoft YaHei UI") : nullptr;
+        if (!body && mgr) body = mgr->legacyMakeTypeface(nullptr);
+        sk_sp<SkTypeface> icon =
+            mgr ? mgr->matchFamily("Segoe MDL2 Assets") : nullptr;
+        for (int i = 0; i < static_cast<int>(FontRole::Count); ++i) {
+            const FontRole role = static_cast<FontRole>(i);
+            if (role == FontRole::Icon || role == FontRole::IconLarge)
+                roleFace[i] = icon ? icon : body;
+            else
+                roleFace[i] = body;
+        }
+    }
+
+    // Pick the typeface that can actually draw `cp` for this role: prefer
+    // the role's explicit family, else fall back to a system font that
+    // covers the codepoint (this is what makes CJK and PUA icon glyphs
+    // appear instead of tofu).
+    sk_sp<SkTypeface> FaceFor(FontRole role, SkUnichar cp)
+    {
+        EnsureFaces();
+        const int i = static_cast<int>(role) < 0 ||
+                      static_cast<int>(role) >= static_cast<int>(FontRole::Count)
+                          ? 0 : static_cast<int>(role);
+        sk_sp<SkTypeface>& base = roleFace[i];
+        if (base && base->unicharToGlyph(cp)) return base;
+        if (mgr) {
+            sk_sp<SkTypeface> fb =
+                mgr->matchFamilyStyleCharacter(0, SkFontStyle::Normal(),
+                                              nullptr, 0, cp);
+            if (fb) return fb;
+        }
+        return base;
+    }
+
     SkFont& Font(FontRole role)
     {
         int i = static_cast<int>(role);
         if (i < 0 || i >= static_cast<int>(FontRole::Count)) i = 0;
         if (!ready[i]) {
+            EnsureFaces();
             SkFont f;
-            // Skia's font factory keeps moving between releases
-            // (SkTypeface::MakeFromName is gone; choose-your-own SkFontMgr
-            // is platform-dependent). SkFont's default typeface already
-            // uses the platform font manager, so only the role size is
-            // set here. Family alignment with GDI is a separate task.
             f.setSize(static_cast<SkScalar>(skia::RoleFontSize(role)));
+            // Bind the role's family so glyph metrics match GDI; per-
+            // codepoint fallback in DrawRuns still overrides when a
+            // codepoint is missing from this family.
+            if (roleFace[i]) f.setTypeface(roleFace[i]);
             fonts[i] = f;
             ready[i] = true;
         }
         return fonts[i];
+    }
+
+    // Draw UTF-8 text already positioned at baseline origin (x, y), with
+    // per-codepoint font fallback so mixed Latin/CJK/icon runs all paint.
+    void DrawRuns(SkFont& primary, FontRole role, const std::string& utf8,
+                  float x, float y, Color c)
+    {
+        if (utf8.empty()) return;
+        std::vector<uint32_t> cps;
+        DecodeUtf8(utf8, cps);
+        if (cps.empty()) return;
+
+        const SkPaint fill = MakeFill(c);
+        size_t i = 0;
+        while (i < cps.size()) {
+            sk_sp<SkTypeface> face = FaceFor(role, cps[i]);
+            size_t j = i + 1;
+            while (j < cps.size() &&
+                   FaceFor(role, cps[j]).get() == face.get())
+                ++j;
+
+            const std::string run = EncodeUtf8(&cps[i], j - i);
+            SkFont f = primary;
+            if (face) f.setTypeface(face);
+            const float w =
+                f.measureText(run.data(), run.size(), SkTextEncoding::kUTF8);
+            canvas->drawSimpleText(run.data(), run.size(),
+                                   SkTextEncoding::kUTF8, x, y, f, fill);
+            x += w;
+            i = j;
+        }
+    }
+
+    // Width of a codepoint sequence using the same per-codepoint font
+    // fallback as DrawRuns (used for ellipsis trimming and alignment).
+    float MeasureRuns(FontRole role, const std::vector<uint32_t>& cps,
+                      SkFont& primary)
+    {
+        float w = 0.f;
+        size_t i = 0;
+        while (i < cps.size()) {
+            sk_sp<SkTypeface> face = FaceFor(role, cps[i]);
+            size_t j = i + 1;
+            while (j < cps.size() &&
+                   FaceFor(role, cps[j]).get() == face.get())
+                ++j;
+            const std::string run = EncodeUtf8(&cps[i], j - i);
+            SkFont f = primary;
+            if (face) f.setTypeface(face);
+            w += f.measureText(run.data(), run.size(), SkTextEncoding::kUTF8);
+            i = j;
+        }
+        return w;
     }
 
     float Width(const std::string& utf8, SkFont& f) const
@@ -168,35 +316,34 @@ void SkiaPainter::Text(const Rect& r, const std::wstring& s,
                        FontRole role, Color c, TextFormat fmt)
 {
     if (!m->canvas || s.empty() || r.Empty()) return;
+    SkFont& primary = m->Font(role);
     std::string utf8 = skia::WideToUtf8(s);
-    SkFont& f = m->Font(role);
-    const float avail = static_cast<float>(r.Width());
 
-    if ((fmt & dt::EndEllipsis) && m->Width(utf8, f) > avail) {
-        const float dotsW = f.measureText("...", 3, SkTextEncoding::kUTF8);
-        size_t cut = utf8.size();
-        while (cut > 0) {
-            --cut;
-            while (cut > 0 && (static_cast<unsigned char>(utf8[cut]) & 0xC0u) == 0x80u)
-                --cut;
-            if (f.measureText(utf8.data(), cut, SkTextEncoding::kUTF8) + dotsW <= avail) {
-                utf8.resize(cut);
-                utf8 += "...";
-                break;
-            }
-        }
+    std::vector<uint32_t> cps;
+    DecodeUtf8(utf8, cps);
+
+    if ((fmt & dt::EndEllipsis) && !cps.empty()) {
+        const float avail = static_cast<float>(r.Width());
+        const float dotsW = primary.measureText("...", 3, SkTextEncoding::kUTF8);
+        while (cps.size() > 1 &&
+               m->MeasureRuns(role, cps, primary) + dotsW > avail)
+            cps.pop_back();
+        cps.push_back(static_cast<uint32_t>('.'));
+        cps.push_back(static_cast<uint32_t>('.'));
+        cps.push_back(static_cast<uint32_t>('.'));
+        utf8 = EncodeUtf8(cps.data(), cps.size());
+        DecodeUtf8(utf8, cps);
     }
 
-    const float w = m->Width(utf8, f);
+    const float totalW = m->MeasureRuns(role, cps, primary);
     float x = static_cast<float>(r.left);
     switch (skia::Horizontal(fmt)) {
-    case skia::HAlign::Center: x += (avail - w) / 2.f; break;
-    case skia::HAlign::Right:  x += avail - w;         break;
+    case skia::HAlign::Center: x += (static_cast<float>(r.Width()) - totalW) / 2.f; break;
+    case skia::HAlign::Right:  x += static_cast<float>(r.Width()) - totalW;         break;
     default: break;
     }
-    const float y = m->Baseline(r, f, skia::Vertical(fmt));
-    m->canvas->drawSimpleText(utf8.data(), utf8.size(), SkTextEncoding::kUTF8,
-                              x, y, f, MakeFill(c));
+    const float y = m->Baseline(r, primary, skia::Vertical(fmt));
+    m->DrawRuns(primary, role, utf8, x, y, c);
 }
 
 void SkiaPainter::TextBlock(const Rect& r, const std::wstring& s,
@@ -204,9 +351,9 @@ void SkiaPainter::TextBlock(const Rect& r, const std::wstring& s,
 {
     if (!m->canvas || s.empty() || r.Empty()) return;
     const std::string utf8 = skia::WideToUtf8(s);
-    SkFont& f = m->Font(role);
+    SkFont& primary = m->Font(role);
     SkFontMetrics fm{};
-    f.getMetrics(&fm);
+    primary.getMetrics(&fm);
     const float lineH = fm.fDescent - fm.fAscent;
     const float avail = static_cast<float>(r.Width());
     const int limit = maxLines > 0 ? maxLines : 1;
@@ -224,7 +371,7 @@ void SkiaPainter::TextBlock(const Rect& r, const std::wstring& s,
         const size_t n = Utf8Unit(utf8, i);
         const std::string next = cur + utf8.substr(i, n);
         if (!cur.empty() &&
-            f.measureText(next.data(), next.size(), SkTextEncoding::kUTF8) > avail) {
+            primary.measureText(next.data(), next.size(), SkTextEncoding::kUTF8) > avail) {
             lines.push_back(cur);
             cur = utf8.substr(i, n);
         } else {
@@ -235,13 +382,11 @@ void SkiaPainter::TextBlock(const Rect& r, const std::wstring& s,
     if (!cur.empty() && static_cast<int>(lines.size()) < limit)
         lines.push_back(cur);
 
-    const SkPaint p = MakeFill(c);
     float y = static_cast<float>(r.top) - fm.fAscent;
     for (const std::string& ln : lines) {
         if (y - fm.fDescent > static_cast<float>(r.bottom)) break;
         if (!ln.empty())
-            m->canvas->drawSimpleText(ln.data(), ln.size(), SkTextEncoding::kUTF8,
-                                      static_cast<float>(r.left), y, f, p);
+            m->DrawRuns(primary, role, ln, static_cast<float>(r.left), y, c);
         y += lineH;
     }
 }

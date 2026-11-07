@@ -31,8 +31,26 @@ int App::Run(HINSTANCE hInstance)
     opt.showOnCreate = !m_startHidden && m_showDelayMs <= 0;
     // 运行时后端选择（--paint-backend / AIRUI_PAINT_BACKEND / 默认 gdi）
     opt.paintBackend = m_paintBackend;
-    // 注册表只在 ShellCore/HAL 外壳路径上生效；--core-shell 打开它。
+    // --core-shell 只切换外壳实现（简化 HAL 外壳），与渲染后端无关；
+    // 后端由 PaintFrame 在帧级别覆盖整个客户区。
     opt.coreShell = m_coreShell;
+
+    // 标题栏「渲染」按钮热切换后补一条可观测日志：启动时的 [paint] 行
+    // 只反映初始选择，UI 切换必须单独留痕。
+    m_shell.SetPaintBackendChangedHandler(
+        [this](const std::string& id, bool backendOwnsText) {
+            const char* textMode = "gdi";
+            if (id == "skia")
+                textMode = backendOwnsText ? "backend" : "host";
+            diag::Log(L"[paint] UI switch -> %hs wholeWindow=1 coreShell=%d text=%hs",
+                      id.c_str(), (int)m_shell.CoreShellEnabled(), textMode);
+            const wchar_t* name = (id == "skia") ? L"Skia" : L"GDI";
+            std::wstring status = std::wstring(L"渲染后端: ") + name;
+            if (id == "skia")
+                status += backendOwnsText ? L" · 全 Skia" : L" · 文字 GDI";
+            m_shell.SetStatusExtra(status);
+            m_shell.Invalidate();
+        });
 
     if (!m_shell.Create(hInstance, opt)) {
         diag::Log(L"[fatal] shell create failed, gle=%lu", GetLastError());
@@ -62,13 +80,19 @@ int App::Run(HINSTANCE hInstance)
             frame.reset();
         }
 
-        diag::Log(L"[paint] coreShell=%d requested=%hs resolved=%hs available=[%hs] skiaDll=%d probe=%hs",
+        const char* textMode = "gdi";
+        if (resolved == "skia")
+            textMode = air::ui::SkiaPluginSupportsWideText()
+                     ? "backend" : "host";
+
+        diag::Log(L"[paint] wholeWindow=1 coreShell=%d requested=%hs resolved=%hs available=[%hs] skiaDll=%d probe=%hs text=%hs",
                   (int)m_coreShell,
                   m_paintBackend.empty() ? "auto" : m_paintBackend.c_str(),
                   resolved.c_str(),
                   available.c_str(),
                   (int)air::ui::SkiaPluginLoaded(),
-                  probeError.empty() ? "ok" : probeError.c_str());
+                  probeError.empty() ? "ok" : probeError.c_str(),
+                  textMode);
     }
 
     // 插件钩子：所有窗口消息先过插件分发（F3/F4 等）

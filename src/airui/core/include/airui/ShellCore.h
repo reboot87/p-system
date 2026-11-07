@@ -68,12 +68,21 @@ public:
     // --- Layout ---
     // The backend supplies the geometry it actually draws, so the
     // platform-free hit test and ContentRect never drift from pixels.
-    void SetShellGeometry(int captionH, int statusH, int navW);
+    // captionActionW: width reserved on the right of the caption bar for
+    // backend-owned chrome actions (e.g. the renderer switch button), so
+    // the badge never overlaps them. 0 = no reserved area.
+    void SetShellGeometry(int captionH, int statusH, int navW,
+                          int captionActionW = 0);
     void Layout(const Rect& client);
     Rect NavRect() const     { return m_navRect; }
     Rect CaptionRect() const { return m_captionRect; }
     Rect StatusRect() const  { return m_statusRect; }
     Rect ContentRect() const { return m_contentRect; }
+
+    // Read-only layout views. A backend may need them to overlay a text
+    // layer on top of the geometry it drew (see Shell::DrawCoreChromeText).
+    const std::vector<Rect>& NavItemRects() const { return m_navItemRects; }
+    const std::vector<int>&  NavItemIds()   const { return m_navItemIds; }
 
     // --- Hit test / hover (platform free, for backends to forward events) ---
     int  HitTestNav(const Point& p) const;   // nav item id, or -1
@@ -109,6 +118,7 @@ private:
     int m_captionH = 36;
     int m_statusH  = 24;
     int m_navW     = 220;
+    int m_captionActionW = 0;
 
     std::vector<Rect> m_navItemRects;   // parallel to flattened nav items
     std::vector<int>  m_navItemIds;

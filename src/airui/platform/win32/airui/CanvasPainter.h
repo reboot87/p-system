@@ -10,6 +10,7 @@
 //   PaintButton(painter, ToRect(rc), text, style, st, Pal(), Mx());
 // ============================================================
 #include "airui/Canvas.h"
+#include "airui/PaintFrame.h"
 #include "airui/hal.h"
 
 #include <vector>
@@ -46,6 +47,11 @@ public:
     // the cheapest GDI path that works on every modern Windows.
     void FillRectAlpha(const Rect& r, Color c, uint8_t alpha) override
     {
+        // Shapes drawn straight onto the DC would be overwritten by the
+        // backend's end-of-frame composite, so route alpha scrims too.
+        if (PaintFrame* f = CurrentPaintFrame()) {
+            f->FillRectAlpha(r, c, alpha); return;
+        }
         if (alpha == 0) return;
         if (alpha == 255) { FillRect(r, c); return; }
         HDC dc = m_canvas.Native();
@@ -132,6 +138,9 @@ public:
     // ---- clipping ----
     void PushClip(const Rect& r) override
     {
+        if (PaintFrame* f = CurrentPaintFrame()) {
+            f->PushClip(ToRect(rect(r))); return;
+        }
         HDC dc = m_canvas.Native();
         if (!dc) {
             m_clipStack.push_back(0);
@@ -144,6 +153,7 @@ public:
 
     void PopClip() override
     {
+        if (PaintFrame* f = CurrentPaintFrame()) { f->PopClip(); return; }
         if (m_clipStack.empty()) return;
         const int saved = m_clipStack.back();
         m_clipStack.pop_back();

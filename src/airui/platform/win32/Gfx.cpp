@@ -1,4 +1,5 @@
 #include "airui/Gfx.h"
+#include "airui/PaintFrame.h"
 #include "airui/Theme.h"
 
 namespace air {
@@ -8,8 +9,12 @@ namespace gfx {
 // ============================================================
 // 填充 / 描边
 // ============================================================
+// When a PaintFrame is active all primitives go to the runtime
+// selected backend. With no frame the original GDI code below runs
+// unchanged, so the default renderer stays pixel-for-pixel identical.
 void Fill(HDC dc, const RECT& rc, COLORREF color)
 {
+    if (PaintFrame* f = CurrentPaintFrame()) { f->GfxFill(rc, color); return; }
     Brush br(color);
     RECT r = rc;
     ::FillRect(dc, &r, br);
@@ -18,6 +23,9 @@ void Fill(HDC dc, const RECT& rc, COLORREF color)
 void FillRound(HDC dc, const RECT& rc, COLORREF color, int radius)
 {
     if (rc.right <= rc.left || rc.bottom <= rc.top) return;
+    if (PaintFrame* f = CurrentPaintFrame()) {
+        f->GfxFillRound(rc, color, radius); return;
+    }
     Brush br(color);
     Pen   pen(0, 1, PS_NULL);
     UseBrush ub(dc, br);
@@ -34,6 +42,9 @@ void FillShape(HDC dc, const RECT& rc, COLORREF color, int radius)
 void Stroke(HDC dc, const RECT& rc, COLORREF color, int radius, int width)
 {
     if (rc.right <= rc.left || rc.bottom <= rc.top) return;
+    if (PaintFrame* f = CurrentPaintFrame()) {
+        f->GfxStroke(rc, color, radius, width); return;
+    }
     Pen pen(color, width);
     UsePen   up(dc, pen);
     UseBrush ub(dc, (HBRUSH)GetStockObject(NULL_BRUSH));
@@ -56,6 +67,9 @@ void Stroke(HDC dc, const RECT& rc, COLORREF color, int radius, int width)
 void StrokeDashed(HDC dc, const RECT& rc, COLORREF color, int radius)
 {
     if (rc.right <= rc.left || rc.bottom <= rc.top) return;
+    if (PaintFrame* f = CurrentPaintFrame()) {
+        f->GfxStrokeDashed(rc, color, radius); return;
+    }
     Pen pen(color, 1, PS_DASH);
     UsePen   up(dc, pen);
     UseBrush ub(dc, (HBRUSH)GetStockObject(NULL_BRUSH));
@@ -65,6 +79,9 @@ void StrokeDashed(HDC dc, const RECT& rc, COLORREF color, int radius)
 
 void HLine(HDC dc, int x1, int x2, int y, COLORREF color)
 {
+    if (PaintFrame* f = CurrentPaintFrame()) {
+        f->GfxHLine(x1, x2, y, color); return;
+    }
     Brush br(color);
     RECT r = { x1, y, x2, y + 1 };
     ::FillRect(dc, &r, br);
@@ -72,6 +89,9 @@ void HLine(HDC dc, int x1, int x2, int y, COLORREF color)
 
 void HLineDashed(HDC dc, int x1, int x2, int y, COLORREF color)
 {
+    if (PaintFrame* f = CurrentPaintFrame()) {
+        f->GfxHLineDashed(x1, x2, y, color); return;
+    }
     Pen pen(color, 1, PS_DASH);
     UsePen up(dc, pen);
     MoveToEx(dc, x1, y, nullptr);
@@ -80,6 +100,9 @@ void HLineDashed(HDC dc, int x1, int x2, int y, COLORREF color)
 
 void VLine(HDC dc, int x, int y1, int y2, COLORREF color)
 {
+    if (PaintFrame* f = CurrentPaintFrame()) {
+        f->GfxVLine(x, y1, y2, color); return;
+    }
     Brush br(color);
     RECT r = { x, y1, x + 1, y2 };
     ::FillRect(dc, &r, br);
@@ -87,6 +110,9 @@ void VLine(HDC dc, int x, int y1, int y2, COLORREF color)
 
 void Dot(HDC dc, int cx, int cy, int diameter, COLORREF color)
 {
+    if (PaintFrame* f = CurrentPaintFrame()) {
+        f->GfxDot(cx, cy, diameter, color); return;
+    }
     Brush br(color);
     Pen   pen(0, 1, PS_NULL);
     UseBrush ub(dc, br);
@@ -116,6 +142,9 @@ void Text(HDC dc, HFONT font, COLORREF color, const RECT& rc,
           const wchar_t* s, UINT format)
 {
     if (!s) return;
+    if (PaintFrame* f = CurrentPaintFrame()) {
+        f->GfxText(font, color, rc, s, format); return;
+    }
     RECT r = rc;
     SetBkMode(dc, TRANSPARENT);
     SetTextColor(dc, color);

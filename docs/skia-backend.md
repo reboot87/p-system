@@ -13,10 +13,10 @@
 | **Skia 如何被选中** | **运行时动态选择，不是编译期选择**。`PainterRegistry`（core 层 Strategy + Registry）按 id 解析 `IPainter`；应用代码里没有任何 `#ifdef AIRUI_HAVE_SKIA` 决定绘制路径 |
 | Skia 代码从哪来 | ① `airui-skia.dll` 运行时 `LoadLibrary` 加载（**默认构建也支持**，无需 SDK、无需重编）；② 有 SDK 的构建可把 provider 静态链入，注册同一个 id `"skia"` |
 | `AIRUI_WITH_SKIA` 的语义 | **只决定本次构建是否产出 Skia 代码**（插件 DLL、静态 provider、真 SDK 测试），**不决定运行时用哪个后端**。默认 OFF 时应用仍带动态加载器 |
-| 选择入口 | `ShellOptions.paintBackend` / `--paint-backend=<id>` / 环境变量 `AIRUI_PAINT_BACKEND` / `Shell::SetPaintBackend()`（热切换） |
+| 选择入口 | `ShellOptions.paintBackend` / `--paint-backend=<id>` / 环境变量 `AIRUI_PAINT_BACKEND` / **标题栏「渲染」切换按钮** / `Shell::SetPaintBackend()`（热切换） |
 | 不可用时 | 自动回退 `"gdi"`，`PainterRegistry::LastError()` 记录原因；默认后端仍是 gdi，富渲染零回归 |
 | Skia 引入方式 | **首选 vcpkg `skia` port**；**`AIRUI_SKIA_ROOT` 预编译 release 为备选**；**不采用 git 子模块源码编译** |
-| Windows 渲染入口 | `coreShell` + 运行时选择 → `SkiaFrame` → 32bpp BGRA 光栅画布 → `AlphaBlend` 合成到 HDC |
+| Windows 渲染入口 | `Shell::Paint()` 每帧开 `PaintFrame` → `gfx::*` / `CanvasPainter` 全量转发 → 运行时选择的 `IPainter` → `SkiaFrame` 32bpp BGRA 光栅画布 → `AlphaBlend` 合成到 HDC；**整窗（外壳＋页面内容）一起切换**，`--core-shell` 不是闸门 |
 | 本地工具链约束 | 官方构建仍是 **CMake + VS2017**；Skia 代码推荐在 VS2022 环境或 CI 中构建。本机实测 `vswhere` 有 **VS2022 Professional 17.14（`C:\2022`）** 与 VS2017（`C:\2017\Community`）并存 |
 | 验证方式 | 无 SDK 的注册表/回退测试 + 语法契约门禁 + 三平台纯映射单测 + 本机 VS2017 全量构建/ctest；真 SDK 的编译/链接/**动态加载**由 push/PR 自动触发的 GitHub Actions 承担 |
 
@@ -78,17 +78,23 @@ ShellOptions.skiaChrome    ← 旧字段兼容别名（true → "skia"）
 ### 1.4 应用接线（`src/airui/platform/win32/Shell.cpp`）
 
 ```cpp
-// 没有任何 #ifdef：选择发生在运行时
+// 没有任何 #ifdef：选择发生在运行时，且覆盖整个客户区
 PaintTarget target{ static_cast<void*>(dc), Rect{ rc.left, rc.top, rc.right, rc.bottom } };
-std::unique_ptr<IPainter> painter =
-    PainterRegistry::Instance().Begin(m_paintBackend, target);
-if (painter) m_shellCore.Paint(*painter, Pal(), Mx());   // 析构时 Skia 上屏
-else        { GdiPainter fallback(dc); m_shellCore.Paint(fallback, Pal(), Mx()); }
+std::unique_ptr<IPainter> backend = PainterRegistry::Instance().Begin("skia", target);
+if (backend && registry.LastError().empty())
+    PaintFrame::Instance().Begin(backend.get(), dc, &m_fonts,
+                                 SkiaPluginSupportsWideText());
+// ... 原有 DrawCaption / Nav / IPage::OnPaint / StatusBar 全部照旧 ...
+PaintFrame::Instance().End();
+backend.reset();                       // SkiaFrame 析构 -> AlphaBlend 上屏
+PaintFrame::Instance().ReplayText();   // 宿主文字层（仅 text=host 时）
 ```
+
+`PaintFrame` 是帧级路由：`gfx::*`（`Gfx.cpp` 的填充/圆角/描边/虚线/线/点/文字）与 `CanvasPainter`（`FillRectAlpha`/`PushClip`/`PopClip`）在帧激活时都转发给它，而页面、`Canvas` 复合控件、`ShellCore` 与全部平台无关 core 控件的绘制最终都汇聚到这两处。因此**标题栏、侧栏、状态栏、页面内容区一起换后端**，无需改写任何页面代码。帧未激活时这些原语仍执行原来的 GDI 代码，默认渲染零回归。
 
 `AIRUI_HAVE_SKIA` 现在**只**决定 `PaintProviders.cpp` 注册静态还是插件 provider，不出现在绘制路径里。`ShellOptions.skiaChrome` 保留为兼容别名（默认 false）；新代码用 `paintBackend`。
 
-> **`coreShell` 是唯一的闸门**：注册表分支只在 `ShellCore` / HAL 外壳路径里，该路径默认关闭以保护旧版富渲染。要让 Skia 真正画主窗口外壳，必须打开它——命令行 `--core-shell`（`main.cpp` → `App::SetCoreShell()` → `ShellOptions.coreShell`），或代码里直接设 `opt.coreShell = true`。只传 `--paint-backend=skia` 时后端会被解析、DLL 也会加载，但绘制仍走旧版 GDI 路径。
+> **`--core-shell` 不再是后端闸门**：它只切换外壳实现（简化 HAL 外壳，默认关闭以保护旧版富渲染），与用哪个后端无关。只传 `--paint-backend=skia` 就会让整个窗口走 Skia，日志里 `coreShell=0 wholeWindow=1` 是正常状态。标题栏切换按钮同样不会改动 `coreShell`。
 
 ---
 
@@ -122,9 +128,9 @@ cmake --build build-skia --config Release --target test_skia_backend
 产物 `build-skia\Release\airui-skia.dll`（导入库 `airui-skia-import.lib`，避免与静态 `airui-skia.lib` 同名冲突）。把它连同全套依赖 DLL 放到 `airecord.exe` 同目录即可让**默认 VS2017 产物**直接使用：
 
 ```bat
-airecord.exe --core-shell --paint-backend=skia
+airecord.exe --paint-backend=skia
 ```
-`--core-shell` 打开 ShellCore/HAL 外壳路径，注册表只在那里生效（§1.4）。
+不需要 `--core-shell`：`PaintFrame` 在帧级别覆盖整个客户区（§1.4）。`--core-shell` 只是另一套简化外壳，可单独使用。
 
 手动 prefix（预编译 release 或自建产物）布局要求：
 
@@ -233,25 +239,29 @@ gh run download <run-id> -n airui-skia-windows-x64 -D <dir>          # 只要 Sk
 
 全量产物 run `42339972398`（5 个 artifact、5 个 job 全绿）下载后复核：Windows 包的 `airecord.exe` 分别检出 x64 / x86 / x64；直接运行下载后的 `test_paint_backend`、`test_paint_runtime`、`test_skia_plugin`、`test_skia_backend` 全通过；Skia x64 与 GDI x86 两个 `airecord.exe --hidden` 启动 5 秒无崩溃。本机官方 VS2017 全量构建也重新跑过 `BUILD=0` + `ctest -C Release` **19/19**。
 
-> 本机官方 `build/` 是 **x86**（`CMAKE_GENERATOR_PLATFORM` 为空），CI 产物是 **x64**；要直接用需另配 VS2017 x64 构建树：`cmake -S . -B build/vs2017-x64 -G "Visual Studio 15 2017" -A x64`。主程序外壳需再加 `--core-shell` 才走注册表（§1.4）；完整 GUI 窗口截图仍未做。
+> 本机官方 `build/` 是 **x86**（`CMAKE_GENERATOR_PLATFORM` 为空），CI 产物是 **x64**；要直接用需另配 VS2017 x64 构建树：`cmake -S . -B build/vs2017-x64 -G "Visual Studio 15 2017" -A x64`。后端由帧级路由覆盖整窗，不需要 `--core-shell`（§1.4）；完整 GUI 窗口截图对比已于 2026-11-07 完成（§5.4）。
 
 ### 5.3 如何用 Skia 渲染 / 如何分辨与 GDI 的差别
 
 **完整用法**（x64 产物 + 已下载的 CI 插件包，整套 DLL 必须与 exe 同目录）：
 
 ```bat
-airecord.exe --core-shell --paint-backend=skia
+airecord.exe --paint-backend=skia
 ```
-或用环境变量 / 代码 / 热切换（§1.1）。`AIRUI_WITH_SKIA` 保持默认 OFF 即可——选择发生在运行时，官方 VS2017 产物不需要 SDK、不需要重编。
+也可直接点标题栏「渲染」按钮（推荐），或用环境变量 / 代码 / 热切换（§1.1）。`AIRUI_WITH_SKIA` 保持默认 OFF 即可——选择发生在运行时，官方 VS2017 产物不需要 SDK、不需要重编。`--core-shell` 是另一套简化外壳，与后端无关。
 
-**① 确认后端是否真的生效（最快的分辨方式）**：启动时 `App::Run()` 往 `%LOCALAPPDATA%\AireRecord\client.log` 写一行诊断，`probe` 会真实开一帧，因此能区分「DLL 加载成功」与「开帧失败回退」：
+**① 确认后端是否真的生效（最快的分辨方式）**：启动时 `App::Run()` 往 `%LOCALAPPDATA%\AireRecord\client.log` 写一行诊断，`probe` 会真实开一帧，因此能区分「DLL 加载成功」与「开帧失败回退」；`wholeWindow=1` 表示整窗帧路由已启用，`text=` 表示文字由宿主还是后端栅格化：
 
 ```
-[paint] coreShell=1 requested=skia resolved=skia available=[gdi,skia] skiaDll=1 probe=ok
-[paint] coreShell=0 requested=skia resolved=skia available=[gdi,skia] skiaDll=1 probe=ok
-[paint] coreShell=1 requested=skia resolved=skia available=[gdi]       skiaDll=0 probe=backend 'skia' is unavailable; fell back to gdi
+[paint] wholeWindow=1 coreShell=0 requested=skia resolved=skia available=[gdi,skia] skiaDll=1 probe=ok text=host
+[paint] wholeWindow=1 coreShell=0 requested=auto resolved=auto available=[gdi,skia] skiaDll=1 probe=ok text=gdi
+[paint] wholeWindow=1 coreShell=0 requested=skia resolved=skia available=[gdi]       skiaDll=0 probe=backend 'skia' is unavailable; fell back to gdi text=host
+[paint] UI switch -> skia wholeWindow=1 coreShell=0 text=host
+[paint] UI switch -> gdi  wholeWindow=1 coreShell=0 text=gdi
 ```
-第 2 行说明后端解析、DLL 都正常，但 `coreShell=0` → 主窗口仍由旧版 GDI 绘制；第 3 行是 DLL 缺失（`AIRUI_SKIA_DLL` 指向不存在路径）时的可观测回退。以上三行均为本机 VS2017 x64 产物实测。
+第 1 行是命令行直接启用 Skia；第 2 行是默认 GDI 启动；第 3 行是 DLL 缺失（`AIRUI_SKIA_DLL` 指向不存在路径）时的可观测回退；后两行是按钮双向切换。`coreShell=0` 是**正常状态**，不再意味着后端没生效。以上均为本机 VS2017 x64 产物实测。
+
+**①b 整窗像素差**：同一界面点击按钮前后截图比对，GDI → Skia 整窗约 **1.93%** 像素变化（标题栏 9.94%、页面内容区 0.83%），Skia → GDI 约 1.88%，而 GDI → GDI 往返仅 **0.07%**——证明页面内容区也换了引擎、且能来回切回同一画面。见 `build/whole-window-gdi-1.png` / `whole-window-skia.png` / `whole-window-diff-zoom.png`。
 
 **② 调用序列层**：`test_skia_backend` 用 `PaintRecorder` 把 core 金样与后端实收的 `IPainter` 调用序列做 `Diff()`，两后端必须**完全一致**。这保证差别只来自光栅化，而不是布局或漏画。
 
@@ -270,9 +280,42 @@ airecord.exe --core-shell --paint-backend=skia
 | 圆角矩形 | 209 / 4992（4.2%） | 12.3 | GDI `CreateRoundRectRgn` 硬边（中间色像素 **0**）vs Skia `drawRRect` 开抗锯齿（**69** 个过渡像素） |
 | 半透明矩形 | 0 / 3456（**0.0%**） | 0.0 | 两端最终都走 `AlphaBlend`，结果完全一致 |
 | 虚线框 | 400 / 6912（5.8%） | 22.9 | `PS_USERSTYLE` 硬边 vs `SkDashPathEffect` + AA，虚线相位也不同 |
-| 文字 | 415 / 2592（**16.0%**） | 44.1 | GDI Segoe UI + hinting vs `SkFont` 平台默认 typeface，字形/字距差异最大 |
+| 文字 | 415 / 2592（**16.0%**） | 44.1 | 当前插件默认 typeface 完全没有可用字形（`drawSimpleText` + 无 CJK/字体回退），GDI 有字、Skia 一片空白；**不是** hinting 或字距差异 |
 
-**肉眼分辨要点**：看圆角与斜线边缘是否平滑、字形与字距、虚线相位；纯色矩形和半透明矩形基本看不出区别。文字差异最大正是 §6「字体度量未对齐」的直接证据——这不是渲染 bug，而是字体族尚未校准。
+**肉眼分辨要点（GUI 整窗）**：看圆角卡片边缘、描边、虚线相位，以及状态栏小圆点——GDI 的 6px `Ellipse` 呈菱形，Skia 的 `FillRound` + AA 是圆形；纯色矩形与半透明矩形基本看不出区别。文字在 GUI 里由宿主 GDI 重放（`text=host`），两后端看起来一致；上表 16% 是**合成测试**直接把文字交给后端的结果，说明字体层尚未打通，而不是界面上会看到字形差异（§5.4）。
+
+---
+
+### 5.4 标题栏「渲染」切换按钮（UI 入口）
+
+按钮位于标题栏三键左侧，和窗口其它部分一样走 `PaintFrame`（几何由当前后端画，文字由帧级文字层处理），因此 legacy 富渲染与 coreShell/HAL 两条路径下都可见、都可点，切到 Skia 后仍能切回来。`WM_NCHITTEST` 对该区域返回 `HTCLIENT`（否则标题栏会被判成 `HTCAPTION`，点击变成拖窗口）；`ShellCore::SetShellGeometry()` 新增 `captionActionW`，状态胶囊与应用名同步让出保留区，两条路径都不重叠。
+
+交互链路：
+
+- 点击 → `Shell::TogglePaintBackend()` → core 纯函数 `NextPaintBackend(current, available)`（gdi 优先、只选可用 id、循环、归一化，`test_paint_backend` 有 9 条断言覆盖）；
+- **不再改动 `ShellOptions.coreShell`**：后端切换只换像素来源，界面不会变成另一套简化外壳；`PaintFrame` 把外壳、页面内容、core 控件一起路由到新后端（§1.4）；
+- 只有一个可用后端时不切换，按钮显示 `渲染: GDI · 无插件`；选了 Skia 却开帧失败时显示 `渲染: Skia · 已回退` 并用错误色，避免「显示 Skia、实际 GDI」；
+- `App` 通过 `SetPaintBackendChangedHandler()` 在每次切换后往 `client.log` 追加 `[paint] UI switch -> ...`，并让状态栏显示「渲染后端: Skia · 文字 GDI」。
+
+**实测（VS2017 x64 exe + CI VS2022 x64 插件，同一窗口点击两次）**：
+
+```
+[paint] wholeWindow=1 coreShell=0 requested=auto resolved=auto available=[gdi,skia] skiaDll=1 probe=ok text=gdi
+[paint] UI switch -> skia wholeWindow=1 coreShell=0 text=host
+[paint] UI switch -> gdi  wholeWindow=1 coreShell=0 text=gdi
+```
+
+`coreShell` 全程为 0，说明切后端不再换界面。整窗截图：`build/whole-window-gdi-1.png`（GDI）→ `whole-window-skia.png`（Skia）→ `whole-window-gdi-2.png`（切回），局部放大见 `whole-window-diff-zoom.png`。三张图布局一致、中文全部可读；状态栏小圆点在 GDI 下呈菱形、Skia 下是抗锯齿圆形，是几何换引擎的直观证据。
+
+**文字层策略（运行时能力自适应）**：`SkiaPluginSupportsWideText()` 通过插件 C ABI 开一个 32×32 离屏帧画「中」，读 `airui_skia_pixels()` 检查 alpha 覆盖，据此决定：
+
+- `text=host`（当前 CI 插件）：填充、圆角、描边、虚线、半透明、抗锯齿与帧合成全部由 Skia 完成；所有文字调用由 `PaintFrame` 记录（保留 HFONT / 颜色 / 矩形 / `DT_*` 格式 / clip），在帧合成之后由宿主 GDI `DrawTextW` 统一重放。中文与 MDL2 图标都可读，且不会出现「方块 + 汉字」双影。
+- `text=backend`（插件修好 CJK 字体回退后自动启用）：文字直接走 `IPainter::Text`，不做任何补画，成为纯 Skia 整窗。
+- `AIRUI_SKIA_TEXT=host|backend` 可强制覆盖探测结果，用于对比与回归。
+
+旧的 `Shell::DrawCoreChromeText()` 只补外壳文字、且页面文字仍走 GDI，已删除。`Shell::Paint()` 在 coreShell 下仍补画三键（原先命中测试在、像素不在），这与整窗路由无关。
+
+**不再是「只切外壳」**：`IPage::OnPaint(dc, ...)`、core 控件、`Canvas` 复合部件与 toast 全部经 `gfx::*` / `CanvasPainter` → `PaintFrame`；实测页面内容区有 0.83% 像素差。`test_paint_frame.exe` 用 32bpp DIB 固化三条契约：帧内绘制不再触碰 DC、帧外 GDI 路径完全恢复、两种文字策略都正确。`--core-shell` 单独使用时仍是简化外壳（无 logo / 导航图标等），那是外壳实现差异，不是后端切换造成的。
 
 ---
 
@@ -280,9 +323,9 @@ airecord.exe --core-shell --paint-backend=skia
 
 - **没有 Skia 版 `IWindow`**：目前只有绘制后端。窗口壳、消息泵、事件注入仍由 `Win32Window` 负责；Linux/macOS 应用本体仍不可构建。
 - **插件 ABI 有工具集与位数边界**：实测 MSVC v141 (VS2017 x64) ↔ v143 (VS2022 x64) 跨代可用（§5.2），但 **x86 进程无法加载 x64 DLL**——本机官方 `build/` 是 x86、CI 产物是 x64，直接放旁边只会静默回退 gdi。仍要求 MSVC 同族、一致 `/MD` 与 `_ITERATOR_DEBUG_LEVEL`；纯 C 绘制桥与非 MSVC 编译器验证均未做。
-- **字体度量未对齐**：后端用 `SkFont` 的平台默认 typeface，与 GDI 的 "Segoe UI" 族、CJK 回退、hinting 的差异尚未校准（设计稿 R2/R7）。
-- **真实 GUI 窗口截图 diff 未做**：`test_paint_compare` 已能在同一 DIB 上给出逐像素分区差异（§5.3），但那是合成场景，不是整个主窗口的截图比对；SSIM / 截图基线仍未建立。
-- **VS2017 只验证了「使用 DLL」，未验证「编译 Skia」**：真 SDK 源码编译仍只在 VS2022 CI 上做；官方 VS2017 工具链 x64 产物通过下载 DLL 使用 Skia 已实测（含真实 HDC 合成像素、分区像素差异与 `--core-shell` 启动诊断，§5.2 / §5.3），但完整 GUI 窗口截图效果仍未确认。CI 目前只出 **x64** 插件，x86 官方产物需 x64 构建或另出 x86 artifact。
+- **文字仍由宿主栅格化（`text=host`）**：后端用 `SkFont` 的平台默认 typeface，与 GDI 的 "Microsoft YaHei UI" 族、CJK 回退、hinting 的差异尚未校准（设计稿 R2/R7）。当前插件连英文都画不出，整窗文字由 `PaintFrame` 在帧合成后用 GDI 重放；这是**混合渲染**，不能声称「整个窗口包括文字都是 Skia 画的」。插件修好字体回退后探测会自动切到 `text=backend`，那才是纯 Skia。
+- **真实 GUI 截图 diff**：已完成逐窗口像素统计（整窗 1.93% / 内容区 0.83% / 往返 0.07%，§5.3、§5.4），但只是手工截图比对，**SSIM 指标与自动化截图基线仍未建立**。
+- **VS2017 只验证了「使用 DLL」，未验证「编译 Skia」**：真 SDK 源码编译仍只在 VS2022 CI 上做；官方 VS2017 工具链 x64 产物通过下载 DLL 使用 Skia 已实测（整窗 GUI 截图、像素差异、启动诊断、双向热切换，§5.2 / §5.3 / §5.4）。CI 目前只出 **x64** 插件，x86 官方产物需 x64 构建或另出 x86 artifact。
 - **Skia API 版本漂移**：所有 Skia 头集中在 `SkiaApi.h`；已在 vcpkg `skia@148` 上校准（§5.1），但 `drawSimpleText` / `measureText` 等仍可能随版本变化。
 
 ---
@@ -290,5 +333,6 @@ airecord.exe --core-shell --paint-backend=skia
 ## 7. 下一步
 
 1. ~~观察 `test_skia_plugin` 首次真 SDK 结果~~ 已完成：run `42337859169` 四个作业全绿，插件 DLL 与动态加载测试**首跑即通过**，无需修正 ABI / 导出名；后续每次 push/PR 自动复验。
-2. 校准字体度量与 CJK 回退，补 GDI vs Skia 截图阈值。
+2. 校准字体度量与 CJK 回退（在 `SkiaPainter::Font()` 用 `SkFontMgr` 做逐字 fallback 或指定中文族），让 `SkiaPluginSupportsWideText()` 返回 true、自动进入 `text=backend` 纯 Skia 整窗；再补 GDI vs Skia 截图阈值 / SSIM 基线。
+3. 把 `test_paint_frame` 的帧路由契约与 GUI 截图比对接入 CI（需要带窗口的 runner 步骤）。
 3. Phase 2 剩余：Skia 版 `IWindow` / Linux 窗口壳（`cross-platform.md` §10 仍待定）。

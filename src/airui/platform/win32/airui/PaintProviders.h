@@ -24,5 +24,14 @@ void RegisterSkiaPluginProvider();
 bool SkiaPluginLoaded();
 void SkiaPluginReload();
 
+// Runtime capability probe: renders one CJK glyph into an off-screen
+// plugin frame and checks whether any ink was produced. Older plugin
+// builds use drawSimpleText() with a typeface that has no CJK glyphs,
+// so text vanishes entirely; hosts must then rasterise text themselves.
+// Once a plugin ships proper font fallback this returns true and the
+// whole frame (including text) is rendered by the backend.
+// AIRUI_SKIA_TEXT=host|backend overrides the probe for diagnostics.
+bool SkiaPluginSupportsWideText();
+
 } // namespace ui
 } // namespace air

@@ -69,16 +69,22 @@ cmake --build build-linux --target airui-core
 后端由 core 层 `PainterRegistry` 在**运行时**按 id 选择，默认 `gdi`；请求不可用时自动回退 gdi 并记录原因。应用绘制路径里没有 `#ifdef AIRUI_HAVE_SKIA`。
 
 ```
-airecord.exe --core-shell --paint-backend=skia   # 命令行（优先级最高）
-set AIRUI_PAINT_BACKEND=skia                    # 环境变量
-ShellOptions.coreShell = true;                  // 代码：打开 HAL 外壳路径
-ShellOptions.paintBackend = "skia";             // 代码：选后端
-shell.SetPaintBackend("skia");                  // 运行中热切换，下一帧生效
+airecord.exe --paint-backend=skia              # 命令行（优先级最高，无需 --core-shell）
+set AIRUI_PAINT_BACKEND=skia                  # 环境变量
+标题栏「渲染: GDI」按钮                        # UI：点击循环切换（最省事）
+ShellOptions.paintBackend = "skia";           // 代码：选后端
+shell.SetPaintBackend("skia");                // 运行中热切换，下一帧生效
 ```
 
-> **`--core-shell` 不能省**：注册表只在 `ShellCore` / HAL 外壳路径上生效，该路径默认关闭（旧版富渲染零回归）。只传 `--paint-backend=skia` 时后端会被解析、DLL 也会被加载，但主窗口仍由旧版 GDI 富渲染绘制。
+> **整窗切换**：`Shell::Paint()` 每帧打开一个 `PaintFrame`，`gfx::*` 与 `CanvasPainter` 的所有绘制原语都经它转发给当前后端，所以标题栏、侧栏、状态栏、**页面内容区**、core 控件一起换引擎，而不是另开一套简化界面。GDI 帧不激活路由，绘制代码原样执行，像素与旧版完全一致（`test_paint_frame.exe` 固化了这条契约）。`--core-shell` 只切换外壳实现（简化 HAL 外壳），与渲染后端无关；切换按钮也不会改动它。
+>
+> **文字层**：当前 CI 插件用 `drawSimpleText` + 默认 typeface，画不出 CJK / MDL2 图标字形。运行时探测（`SkiaPluginSupportsWideText()`，离屏帧画一个「中」看有无像素）会据此选择策略：`text=host` 时几何/填充/圆角/描边/合成全部由 Skia 画，文字在帧合成后由宿主 GDI 栅格化；插件将来支持 CJK 时自动变成 `text=backend`（纯 Skia 文字，无补画）。可用 `AIRUI_SKIA_TEXT=host|backend` 强制覆盖。
+>
+> **UI 切换按钮**：标题栏右侧（三键左边）常驻「渲染: GDI / 渲染: Skia」按钮，点击在**可用**后端间循环，下一帧生效，可来回切；不改外壳、不换布局。插件缺失时显示「无插件 / 已回退」且不会改动界面。每次切换向 `client.log` 追加 `[paint] UI switch -> ...`。
+>
+> **插件部署**：默认 VS2017 产物无需 SDK，把 `airui-skia.dll` 和它的全套依赖 DLL 放到 exe 同目录即可；也可用 `AIRUI_SKIA_DLL` 指绝对路径，但必须同时把插件目录加入 `PATH`（`LoadLibraryW` 带完整路径时不会自动搜索该 DLL 所在目录）。exe 与插件**位数必须一致**：官方 `build/` 是 x86，CI 插件是 x64，请用 `build/vs2017-x64`。
 
-启动时 `client.log` 会写一行 `[paint] coreShell=? requested=? resolved=? available=[...] skiaDll=? probe=?`，可直接确认**实际生效的后端**以及是否发生回退；`probe` 会真实开一帧，DLL 缺失/ABI 不符时会显示 `fell back to gdi`。`Shell::AvailablePaintBackends()` 也列出当前可用后端；`auto` 取注册表默认（gdi）。
+启动时 `client.log` 会写一行 `[paint] wholeWindow=1 coreShell=? requested=? resolved=? available=[...] skiaDll=? probe=? text=?`，可直接确认**实际生效的后端**、是否回退、以及文字由谁栅格化；`probe` 会真实开一帧，DLL 缺失/ABI 不符时会显示 `fell back to gdi`。`Shell::AvailablePaintBackends()` 也列出当前可用后端；`auto` 取注册表默认（gdi）。
 
 **怎么分辨与 GDI 的差别**：`test_paint_compare.exe` 让两个后端在同一块 32bpp DIB 上接收**完全相同**的 `IPainter` 调用序列，读回像素并按图元统计差异：
 

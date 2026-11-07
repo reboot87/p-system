@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <utility>
 
 namespace air {
 namespace ui {
@@ -131,6 +132,33 @@ std::string EnvironmentPaintBackend()
 {
     const char* value = std::getenv("AIRUI_PAINT_BACKEND");
     return value ? NormalizeBackend(value) : std::string("auto");
+}
+
+std::string NextPaintBackend(const std::string& current,
+                             const std::vector<std::string>& available)
+{
+    std::vector<std::string> ids;
+    for (const std::string& id : available) {
+        const std::string norm = NormalizeBackend(id);
+        if (norm.empty() || norm == "auto") continue;
+        if (std::find(ids.begin(), ids.end(), norm) != ids.end()) continue;
+        ids.push_back(norm);
+    }
+    if (ids.empty()) return "gdi";
+
+    // gdi is the always-present fallback and the natural start of a cycle.
+    auto gdi = std::find(ids.begin(), ids.end(), "gdi");
+    if (gdi != ids.end() && gdi != ids.begin()) {
+        std::string first = *gdi;
+        ids.erase(gdi);
+        ids.insert(ids.begin(), std::move(first));
+    }
+
+    std::string cur = NormalizeBackend(current);
+    if (cur.empty() || cur == "auto") cur = "gdi";
+    for (size_t i = 0; i < ids.size(); ++i)
+        if (ids[i] == cur) return ids[(i + 1) % ids.size()];
+    return ids.front();
 }
 
 } // namespace ui

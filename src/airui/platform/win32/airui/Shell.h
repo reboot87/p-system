@@ -164,6 +164,18 @@ public:
     const std::string& PaintBackendChoice() const { return m_paintBackend; }
     std::vector<std::string> AvailablePaintBackends() const;
 
+    // UI action behind the caption-bar "renderer" button: cycle to the
+    // next *available* backend. The whole window (chrome, pages and
+    // widgets) switches on the next frame; the chrome mode itself is
+    // never changed, so the UI does not turn into a different layout.
+    void TogglePaintBackend();
+    bool CoreShellEnabled() const { return m_opt.coreShell; }
+
+    // Observability hook: (selected backend id, backend owns text).
+    // The app layer uses it to append a [paint] line to client.log.
+    void SetPaintBackendChangedHandler(
+        std::function<void(const std::string&, bool)> handler);
+
     // Platform-free shell state / layout / hit test. Core owns state,
     // the Win32 backend owns pixels (see ShellCore.h).
     ShellCore&       Core()       { return m_shellCore; }
@@ -196,10 +208,18 @@ private:
     void InitPaintBackends();
 
     void DrawCaption(HDC dc, const RECT& rc);
+    void DrawCaptionButtons(HDC dc, const RECT& rc);
     void DrawStatusBar(HDC dc, const RECT& rc);
     void DrawSidebarFooter(HDC dc);
 
     int  CaptionButtonAt(POINT clientPt) const;
+
+    // Caption-bar renderer switch button (drawn on top of both chrome
+    // paths so it stays visible after switching to Skia).
+    int  CaptionActionWidth() const;
+    RECT PaintBackendButtonRect() const;
+    bool HitTestPaintBackendButton(POINT clientPt) const;
+    void DrawPaintBackendButton(HDC dc);
 
     struct PageSlot
     {
@@ -227,7 +247,9 @@ private:
 
     int           m_dpi     = 96;
     int           m_capHover = 0;
+    bool          m_paintBtnHover = false;
     bool          m_active  = true;
+    std::function<void(const std::string&, bool)> m_paintBackendChanged;
 
     // Caption / Status state lives in m_shellCore (the single source of
     // truth). Only platform-only extras (key hints) stay here.

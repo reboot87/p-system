@@ -1,9 +1,11 @@
 #include "airui/Shell.h"
 #include "airui/GdiPainter.h"
 #include "airui/PaintProviders.h"
+#include "airui/PaintFrame.h"
 #include "airui/Gfx.h"
 #include "airui/Responsive.h"
 #include <commctrl.h>
+#include <algorithm>
 
 #pragma comment(lib, "comctl32.lib")
 
@@ -37,6 +39,18 @@ HWND IPage::ParentWnd() const
 // 构造 / 析构
 // ============================================================
 namespace {
+
+// Caption-bar renderer switch button. Its reserved width is also fed to
+// ShellCore's caption layout (SetShellGeometry), so the badge and the
+// app name never end up underneath it in either chrome path.
+const int kPaintBtnW   = 160;
+const int kPaintBtnH   = 26;
+const int kPaintBtnGap = 12;   // gap between the button and the 3 caption keys
+
+RECT ToWinRect(const Rect& r)
+{
+    return RECT{ r.left, r.top, r.right, r.bottom };
+}
 
 // NavGroup / NavItem are Win32 control types; ShellNavGroup /
 // ShellNavItem are the platform-free equivalents owned by ShellCore.
@@ -502,7 +516,8 @@ void Shell::LayoutAll()
 
     // Feed the geometry we actually draw into the platform-free core so
     // ContentRect / HitTestNav never drift from the Win32 pixels.
-    m_shellCore.SetShellGeometry(m.titleH, statusH, sideW);
+    m_shellCore.SetShellGeometry(m.titleH, statusH, sideW,
+                                 CaptionActionWidth());
     m_shellCore.Layout(Rect{ 0, 0, W, H });
 
     if (IPage* p = CurrentPage()) p->OnLayout(m_content);
@@ -541,6 +556,102 @@ std::vector<std::string> Shell::AvailablePaintBackends() const
 }
 
 // ============================================================
+// 标题栏「渲染后端」切换按钮
+//
+// 按钮属于外壳（backend-owned chrome）：legacy 富渲染与 coreShell/HAL
+// 两条路径下都可见、都可点，所以切到 Skia 之后仍然能切回来。它和窗口
+// 其它部分一样走 PaintFrame → 当前后端，文字由帧级文字层统一处理。
+// G5 金样对比走独立的 ShellCore::Paint 序列，不受按钮影响。
+// ============================================================
+int Shell::CaptionActionWidth() const
+{
+    // 三键 + 与三键的间距 + 按钮 + 与状态胶囊的间距
+    return Mx().capBtnW * 3 + kPaintBtnGap + kPaintBtnW + 10;
+}
+
+RECT Shell::PaintBackendButtonRect() const
+{
+    RECT rc = {};
+    if (!m_hwnd) return rc;
+    GetClientRect(m_hwnd, &rc);
+    const int right = rc.right - Mx().capBtnW * 3 - kPaintBtnGap;
+    const int top   = (Mx().titleH - kPaintBtnH) / 2;
+    return RECT{ right - kPaintBtnW, top, right, top + kPaintBtnH };
+}
+
+bool Shell::HitTestPaintBackendButton(POINT pt) const
+{
+    const RECT r = PaintBackendButtonRect();
+    return pt.x >= r.left && pt.x < r.right &&
+           pt.y >= r.top  && pt.y < r.bottom;
+}
+
+void Shell::DrawPaintBackendButton(HDC dc)
+{
+    const RECT r = PaintBackendButtonRect();
+    if (r.right <= r.left) return;
+
+    const Palette& p = Pal();
+    const std::vector<std::string> available = AvailablePaintBackends();
+    const bool hasSkia = std::find(available.begin(), available.end(), "skia")
+                         != available.end();
+    const std::string cur = NormalizeBackend(m_paintBackend);
+    const bool skiaOn = (cur == "skia");
+
+    std::wstring label = L"渲染: ";
+    // "auto" 会由注册表解析成默认后端 gdi —— 按钮显示实际生效的后端，
+    // 而不是配置模式，避免用户以为「自动」是第三种渲染器。
+    if (skiaOn) label += L"Skia";
+    else if (cur == "gdi" || cur == "auto" || cur.empty()) label += L"GDI";
+    else label += std::wstring(cur.begin(), cur.end());
+
+    COLORREF bg = skiaOn ? p.primarySoft
+                : m_paintBtnHover ? p.hover : p.surface;
+    COLORREF border = skiaOn ? p.primary : p.border;
+    COLORREF fg = skiaOn ? p.primaryText : p.textSub;
+    if (!hasSkia) {
+        // 选了 Skia 却加载不到插件时注册表会静默回退 GDI —— 按钮必须
+        // 把这件事说出来，否则「显示 Skia、实际 GDI」会误导。
+        if (skiaOn) {
+            label += L" · 已回退";
+            border = p.errorBorder; fg = p.errorText;
+        } else {
+            label += L" · 无插件";
+            border = p.warnBorder; fg = p.warnText;
+        }
+    }
+
+    gfx::FillRound(dc, r, bg, 6);
+    gfx::Stroke(dc, r, border, 6);
+    RECT tr = { r.left + 8, r.top, r.right - 8, r.bottom };
+    gfx::Text(dc, m_fonts.Get(FontRole::Meta), fg, tr, label,
+              DT_SINGLELINE | DT_CENTER | DT_VCENTER |
+              DT_NOPREFIX | DT_END_ELLIPSIS);
+}
+
+void Shell::TogglePaintBackend()
+{
+    const std::vector<std::string> available = AvailablePaintBackends();
+    // 只有一个可用后端时什么都不做，按钮标签已写明「无插件」。
+    if (available.size() < 2) { Invalidate(); return; }
+
+    const std::string next = NextPaintBackend(m_paintBackend, available);
+    // 不再改 coreShell：后端切换只换像素来源，不把界面换成另一套外壳。
+    SetPaintBackend(next);          // 归一化 + 下一帧生效
+    if (m_paintBackendChanged) {
+        const bool backendText =
+            (next == "skia") && SkiaPluginSupportsWideText();
+        m_paintBackendChanged(next, backendText);
+    }
+}
+
+void Shell::SetPaintBackendChangedHandler(
+    std::function<void(const std::string&, bool)> handler)
+{
+    m_paintBackendChanged = std::move(handler);
+}
+
+// ============================================================
 // 绘制
 // ============================================================
 void Shell::Paint(HDC dc)
@@ -548,30 +659,47 @@ void Shell::Paint(HDC dc)
     RECT rc;
     GetClientRect(m_hwnd, &rc);
 
-    gfx::Fill(dc, rc, Pal().bg);
+    // ---- Open ONE frame for the entire client area -----------------
+    // gfx::* and CanvasPainter both route through PaintFrame, so the
+    // selected backend draws chrome, pages and core widgets alike --
+    // not just a separate HAL chrome path. A plain GDI frame leaves
+    // the routing inactive and runs the original code untouched.
+    const bool wantSkia = (NormalizeBackend(m_paintBackend) == "skia");
+    std::unique_ptr<IPainter> backend;
+    bool frameActive = false;
 
-    if (m_opt.coreShell) {
-        // Phase 1 HAL route: core owns state & layout, a runtime-
-        // selected backend owns pixels. The registry resolves the id
-        // and falls back to gdi if the requested backend is missing.
+    if (wantSkia) {
         PaintTarget target{
             static_cast<void*>(dc),
             Rect{ rc.left, rc.top, rc.right, rc.bottom }
         };
-        std::unique_ptr<IPainter> painter =
-            PainterRegistry::Instance().Begin(m_paintBackend, target);
-        if (painter) {
-            m_shellCore.Paint(*painter, Pal(), Mx());
-            // destruction flushes the frame (Skia presents to the DC)
+        backend = PainterRegistry::Instance().Begin("skia", target);
+        const std::string& err = PainterRegistry::Instance().LastError();
+        if (backend && err.empty()) {
+            PaintFrame& frame = PaintFrame::Instance();
+            frame.Begin(backend.get(), dc, &m_fonts,
+                        SkiaPluginSupportsWideText());
+            frameActive = frame.Active();
         } else {
-            const std::string& err = PainterRegistry::Instance().LastError();
             if (!err.empty()) uiDebugLog(L"[paint] %hs", err.c_str());
+            backend.reset();       // fell back to gdi: keep GDI rendering
+        }
+    }
+
+    gfx::Fill(dc, rc, Pal().bg);
+
+    if (m_opt.coreShell) {
+        // HAL chrome still owns state and layout; its IPainter calls now
+        // go through the same frame router as everything else.
+        if (frameActive) {
+            m_shellCore.Paint(PaintFrame::Instance(), Pal(), Mx());
+        } else {
             GdiPainter fallback(dc);
             m_shellCore.Paint(fallback, Pal(), Mx());
         }
     } else {
         // Legacy rich chrome (logo, three caption buttons, status pills,
-        // key hints). Its state is now read back from ShellCore below.
+        // key hints). Its state is read back from ShellCore.
         DrawCaption(dc, rc);
         if (m_opt.sidebar) {
             m_nav.Paint(dc, m_fonts);
@@ -582,6 +710,23 @@ void Shell::Paint(HDC dc)
     if (IPage* p = CurrentPage()) p->OnPaint(dc, m_content);
 
     if (!m_opt.coreShell && m_opt.statusBar) DrawStatusBar(dc, rc);
+
+    // 外壳动作区最后画：两条 chrome 路径下都在最上层，且不会被页面
+    // 的 HWND 子控件遮挡（标题栏内没有子控件）。
+    if (m_opt.coreShell) DrawCaptionButtons(dc, rc);
+    DrawPaintBackendButton(dc);
+
+    // ---- Close the frame -------------------------------------------
+    // Order matters: the backend's destructor composites its raster
+    // onto the DC; host-rasterised text must be drawn AFTER that or it
+    // would be covered by the composite.
+    if (frameActive) {
+        PaintFrame& frame = PaintFrame::Instance();
+        frame.End();
+        backend.reset();       // SkiaFrame::~SkiaFrame -> AlphaBlend
+        frame.ReplayText();
+        frame.Clear();
+    }
 }
 
 // ------------------------------------------------------------
@@ -616,8 +761,11 @@ void Shell::DrawCaption(HDC dc, const RECT& rc)
         gfx::Fill(dc, l2, p.primary);
     }
 
-    // 应用名
-    int nameRight = rc.right - m.capBtnW * 3 - 24;
+    // 应用名。右侧要让出「渲染后端切换按钮 + 状态胶囊」的保留区，
+    // 否则切换按钮启用后会把标题/副标题压在下面。
+    int rightLimit = rc.right - CaptionActionWidth() - 12;
+    int nameRight  = rightLimit - 132;
+    if (nameRight < 60) nameRight = 60;
     RECT rcName = { 52, 0, nameRight, m.titleH };
     gfx::Text(dc, m_fonts.Get(FontRole::Title), p.text, rcName, m_opt.appName,
               DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
@@ -640,7 +788,6 @@ void Shell::DrawCaption(HDC dc, const RECT& rc)
     OnPaintCaptionExtra(dc, rcExtra);
 
     // 状态胶囊
-    int rightLimit = rc.right - m.capBtnW * 3 - 12;
     if (!cs.badge.empty()) {
         gfx::StatusTag(dc, rightLimit, m.titleH / 2,
                        cs.badge.c_str(),
@@ -652,7 +799,19 @@ void Shell::DrawCaption(HDC dc, const RECT& rc)
                        24);
     }
 
-    // 三键
+    // 三键（与 HAL 外壳共用同一份绘制，见 DrawCaptionButtons）
+    DrawCaptionButtons(dc, rc);
+}
+
+// ------------------------------------------------------------
+// 标题栏三键。legacy 由 DrawCaption 调用；HAL 外壳（coreShell）下
+// ShellCore 不画三键，但命中测试一直存在 —— 这里补画，避免切到 Skia
+// 后「关闭/最小化按钮变成隐形」。
+// ------------------------------------------------------------
+void Shell::DrawCaptionButtons(HDC dc, const RECT& rc)
+{
+    const Palette& p = Pal();
+    const Metrics& m = Mx();
     const wchar_t* glyphs[3] = {
         L"\xE921",                                     // 最小化
         IsZoomed(m_hwnd) ? L"\xE923" : L"\xE922",      // 还原 / 最大化
@@ -670,6 +829,9 @@ void Shell::DrawCaption(HDC dc, const RECT& rc)
                   DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
     }
 }
+
+// PaintFrame now records and replays text for the WHOLE window, so
+// the old chrome-only GDI text overlay is no longer needed.
 
 // ------------------------------------------------------------
 // 状态栏：左「状态点 + 文本 + 副信息」，右 kbd 键位提示
@@ -856,8 +1018,10 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         POINT pt = { (short)LOWORD(lParam), (short)HIWORD(lParam) };
         ScreenToClient(hwnd, &pt);
 
-        // 1) 标题栏三键优先：按客户区点击处理
+        // 1) 标题栏三键 / 渲染后端按钮优先：按客户区点击处理
+        //    （否则标题栏会被判成 HTCAPTION，点击变成拖动窗口）
         if (CaptionButtonAt(pt)) return HTCLIENT;
+        if (HitTestPaintBackendButton(pt)) return HTCLIENT;
 
         // 2) 无边框 + NCCALCSIZE 返回 0 后，DefWindowProc 找不到边缘区；
         //    这里显式提供 6px 边缘热区，拖拽边框即可调整窗口大小。
@@ -895,7 +1059,12 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             m_capHover = btn;
             needRepaint = true;
         }
-        bool tracking = (btn != 0);
+        bool onPaintBtn = HitTestPaintBackendButton(pt);
+        if (onPaintBtn != m_paintBtnHover) {
+            m_paintBtnHover = onPaintBtn;
+            needRepaint = true;
+        }
+        bool tracking = (btn != 0) || onPaintBtn;
 
         if (m_opt.sidebar && pt.x < m_side.right && pt.y >= m.titleH) {
             if (m_nav.OnMouseMove(pt)) needRepaint = true;
@@ -921,6 +1090,7 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_MOUSELEAVE: {
         bool dirty = false;
         if (m_capHover) { m_capHover = 0; dirty = true; }
+        if (m_paintBtnHover) { m_paintBtnHover = false; dirty = true; }
         if (m_nav.OnMouseLeave()) dirty = true;
         m_shellCore.SetNavHover(-1);
         if (IPage* p = CurrentPage())
@@ -942,6 +1112,12 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             return 0;
         }
         if (btn == 3) { PostMessageW(hwnd, WM_SYSCOMMAND, SC_CLOSE, 0); return 0; }
+
+        // 渲染后端切换：热切换，下一帧生效；首次点击顺带打开 HAL 外壳
+        if (HitTestPaintBackendButton(pt)) {
+            TogglePaintBackend();
+            return 0;
+        }
 
         // 侧栏导航
         if (m_opt.sidebar && pt.x < m_side.right && pt.y >= m.titleH) {

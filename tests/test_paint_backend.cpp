@@ -94,6 +94,26 @@ int main()
     Check(ResolvePaintBackend("", "auto") == "auto",
           "nothing set resolves to auto");
 
+    // --- UI switch action: only available ids, deterministic cycle ---
+    Check(NextPaintBackend("auto", { "gdi", "skia" }) == "skia",
+          "first switch from auto goes to skia");
+    Check(NextPaintBackend("skia", { "gdi", "skia" }) == "gdi",
+          "switching back from skia goes to gdi");
+    Check(NextPaintBackend("gdi", { "skia", "gdi" }) == "skia",
+          "gdi is always first regardless of registration order");
+    Check(NextPaintBackend("auto", { "gdi" }) == "gdi",
+          "single available backend cannot be switched away from");
+    Check(NextPaintBackend("skia", { "gdi" }) == "gdi",
+          "skia disappears from available list -> settle on gdi");
+    Check(NextPaintBackend("unknown", { "gdi", "skia" }) == "gdi",
+          "unknown current id starts the cycle at gdi");
+    Check(NextPaintBackend("auto", {}) == "gdi",
+          "empty available list falls back to gdi");
+    Check(NextPaintBackend("  SKIA ", { "skia", "gdi" }) == "gdi",
+          "current id is normalized before cycling");
+    Check(NextPaintBackend("gdi", { "gdi", "skia", "gdi", "auto" }) == "skia",
+          "duplicate / auto ids in available list are ignored");
+
     PainterRegistry& reg = PainterRegistry::Instance();
     reg.Reset();
 

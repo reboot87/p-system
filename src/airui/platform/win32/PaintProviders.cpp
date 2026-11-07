@@ -18,6 +18,7 @@
 
 #include <memory>
 #include <string>
+#include <wchar.h>
 
 namespace air {
 namespace ui {
@@ -201,6 +202,57 @@ void SkiaPluginReload()
     // may still be alive and its vtable lives in that module.
     Api().ready = false;
     Api().attempted = false;
+}
+
+bool SkiaPluginSupportsWideText()
+{
+    static int cached = -1;
+    if (cached >= 0) return cached != 0;
+    cached = 0;
+
+    // Explicit override wins: useful when a newer plugin is deployed or
+    // when comparing host-rasterised text against backend text.
+    wchar_t override[16] = {};
+    const DWORD n = GetEnvironmentVariableW(L"AIRUI_SKIA_TEXT",
+                                            override, 16);
+    if (n > 0 && n < 16) {
+        if (_wcsicmp(override, L"host") == 0) return false;
+        if (_wcsicmp(override, L"backend") == 0) { cached = 1; return true; }
+    }
+
+    PluginApi& a = Api();
+    if (!LoadPlugin() || !a.pixels || !a.rowBytes || !a.create || !a.destroy)
+        return false;
+
+    void* handle = a.create(nullptr, 0, 0, 32, 32);
+    if (!handle) return false;
+
+    // The opaque handle is an IPainter* created inside the plugin. MSVC
+    // vtable/CRT layout matches across toolsets (PluginPainter already
+    // relies on it), so a direct virtual call is safe here.
+    IPainter* painter = reinterpret_cast<IPainter*>(handle);
+    painter->Text(Rect(0, 0, 32, 32), L"\u4E2D", FontRole::Body,
+                  MakeColor(0, 0, 0),
+                  dt::Top | dt::Left | dt::SingleLine);
+
+    const unsigned char* pixels =
+        static_cast<const unsigned char*>(a.pixels(handle));
+    const uint64_t stride = a.rowBytes(handle);
+    int ink = 0;
+    if (pixels && stride >= 32u * 4u) {
+        for (int y = 0; y < 32; ++y) {
+            for (int x = 0; x < 32; ++x) {
+                // BGRA, premultiplied: byte 3 is coverage.
+                if (pixels[static_cast<size_t>(y) * stride +
+                           static_cast<size_t>(x) * 4u + 3u] > 8)
+                    ++ink;
+            }
+        }
+    }
+    a.destroy(handle);   // off-screen frame: Present() is a no-op
+
+    cached = (ink > 4) ? 1 : 0;
+    return cached != 0;
 }
 
 } // namespace ui

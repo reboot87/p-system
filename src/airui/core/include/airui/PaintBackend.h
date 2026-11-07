@@ -102,5 +102,15 @@ std::string ResolvePaintBackend(const std::string& requested,
 // Reads AIRUI_PAINT_BACKEND (empty when unset).
 std::string EnvironmentPaintBackend();
 
+// Next backend for a UI "switch renderer" action. `available` must be
+// the ids the registry currently reports as usable. Order is
+// deterministic (gdi first, then registration order) and cycles back
+// to the first id. Only available ids are returned; when there is a
+// single option the same id comes back, which lets the UI show that
+// no switch is possible without silently "succeeding".
+// "auto" / unknown current ids are treated as the default ("gdi").
+std::string NextPaintBackend(const std::string& current,
+                             const std::vector<std::string>& available);
+
 } // namespace ui
 } // namespace air

@@ -76,6 +76,7 @@ set(AIRUI_SOURCES
     src/airui/platform/win32/Page.cpp
     src/airui/platform/win32/Shell.cpp
     src/airui/platform/win32/PaintProviders.cpp
+    src/airui/platform/win32/PaintFrame.cpp
     src/airui/platform/win32/Widgets.cpp
     src/airui/platform/win32/Components.cpp
     src/airui/platform/win32/Responsive.cpp
@@ -259,6 +260,67 @@ set_target_properties(airecord PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
     LINK_FLAGS "/SUBSYSTEM:WINDOWS"
 )
+
+# ------------------------------------------------------------
+# Skia plugin auto-deploy (no manual DLL copy).
+#
+# The Skia backend is a runtime DLL (airui-skia.dll + its transitive
+# deps: skia, icu, harfbuzz...). When the app is built WITHOUT a local
+# Skia SDK (the normal Windows path), the plugin comes from a prebuilt
+# location. We resolve that location and copy everything next to the exe
+# on every build, so double-clicking the exe "just works" with Skia.
+#
+# Resolution order:
+#   1. -DAIRUI_SKIA_PLUGIN_DIR=<dir>                 (explicit)
+#   2. <binary-dir>/ci-all/airui-skia-windows-x64    (CI artifacts)
+#   3. <binary-dir>/ci-skia                          (fetch-skia-plugin)
+# If none is found, nothing is copied; `fetch-skia-plugin` populates (3).
+# ------------------------------------------------------------
+set(AIRUI_SKIA_PLUGIN_DIR "" CACHE PATH
+    "Directory containing airui-skia.dll and its dependencies")
+
+function(airui_deploy_skia_plugin tgt)
+    if(NOT WIN32)
+        return()
+    endif()
+    if(AIRUI_WITH_SKIA)
+        # Built locally: the airui-skia-plugin target emits airui-skia.dll
+        # into the same output dir, nothing to copy.
+        return()
+    endif()
+
+    set(_src "${AIRUI_SKIA_PLUGIN_DIR}")
+    if(NOT _src)
+        foreach(_cand "${CMAKE_BINARY_DIR}/ci-all/airui-skia-windows-x64"
+                      "${CMAKE_BINARY_DIR}/ci-skia")
+            if(EXISTS "${_cand}/airui-skia.dll")
+                set(_src "${_cand}")
+                break()
+            endif()
+        endforeach()
+    endif()
+
+    if(_src AND EXISTS "${_src}/airui-skia.dll")
+        add_custom_command(TARGET ${tgt} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                    "${_src}" "$<TARGET_FILE_DIR:${tgt}>"
+            COMMENT "Deploying Skia plugin from ${_src}")
+    endif()
+endfunction()
+
+# One-time helper: download the latest Skia plugin artifact from CI into
+# <binary-dir>/ci-skia. Requires `gh` + network + repo access. After it
+# runs once, plain `cmake --build` keeps the plugin deployed via the
+# POST_BUILD step above.
+if(WIN32 AND NOT AIRUI_WITH_SKIA)
+    add_custom_target(fetch-skia-plugin
+        COMMAND ${CMAKE_COMMAND}
+                -DCMAKE_BINARY_DIR="${CMAKE_BINARY_DIR}"
+                -P "${CMAKE_SOURCE_DIR}/scripts/fetch-skia-plugin.cmake"
+        COMMENT "Download latest Skia plugin artifact from CI")
+endif()
+
+airui_deploy_skia_plugin(airecord)
 
 # Test executable
 add_executable(test_ui 
@@ -508,6 +570,18 @@ if(WIN32)
     if(MSVC)
         set_target_properties(test_paint_compare PROPERTIES LINK_FLAGS "/SUBSYSTEM:CONSOLE")
     endif()
+
+    # Whole-window frame routing: every gfx primitive must reach the
+    # selected backend, and a closed frame must restore GDI untouched.
+    add_executable(test_paint_frame tests/test_paint_frame.cpp)
+    target_link_libraries(test_paint_frame PRIVATE airui-win32 airui-core)
+    set_target_properties(test_paint_frame PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+        RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
+    )
+    if(MSVC)
+        set_target_properties(test_paint_frame PROPERTIES LINK_FLAGS "/SUBSYSTEM:CONSOLE")
+    endif()
 endif()
 
 # Skia backend value mapping. NO Skia SDK needed: this is a pure-C++
@@ -555,6 +629,7 @@ if(AIRUI_WITH_SKIA)
         if(MSVC)
             set_target_properties(test_skia_plugin PROPERTIES LINK_FLAGS "/SUBSYSTEM:CONSOLE")
         endif()
+        airui_deploy_skia_plugin(test_skia_plugin)
     endif()
 endif()
 
@@ -615,7 +690,7 @@ endif()
 # test_ui is an end-to-end script that drives a *running* airecord.exe
 # (window lookup + IPC), so it is not registered as a ctest case.
 enable_testing()
-foreach(_t test_core_layout test_controls_core test_shell_hal test_paint_recorder test_paint_backend test_paint_runtime test_paint_compare test_skia_types test_skia_backend test_skia_plugin test_data_controls test_overlay_core test_framework_extra test_advanced_controls test_enterprise_controls test_studio_controls test_control_classes test_theme_manager test_draw_calls test_locale test_component_gallery test_ipc_pipe)
+foreach(_t test_core_layout test_controls_core test_shell_hal test_paint_recorder test_paint_backend test_paint_runtime test_paint_frame test_paint_compare test_skia_types test_skia_backend test_skia_plugin test_data_controls test_overlay_core test_framework_extra test_advanced_controls test_enterprise_controls test_studio_controls test_control_classes test_theme_manager test_draw_calls test_locale test_component_gallery test_ipc_pipe)
     if(TARGET ${_t})
         add_test(NAME ${_t} COMMAND ${_t})
     endif()

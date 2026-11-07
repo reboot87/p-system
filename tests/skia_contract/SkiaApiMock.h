@@ -48,6 +48,7 @@ class sk_sp
 {
 public:
     sk_sp() = default;
+    sk_sp(std::nullptr_t) : m_ptr(nullptr) {}
     explicit sk_sp(T* p) : m_ptr(p) {}
     T* get() const { return m_ptr; }
     T* operator->() const { return m_ptr; }
@@ -75,12 +76,36 @@ struct SkFontMetrics
     SkScalar fDescent = 3.0f;
 };
 
-struct SkFontStyle {};
+struct SkFontStyle
+{
+    static SkFontStyle Normal() { return SkFontStyle(); }
+};
+
+using SkUnichar = int32_t;
 
 // Modern Skia removed SkTypeface::MakeFromName; typeface lookup goes
-// through SkFontMgr instead. The backend currently relies on SkFont's
-// default typeface, so no factory is part of our API contract.
-class SkTypeface {};
+// through SkFontMgr instead. The backend uses RefDefault() +
+// matchFamily() / matchFamilyStyleCharacter() to get CJK/icon fonts.
+class SkTypeface
+{
+public:
+    SkUnichar unicharToGlyph(SkUnichar) const { return 0; }
+};
+
+class SkFontMgr
+{
+public:
+    static sk_sp<SkFontMgr> RefDefault() { return sk_sp<SkFontMgr>(nullptr); }
+    sk_sp<SkTypeface> matchFamily(const char*) const
+    { return sk_sp<SkTypeface>(nullptr); }
+    sk_sp<SkTypeface> legacyMakeTypeface(const char*,
+                                        SkFontStyle = SkFontStyle()) const
+    { return sk_sp<SkTypeface>(nullptr); }
+    sk_sp<SkTypeface> matchFamilyStyleCharacter(int, SkFontStyle,
+                                               const char*[], int,
+                                               SkUnichar) const
+    { return sk_sp<SkTypeface>(nullptr); }
+};
 
 class SkFont
 {

@@ -35,12 +35,14 @@ void ShellCore::SetNavBadge(int id, const std::wstring& text, bool ok)
     }
 }
 
-void ShellCore::SetShellGeometry(int captionH, int statusH, int navW)
+void ShellCore::SetShellGeometry(int captionH, int statusH, int navW,
+                                 int captionActionW)
 {
     // 0 is meaningful: the backend may have no status bar / sidebar.
     m_captionH = captionH > 0 ? captionH : 0;
     m_statusH  = statusH  > 0 ? statusH  : 0;
     m_navW     = navW     > 0 ? navW     : 0;
+    m_captionActionW = captionActionW > 0 ? captionActionW : 0;
 }
 
 void ShellCore::Layout(const Rect& client)
@@ -140,8 +142,9 @@ void ShellCore::PaintCaption(IPainter& painter, const Palette& pal, const Metric
     if (!m_caption.badge.empty())
     {
         Rect badgeRc = m_captionRect;
-        badgeRc.right -= pad;
+        badgeRc.right -= pad + m_captionActionW;
         badgeRc.left  = badgeRc.right - 120;
+        if (badgeRc.left < m_captionRect.left + pad) return;
         painter.Text(badgeRc, m_caption.badge, FontRole::Meta, m_caption.badgeOk ? pal.ok : pal.error, 0);
     }
 }
