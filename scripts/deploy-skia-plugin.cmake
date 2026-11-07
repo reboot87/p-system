@@ -32,24 +32,28 @@ endif()
 # Records the CI run id the deployed plugin came from.
 set(_marker "${TARGET_DIR}/airui-skia.ci-run")
 
-# --- locate a local bundle first (CI pre-download / manual) --------
+# --- trusted local bundle (CI pre-download or explicit override) ---
+# Only these two locations are guaranteed to match the CURRENT CI run.
 # Doing this before any `gh` call means the CI path (which pre-downloads
 # into <build>/ci-all/airui-skia-windows-x64) never needs a token here.
-set(_src "")
+set(_bundle "")
 if(PLUGIN_DIR AND EXISTS "${PLUGIN_DIR}/airui-skia.dll")
-    set(_src "${PLUGIN_DIR}")
+    set(_bundle "${PLUGIN_DIR}")
+elseif(EXISTS "${BINARY_DIR}/ci-all/airui-skia-windows-x64/airui-skia.dll")
+    set(_bundle "${BINARY_DIR}/ci-all/airui-skia-windows-x64")
 endif()
-foreach(_d
-        "${BINARY_DIR}/ci-all/airui-skia-windows-x64"
-        "${BINARY_DIR}/ci-skia"
-        "${BINARY_DIR}/ci-skia/airui-skia-windows-x64")
-    if(_src)
-        break()
-    endif()
-    if(EXISTS "${_d}/airui-skia.dll")
-        set(_src "${_d}")
-    endif()
-endforeach()
+
+# --- our own download cache, only ever an OFFLINE fallback ----------
+# Deliberately NOT treated as "current": it may hold an older run's
+# files. (Reusing it while stamping the new run id froze deployed
+# plugins at an old build forever.)
+set(_cache "${BINARY_DIR}/ci-skia")
+set(_cache_src "")
+if(EXISTS "${_cache}/airui-skia.dll")
+    set(_cache_src "${_cache}")
+elseif(EXISTS "${_cache}/airui-skia-windows-x64/airui-skia.dll")
+    set(_cache_src "${_cache}/airui-skia-windows-x64")
+endif()
 
 # --- gh helpers (only used when a download/update check is needed) --
 find_program(_gh gh)
@@ -76,6 +80,41 @@ function(_deploy_latest_run_id out)
     endif()
 endfunction()
 
+# Download the newest successful CI bundle into <build>/ci-skia and
+# return the directory holding airui-skia.dll (empty on failure).
+function(_deploy_download out)
+    set(${out} "" PARENT_SCOPE)
+    if(NOT _gh)
+        return()
+    endif()
+    _deploy_latest_run_id(_latest)
+    if(NOT _latest)
+        return()
+    endif()
+
+    message(STATUS "deploy-skia: downloading artifact 'airui-skia-windows-x64' from CI run ${_latest}")
+    # Wipe first: a partial/stale cache must not be mistaken for the
+    # freshly downloaded bundle.
+    file(REMOVE_RECURSE "${_cache}")
+    file(MAKE_DIRECTORY "${_cache}")
+    execute_process(
+        COMMAND "${_gh}" run download "${_latest}"
+                --name airui-skia-windows-x64 -D "${_cache}"
+        RESULT_VARIABLE _rc
+        TIMEOUT 300)
+    if(NOT _rc EQUAL 0)
+        return()
+    endif()
+
+    file(GLOB_RECURSE _found "${_cache}/airui-skia.dll")
+    if(_found)
+        list(GET _found 0 _first)
+        get_filename_component(_dir "${_first}" DIRECTORY)
+        set(${out} "${_dir}" PARENT_SCOPE)
+        file(WRITE "${_marker}" "${_latest}\n")
+    endif()
+endfunction()
+
 set(_have_dll FALSE)
 if(EXISTS "${TARGET_DIR}/airui-skia.dll")
     set(_have_dll TRUE)
@@ -99,20 +138,12 @@ if(_have_dll)
         message(STATUS "deploy-skia: plugin up to date (run ${_latest})")
         return()
     endif()
+
     message(STATUS "deploy-skia: newer plugin available (run ${_latest}); refreshing")
-    if(NOT _src AND _gh)
-        file(MAKE_DIRECTORY "${BINARY_DIR}/ci-skia")
-        execute_process(
-            COMMAND "${_gh}" run download "${_latest}"
-                    --name airui-skia-windows-x64 -D "${BINARY_DIR}/ci-skia"
-            RESULT_VARIABLE _rc2
-            TIMEOUT 300)
-        if(_rc2 EQUAL 0)
-            file(GLOB_RECURSE _found "${BINARY_DIR}/ci-skia/airui-skia.dll")
-            if(_found)
-                get_filename_component(_src "${_found}" DIRECTORY)
-            endif()
-        endif()
+    set(_src "${_bundle}")
+    if(NOT _src)
+        # Force a real download; the on-disk cache belongs to an older run.
+        _deploy_download(_src)
     endif()
     if(_src)
         message(STATUS "deploy-skia: copying Skia DLLs from ${_src}")
@@ -125,35 +156,19 @@ if(_have_dll)
 endif()
 
 # ------------------------------------------------------------------
-# Case B: no plugin yet -> deploy from local bundle, else download.
+# Case B: no plugin yet -> local bundle, else download, else cache.
 # ------------------------------------------------------------------
+set(_src "${_bundle}")
+if(NOT _src)
+    _deploy_download(_src)
+endif()
+if(NOT _src)
+    set(_src "${_cache_src}")
+endif()
 if(_src)
     message(STATUS "deploy-skia: copying Skia DLLs from ${_src}")
     file(COPY "${_src}/" DESTINATION "${TARGET_DIR}" FILES_MATCHING PATTERN "*.dll")
     return()
-endif()
-
-_deploy_latest_run_id(_latest)
-if(_gh AND _latest)
-    message(STATUS "deploy-skia: downloading artifact 'airui-skia-windows-x64' from CI run ${_latest}")
-    file(MAKE_DIRECTORY "${BINARY_DIR}/ci-skia")
-    execute_process(
-        COMMAND "${_gh}" run download "${_latest}"
-                --name airui-skia-windows-x64 -D "${BINARY_DIR}/ci-skia"
-        RESULT_VARIABLE _rc2
-        TIMEOUT 300)
-    if(_rc2 EQUAL 0)
-        file(GLOB_RECURSE _found "${BINARY_DIR}/ci-skia/airui-skia.dll")
-        if(_found)
-            get_filename_component(_src "${_found}" DIRECTORY)
-        endif()
-    endif()
-    if(_src)
-        message(STATUS "deploy-skia: copying Skia DLLs from ${_src}")
-        file(COPY "${_src}/" DESTINATION "${TARGET_DIR}" FILES_MATCHING PATTERN "*.dll")
-        file(WRITE "${_marker}" "${_latest}\n")
-        return()
-    endif()
 endif()
 
 if(_gh)
