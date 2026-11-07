@@ -49,16 +49,38 @@ jobs:
       - name: Core smoke test (compile + link + run core tests)
         run: bash scripts/check-core-linux-smoke.sh
 
+  # ---------------------------------------------------------------
+  # Windows compile gate.
+  #
+  # IMPORTANT: do NOT put this job on `windows-latest`. GitHub migrated
+  # windows-latest / windows-2025 to the VS2026 image in June 2026; that
+  # image has NO VS2022 installed and ships CMake <= 4.1.2, while the
+  # "Visual Studio 18 2026" generator needs CMake >= 4.2. Pinning the
+  # VS2022 generator on that image fails at configure with:
+  #   "Generator ... could not find any instance of Visual Studio."
+  # `windows-2022` is the image that still ships VS2022, and matches the
+  # second local toolchain (VS2022 Professional). The official local
+  # build remains CMake + VS2017 via build.bat (see README).
+  # ---------------------------------------------------------------
   windows:
-    name: airui-core (windows)
-    runs-on: windows-latest
+    name: airui-core (windows / VS2022)
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
 
-      # NOTE: GitHub-hosted Windows runners ship VS2022, not VS2017.
-      # This job is a cross-platform compile gate; the official local
-      # build remains CMake + VS2017 via build.bat (see README).
-      - name: Configure (CMake + MSVC)
+      - name: Verify VS2022 toolchain
+        shell: pwsh
+        run: |
+          cmake --version
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) { throw "vswhere.exe not found" }
+          $lines = & $vswhere -all -products * -property catalog_productLineVersion
+          Write-Host "Installed VS product lines: $($lines -join ', ')"
+          if (-not ($lines | Where-Object { $_ -eq '2022' })) {
+            throw "Visual Studio 2022 is missing; pin this job to a VS2022 image."
+          }
+
+      - name: Configure (CMake + VS2022)
         run: cmake -S . -B build-core -G "Visual Studio 17 2022" -A x64
 
       - name: Build airui-core
@@ -73,12 +95,13 @@ jobs:
   # later runs restore. Third-party SDK builds can be flaky, so this job
   # stays non-blocking; core CI above is the required gate.
   #
-  # GitHub-hosted Windows runners ship VS2022 (also available locally), not
-  # VS2017; CI may differ from the local CMake+VS2017 build by agreement.
+  # Same VS2022 image pin as the windows job above (windows-latest now
+  # ships VS2026 only). CI may differ from the local CMake+VS2017 build
+  # by agreement.
   # ---------------------------------------------------------------
   skia-windows:
-    name: Skia backend (windows / vcpkg)
-    runs-on: windows-latest
+    name: Skia backend (windows / VS2022 + vcpkg)
+    runs-on: windows-2022
     continue-on-error: true
     timeout-minutes: 120
     # Do not let workflow-level cancel-in-progress kill a long Skia build
@@ -92,27 +115,61 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Resolve vcpkg root
+        id: vcpkg
         shell: pwsh
         run: |
-          "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $root = $env:VCPKG_INSTALLATION_ROOT
+          if (-not $root) { throw "VCPKG_INSTALLATION_ROOT is not set on this runner" }
+          # Expose a forward-slash absolute path for actions/cache globs.
+          "root=$($root.Replace('\', '/'))" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "VCPKG_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           New-Item -ItemType Directory -Force -Path ".vcpkg-archives" | Out-Null
 
-      - name: Cache vcpkg Skia artifacts
-        uses: actions/cache@v4
+      # `env.VCPKG_ROOT` is NOT visible in a `with:` expression (env context
+      # only holds workflow-defined values), so use the step output instead.
+      - name: Restore vcpkg Skia artifacts
+        id: skia-cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             .vcpkg-archives
-            ${{ env.VCPKG_ROOT }}/installed
-            ${{ env.VCPKG_ROOT }}/downloads
-          key: vcpkg-skia-x64-windows-v1
+            ${{ steps.vcpkg.outputs.root }}/installed
+            ${{ steps.vcpkg.outputs.root }}/downloads
+          key: vcpkg-skia-windows-2022-v2
           restore-keys: |
-            vcpkg-skia-x64-windows-
+            vcpkg-skia-windows-2022-
 
       - name: Install Skia via vcpkg
         shell: pwsh
         run: |
           & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install skia:x64-windows
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # Save right after install. actions/cache's implicit post-step only
+      # saves on a fully successful job, so a later compile failure used to
+      # throw away a ~35 min Skia source build on every single run.
+      - name: Save vcpkg Skia artifacts
+        if: steps.skia-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            .vcpkg-archives
+            ${{ steps.vcpkg.outputs.root }}/installed
+            ${{ steps.vcpkg.outputs.root }}/downloads
+          key: vcpkg-skia-windows-2022-v2
+
+      - name: Verify VS2022 toolchain
+        shell: pwsh
+        run: |
+          cmake --version
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) { throw "vswhere.exe not found" }
+          $lines = & $vswhere -all -products * -property catalog_productLineVersion
+          Write-Host "Installed VS product lines: $($lines -join ', ')"
+          if (-not ($lines | Where-Object { $_ -eq '2022' })) {
+            throw "Visual Studio 2022 is missing; pin this job to a VS2022 image."
+          }
 
       - name: Configure (CMake + VS2022, Skia ON)
         shell: pwsh

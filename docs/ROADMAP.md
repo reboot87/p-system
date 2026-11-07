@@ -122,3 +122,10 @@
   - **踩坑**：本机同时有 `HTTPS_PROXY`/`https_proxy`、`HTTP_PROXY`/`http_proxy`（仅大小写不同），MSBuild 启动 `CL.exe` 报 `MSB6001 ... System.ArgumentException: 已添加项 ... HTTPS_PROXY / https_proxy`，CMake 全新目录探测编译器失败（`No CMAKE_CXX_COMPILER`）。configure 与 build 都用 `env -u https_proxy -u http_proxy -u all_proxy -u no_proxy` 去掉小写重复项后全绿；只改当前进程，不动系统环境。
   - 本机补装 vcpkg 结论：`git clone` 成功、官方 `vcpkg.exe` 用 `curl --ssl-no-revoke` 手动取回且 `version` 正常，但 `vcpkg install skia:x64-windows` 的内置下载器报 `curl error 35 (SSL connect error)`（Schannel 吊销检查），显式 HTTP 代理亦无效 → 按「不好编译就交给 GitHub Actions」既定策略，真 SDK 一环由自动触发的 CI 承担。
   - **验证**：VS2022 `Visual Studio 17 2022` x64 全量构建 `BUILD=0`、`ctest -C Release` **17/17 `CTEST=0`**；`-DAIRUI_HAVE_SKIA=1` 单独编译 `airui-win32` 验证 Skia 分支接线；默认 VS2017 构建与 `build.bat` 不受影响（本轮无产品代码/CMake 变更）。
+
+- **2026-11-07 — 修复 GitHub Actions 全部 Windows 作业 Configure 失败**
+  - **现象**：连续 5 次 CI 全红，但 ubuntu / macOS 全绿；两个 Windows 作业都停在 Configure 步骤，报 `CMake Error at CMakeLists.txt:2 (project): Generator Visual Studio 17 2022 could not find any instance of Visual Studio.`
+  - **根因（环境而非代码）**：GitHub 于 2026-06 把 `windows-latest` / `windows-2025` 迁到 `windows-2025-vs2026` 镜像，该镜像**只装 VS2026 18.x、无 VS2022**，且自带 CMake 最高 4.1.2；`Visual Studio 18 2026` 生成器要 CMake ≥ 4.2，因此既不能用 `-G "Visual Studio 17 2022"`，也无法直接切 VS18 生成器。官方给出的兼容做法就是把 `runs-on` 固定到 `windows-2022`。
+  - **修复**：`windows` 与 `skia-windows` 两个作业统一固定 `runs-on: windows-2022`（仍带 VS2022，且与本机第二工具链 VS2022 Professional 一致）；新增 `Verify VS2022 toolchain` 步骤，用 `vswhere -all -products *` 断言镜像上确实存在 VS2022 并打印 CMake 版本，镜像再漂移时能一眼定位。本地官方构建仍为 CMake + VS2017（`build.bat`），不变。
+  - **顺带修缓存**：原 `actions/cache@v4` 的隐式 post 保存**只在整个 job 成功时执行**，Skia 作业失败导致每次丢弃约 35 分钟的源码编译产物；且 `${{ env.VCPKG_ROOT }}/installed` 在 `with:` 表达式里取不到动态写入 `GITHUB_ENV` 的值（env context 只含 workflow 静态定义），路径实际为空前缀。改为 `actions/cache/restore@v4` + `actions/cache/save@v4`（install 成功后立即保存），路径改用 `steps.vcpkg.outputs.root` 的正斜杠绝对路径，缓存 key 带 `windows-2022` 标识。
+  - **边界**：`skia-windows` 仍 `continue-on-error`，不阻塞核心门禁；真 SDK 首次在新镜像上跑通后，才谈得上按真实 Skia API 校准 `SkiaApi.h` / 双后端 diff。业务模块仍留最后。
