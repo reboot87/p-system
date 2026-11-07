@@ -140,13 +140,16 @@ jobs:
             exit 0
           }
           Write-Host "deploy-skia: latest successful run = $runId"
-          New-Item -ItemType Directory -Force -Path "build-core/ci-all" | Out-Null
-          gh run download $runId --name airui-skia-windows-x64 -D "build-core/ci-all"
+          # gh run download -D <dir> extracts the artifact CONTENTS directly
+          # into <dir> (no artifact-name subfolder), so point it at the exact
+          # directory the POST_BUILD deploy script scans.
+          New-Item -ItemType Directory -Force -Path "build-core/ci-all/airui-skia-windows-x64" | Out-Null
+          gh run download $runId --name airui-skia-windows-x64 -D "build-core/ci-all/airui-skia-windows-x64"
           if ($LASTEXITCODE -ne 0) {
             Write-Host "deploy-skia: download failed; app will fall back to GDI"
             exit 0
           }
-          Write-Host "deploy-skia: plugin staged under build-core/ci-all"
+          Write-Host "deploy-skia: plugin staged under build-core/ci-all/airui-skia-windows-x64"
 
       - name: Build ALL targets (app, gallery, tests, libs)
         run: cmake --build build-core --config Release
