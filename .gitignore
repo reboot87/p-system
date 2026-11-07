@@ -41,3 +41,4 @@ desktop.ini
 build-cmake/
 build-vs2022/
 .vcpkg-archives/
+artifact-staging/

@@ -227,3 +227,47 @@ jobs:
           $env:PATH = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\bin;$env:PATH"
           & .\build-skia\Release\test_skia_plugin.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # The plugin is meant to be dropped next to an already-built exe
+      # (including the official VS2017 build, which has no Skia SDK).
+      # Publish it as a downloadable bundle so that cross-toolchain,
+      # cross-machine loading can be verified without rebuilding Skia.
+      - name: Stage downloadable plugin bundle
+        shell: pwsh
+        run: |
+          $dst = "artifact-staging"
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          Copy-Item "build-skia\Release\airui-skia.dll" $dst -ErrorAction Stop
+          Copy-Item "build-skia\Release\test_skia_plugin.exe" $dst -ErrorAction Stop
+          Copy-Item "build-skia\Release\test_skia_backend.exe" $dst -ErrorAction Stop
+          $bin = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\bin"
+          if (Test-Path $bin) {
+            Get-ChildItem -Path $bin -Filter "*.dll" -File | ForEach-Object {
+              Copy-Item $_.FullName $dst -Force
+            }
+          } else {
+            Write-Host "No vcpkg bin directory; plugin is self-contained."
+          }
+          $readme = @(
+            "airui-skia.dll - runtime Skia painter plugin (VS2022 + vcpkg skia).",
+            "Built by the GitHub Actions skia-windows job.",
+            "",
+            "Usage on Windows:",
+            "  1. Copy ALL files in this bundle next to your application exe.",
+            "  2. Run: airecord.exe --paint-backend=skia",
+            "     or set AIRUI_PAINT_BACKEND=skia.",
+            "  3. Without the DLL the app silently falls back to GDI.",
+            "",
+            "test_skia_plugin.exe / test_skia_backend.exe are console tests",
+            "built with the same toolchain as the plugin."
+          ) -join "`r`n"
+          Set-Content -Path "$dst\README.txt" -Value $readme -Encoding ascii
+          Get-ChildItem $dst | Select-Object Name, Length | Format-Table -AutoSize
+
+      - name: Upload plugin bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: airui-skia-windows-x64
+          path: artifact-staging/
+          if-no-files-found: error
+          retention-days: 14
