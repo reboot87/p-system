@@ -38,6 +38,18 @@ cmake --build build --config Release
 ```
 > ⚠️ 完整应用**必须**用 `Visual Studio 15 2017`（即 VS2017）生成器。**不要**在 Windows 上使用 `MinGW Makefiles` 构建本项目。
 
+### 交叉验证 / Skia 可选路径：本机 VS2022
+`vswhere` 实测本机同时装有 VS2017（`C:\2017\Community`）与 **VS2022 Professional 17.14（`C:\2022`，MSVC 14.44）**。**官方产物仍由 `build.bat`（VS2017）生成**；VS2022 只用于 Skia 可选后端与交叉编译验证：
+
+```bash
+# Git Bash：必须去掉仅大小写不同的重复代理变量，否则 MSBuild 启动 CL.exe 会报 MSB6001
+env -u https_proxy -u http_proxy -u all_proxy -u no_proxy cmake -S . -B build-vs2022 -G "Visual Studio 17 2022" -A x64
+env -u https_proxy -u http_proxy -u all_proxy -u no_proxy cmake --build build-vs2022 --config Release
+env -u https_proxy -u http_proxy -u all_proxy -u no_proxy ctest --test-dir build-vs2022 -C Release --output-on-failure
+```
+
+> 原因：环境里同时有 `HTTPS_PROXY` 与 `https_proxy`，MSBuild 构造 case-insensitive 环境变量字典时撞键，CMake 编译器探测会失败。只清理当前进程、保留大写代理即可，不需要改系统设置。
+
 ### Linux（仅平台无关核心）
 完整应用依赖 Win32 / GDI / DWM，只能在 Windows + MSVC 下编译；**Linux 下只能构建平台无关核心 `airui-core`**（静态库 + 核心冒烟测试）。统一走 **CMake + Unix Makefiles**：
 
@@ -63,7 +75,7 @@ cmake --build build-skia --config Release --target test_skia_backend
 ```
 
 - 也可传 `-DAIRUI_SKIA_ROOT=<prefix>` 指向预编译 release；两者都找不到时配置阶段会明确报错，不会静默降级。
-- **VS2017 下开启未验证**：vcpkg 的 `skia` 官方工具集是 VS2022+，故 Skia 路径推荐在 VS2022 环境或 CI 中使用；本地正式构建保持默认 OFF。
+- **VS2017 下开启未验证**：vcpkg 的 `skia` 官方工具集是 VS2022+，故 Skia 路径推荐在 VS2022 环境或 CI 中使用；本地正式构建保持默认 OFF。本机实测装有 **VS2022 Professional 17.14（`C:\2022`）**，可用于 Skia 这条可选路径；CI 的 `skia-windows` 作业在 push/PR 时自动触发（VS2022 + vcpkg）。
 - 引入方式的决策、代码结构、验证矩阵与已知边界见 **`docs/skia-backend.md`**。
 - 无需 SDK 也能跑的验证：`test_skia_types`（ctest，三平台）与 `scripts/check-skia-syntax.sh`（API 契约语法门禁）。
 

@@ -39,3 +39,5 @@ Thumbs.db
 desktop.ini
 .DS_Store
 build-cmake/
+build-vs2022/
+.vcpkg-archives/

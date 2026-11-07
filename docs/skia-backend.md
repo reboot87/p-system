@@ -13,10 +13,12 @@
 | Skia 引入方式 | **首选 vcpkg `skia` port**；**`AIRUI_SKIA_ROOT` 预编译 release 为备选**；**不采用 git 子模块源码编译** |
 | 是否进入默认构建 | **否**。`AIRUI_WITH_SKIA` 默认 `OFF`，默认依赖图完全不引用 Skia |
 | Windows 上的渲染入口 | `ShellOptions.coreShell + skiaChrome` → `SkiaFrame` → 32bpp BGRA 光栅画布 → `AlphaBlend` 合成到 HDC |
-| 本地工具链约束 | 本地官方构建仍是 **CMake + VS2017**；Skia 是 opt-in 第二后端，**推荐在 VS2022 环境开启** |
-| 验证方式 | 无 SDK 的语法契约门禁 + 三平台纯映射单测；真 SDK 的编译/链接/双后端序列断言交给 GitHub Actions |
+| 本地工具链约束 | 本地官方构建仍是 **CMake + VS2017**；Skia 是 opt-in 第二后端，**推荐在 VS2022 环境开启**。本机实测 `vswhere` 有 **VS2022 Professional 17.14（`C:\2022`，MSVC 14.44）** 与 VS2017（`C:\2017\Community`）并存 |
+| 验证方式 | 无 SDK 的语法契约门禁 + 三平台纯映射单测 + 本机 VS2022 全量构建/ctest；真 SDK 的编译/链接/双后端序列断言由 **push/PR 自动触发**的 GitHub Actions 承担 |
 
-**为什么要 opt-in**：本机没有 Skia SDK（无 vcpkg / depot_tools），而 vcpkg 的 `skia` port 官方 CI 使用 VS2022 及更新工具集，VS2017（MSVC 19.16）不在其支持矩阵内。把 Skia 塞进默认构建既违反「Windows 必须 CMake+VS2017」，也会让每个没有 SDK 的人配置失败。因此做成**显式开关 + 清晰报错**。
+**为什么要 opt-in**：本机原本没有 Skia SDK（无 vcpkg / depot_tools），而 vcpkg 的 `skia` port 官方 CI 使用 VS2022 及更新工具集，VS2017（MSVC 19.16）不在其支持矩阵内。把 Skia 塞进默认构建既违反「Windows 必须 CMake+VS2017」，也会让每个没有 SDK 的人配置失败。因此做成**显式开关 + 清晰报错**。
+
+> 本机补装 vcpkg 的结论（2026-11-07）：`git clone` 成功、官方 `vcpkg.exe` 已用 `curl --ssl-no-revoke` 手动取回并 `version` 正常，但 `vcpkg install skia:x64-windows` 的内置下载器在本机代理下报 `curl error 35 (SSL connect error)`，无法拉取工具包/Skia 源码。按既定策略「不好编译就交给 GitHub Actions」，真 SDK 一环由自动触发的 CI 承担；本机只用 VS2022 做无需 SDK 的编译验证。
 
 ---
 
@@ -104,12 +106,12 @@ src/airui/platform/skia/airui/
 | Skia 实现的语法/接口形状 | `scripts/check-skia-syntax.sh`（`-fsyntax-only` + mock 头） | ❌ | 本机通过；已接入 ubuntu/macOS CI |
 | option 语义 | `cmake -DAIRUI_WITH_SKIA=ON`（无 SDK） | ❌ | 明确报错并给出两条安装命令 |
 | `Shell.cpp` 的 Skia 分支（MSVC 语法/接线） | 独立以 `-DAIRUI_HAVE_SKIA=1` 编译 `airui-win32` | ❌ | VS2017 实测 EXIT=0，`Shell.obj` + `airui-win32.lib` 产出，无 error |
-| 真实编译 / 链接 / 运行 + **G5 双后端序列断言** | `test_skia_backend` | ✅ | 由 `skia-windows` CI 作业承担 |
+| 真实编译 / 链接 / 运行 + **G5 双后端序列断言** | `test_skia_backend` | ✅ | 由 `skia-windows` CI 作业（push/PR 自动触发）承担；本机 vcpkg 安装受代理 SSL 限制未能实跑 |
 | 默认工具链零回归 | VS2017 `cmake --build` + `ctest` + `build.bat` | ❌ | 全绿 |
 
 `test_skia_backend` 是 G5 的落地：同一场景先由 core 的 `PaintRecorder` 录成金样，再经 `TeePainter` 一边驱动真实 Skia 后端、一边记录后端**实际收到**的 `IPainter` 调用，最后断言 `SequenceEquals` / `Diff().empty()`，并校验光栅像素确为 `BGRA + premultiplied`。这是第二个后端出现前根本无法执行的断言。
 
-GitHub Actions 的 `skia-windows` 作业用 **VS2022 + vcpkg** 跑上述最后一环，通过 `workflow_dispatch` 手动触发（避免每次 push 都拉/编 Skia），并设 `continue-on-error` 不阻塞主 CI。
+GitHub Actions 的 `skia-windows` 作业用 **VS2022 + vcpkg** 跑上述最后一环，**push / PR 到 `main` 时自动触发**（不需要手动 dispatch，`workflow_dispatch` 仅保留给事后重跑）。vcpkg 的 `skia` port 是 `vcpkg_from_github` + GN/Ninja **源码编译**、不下载预编译库，所以作业用 `VCPKG_BINARY_SOURCES` 的 files 缓存 + `actions/cache` 缓存 `installed`/`downloads`：首次付编译成本，后续直接还原。另有独立并发组（不取消正在编译的作业，保证缓存能写入）、`timeout-minutes: 120`，并保留 `continue-on-error` 不阻塞核心 CI。
 
 ---
 
@@ -125,6 +127,6 @@ GitHub Actions 的 `skia-windows` 作业用 **VS2022 + vcpkg** 跑上述最后�
 
 ## 6. 下一步
 
-1. 在 CI 手动跑一次 `skia-windows`，按真实 SDK 的报错修正 `SkiaApi.h` 的 API 适配。
+1. 查看**自动触发**的 `skia-windows` 首次运行结果（Actions → CI，push/PR 到 `main` 即跑），按真实 SDK 的报错修正 `SkiaApi.h` 的 API 适配；缓存命中后每次 push/PR 都会复验。
 2. 校准字体度量与 CJK 回退，补 GDI vs Skia 截图阈值。
 3. Phase 2 剩余：Skia 版 `IWindow` / Linux 窗口壳（`cross-platform.md` §10 仍待定）。

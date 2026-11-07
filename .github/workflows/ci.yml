@@ -5,8 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  # The real-Skia job needs vcpkg to fetch/build Skia; run it on demand
-  # so ordinary pushes stay fast. See docs/skia-backend.md.
+  # Kept so the Skia job can also be re-run by hand after an SDK/API change.
   workflow_dispatch:
 
 concurrency:
@@ -66,18 +65,48 @@ jobs:
         run: cmake --build build-core --config Release --target airui-core
 
   # ---------------------------------------------------------------
-  # B. Real Skia SDK verification (manual / non-blocking).
-  # GitHub-hosted Windows runners ship VS2022, not VS2017; per the
-  # project convention CI may differ from the local CMake+VS2017 build.
-  # Local builds keep Skia OFF by default and stay on VS2017.
+  # B. Real Skia SDK verification — automatic on every push / PR.
+  #
+  # vcpkg's skia port builds from source (vcpkg_from_github + GN + Ninja),
+  # it does NOT download a prebuilt library. So we cache the vcpkg binary
+  # archives and the installed tree: the first run pays the build cost,
+  # later runs restore. Third-party SDK builds can be flaky, so this job
+  # stays non-blocking; core CI above is the required gate.
+  #
+  # GitHub-hosted Windows runners ship VS2022 (also available locally), not
+  # VS2017; CI may differ from the local CMake+VS2017 build by agreement.
   # ---------------------------------------------------------------
   skia-windows:
     name: Skia backend (windows / vcpkg)
-    if: github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     continue-on-error: true
+    timeout-minutes: 120
+    # Do not let workflow-level cancel-in-progress kill a long Skia build
+    # before it can save its cache.
+    concurrency:
+      group: skia-${{ github.ref }}
+      cancel-in-progress: false
+    env:
+      VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/.vcpkg-archives"
     steps:
       - uses: actions/checkout@v4
+
+      - name: Resolve vcpkg root
+        shell: pwsh
+        run: |
+          "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          New-Item -ItemType Directory -Force -Path ".vcpkg-archives" | Out-Null
+
+      - name: Cache vcpkg Skia artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            .vcpkg-archives
+            ${{ env.VCPKG_ROOT }}/installed
+            ${{ env.VCPKG_ROOT }}/downloads
+          key: vcpkg-skia-x64-windows-v1
+          restore-keys: |
+            vcpkg-skia-x64-windows-
 
       - name: Install Skia via vcpkg
         shell: pwsh

@@ -49,7 +49,7 @@
 | 项 | 状态 | 说明 / 证据 |
 |---|---|---|
 | `test_ui` 接入 ctest | 未接入 | 端到端需 `airecord.exe` + IPC，只能手工跑（`phase0-signoff.md:37`） |
-| 跨后端 DrawCall 一致性断言 | 双后端用例已就位，真 SDK 实跑待 CI | `test_skia_backend` 已实现「core 金样 vs Skia 后端实收调用序列」的 `Diff()` 断言 + 光栅像素校验；需 `AIRUI_WITH_SKIA=ON` 编译，由 `skia-windows`（`workflow_dispatch`）用 vcpkg Skia 实跑。**像素级 GDI vs Skia 截图 diff** 仍属计划项（`docs/cross-platform.md` §6） |
+| 跨后端 DrawCall 一致性断言 | 双后端用例已就位，真 SDK 实跑待 CI | `test_skia_backend` 已实现「core 金样 vs Skia 后端实收调用序列」的 `Diff()` 断言 + 光栅像素校验；需 `AIRUI_WITH_SKIA=ON` 编译，由 `skia-windows`（push/PR **自动触发**，带 vcpkg 源码编译产物缓存）用 vcpkg Skia 实跑。**像素级 GDI vs Skia 截图 diff** 仍属计划项（`docs/cross-platform.md` §6） |
 
 ---
 
@@ -111,6 +111,14 @@
   - **引入方式定案**：vcpkg `skia` port 首选（`find_package(unofficial-skia)` → `unofficial::skia::skia`），`AIRUI_SKIA_ROOT` 预编译 release 备选，不采用 git 子模块源码编译。两者都找不到时 configure 明确 `FATAL_ERROR`，不静默降级。完整决策见 `docs/skia-backend.md`。
   - **新增后端**：`src/airui/platform/skia/airui/` 下 `SkiaTypes`（零 SDK 依赖的 Color/字体/UTF-8/对齐映射）、`SkiaApi`（Skia 头唯一入口，隔离版本漂移）、`SkiaPainter`（IPainter→SkCanvas，13 个方法全实现）、`SkiaSurface`（`SkiaFrame` raster BGRA→DIB→`AlphaBlend` 上屏 + `CreateSkiaBackend` 工厂）。
   - **应用接线**：`CMakeLists.txt` 加 `AIRUI_WITH_SKIA`（默认 OFF）；开启时 `AIRUI_HAVE_SKIA` 让 `Shell.cpp` 在 `ShellOptions.coreShell + skiaChrome` 下把 `ShellCore` 外壳交给 Skia 绘制。两层默认都关，富渲染零回归。
-  - **G5 落地**：`test_skia_backend` 用 `PaintRecorder` 金样 vs Skia 后端**实收** `IPainter` 序列做 `Diff()` 断言，并校验光栅像素；需 SDK，由 `skia-windows`（`workflow_dispatch`，VS2022 + vcpkg）实跑。
+  - **G5 落地**：`test_skia_backend` 用 `PaintRecorder` 金样 vs Skia 后端**实收** `IPainter` 序列做 `Diff()` 断言，并校验光栅像素；需 SDK，由 `skia-windows`（push/PR **自动触发**，VS2022 + vcpkg + 源码编译缓存）实跑。
   - **验证**：`test_skia_types` 加入 ctest（三平台可跑，g++ `-Werror` 通过）；`check-skia-syntax.sh` 用 API 契约 mock 对 5 个源文件 `-fsyntax-only` 全绿；`AIRUI_WITH_SKIA=ON` 无 SDK 时报错指引正确；以 `-DAIRUI_HAVE_SKIA=1` 单独编译 `airui-win32` 实测 VS2017 EXIT=0；默认构建 `ctest` **17/17**。
-  - **边界**：仅 Windows 绘制后端；Skia 版 `IWindow`、Linux/macOS 应用本体、字体度量/CJK 回退校准、像素级 GDI vs Skia 截图 diff 仍未做。VS2017 + Skia 未验证，真 SDK 路径只在 VS2022 CI 上验证。
+  - **边界**：仅 Windows 绘制后端；Skia 版 `IWindow`、Linux/macOS 应用本体、字体度量/CJK 回退校准、像素级 GDI vs Skia 截图 diff 仍未做。VS2017 + Skia 未验证，真 SDK 路径只在 VS2022 CI 上验证（本机补装 vcpkg 时内置下载器受代理 SSL 限制，未能在本地跑真 SDK）。
+
+- **2026-11-07 — CI 自动触发 + 本机 VS2022 第二工具链**
+  - 用户定调「自动触发 本机也有vs2022 可以使用2022编译」。`skia-windows` 去掉 `if: github.event_name == 'workflow_dispatch'`：**push / PR 到 `main` 自动跑真 SDK 验证**，`workflow_dispatch` 仅保留给事后重跑。
+  - 核查 vcpkg `skia` port 是 `vcpkg_from_github` + GN/Ninja **源码编译**（不是下载预编译库），因此作业加 `VCPKG_BINARY_SOURCES` files 缓存 + `actions/cache`（`.vcpkg-archives` / `installed` / `downloads`）、独立并发组（不被顶层 `cancel-in-progress` 中断，保证缓存写入）、`timeout-minutes: 120`，保留 `continue-on-error` 不阻塞核心 CI。
+  - `vswhere` 实测本机 VS2017（`C:\2017\Community`）与 **VS2022 Professional 17.14（`C:\2022`，MSVC 14.44）** 并存；**官方构建仍是 VS2017 + `build.bat`**，VS2022 只作第二工具链用于 Skia opt-in / 交叉验证（`build-vs2022/`，已 gitignore）。
+  - **踩坑**：本机同时有 `HTTPS_PROXY`/`https_proxy`、`HTTP_PROXY`/`http_proxy`（仅大小写不同），MSBuild 启动 `CL.exe` 报 `MSB6001 ... System.ArgumentException: 已添加项 ... HTTPS_PROXY / https_proxy`，CMake 全新目录探测编译器失败（`No CMAKE_CXX_COMPILER`）。configure 与 build 都用 `env -u https_proxy -u http_proxy -u all_proxy -u no_proxy` 去掉小写重复项后全绿；只改当前进程，不动系统环境。
+  - 本机补装 vcpkg 结论：`git clone` 成功、官方 `vcpkg.exe` 用 `curl --ssl-no-revoke` 手动取回且 `version` 正常，但 `vcpkg install skia:x64-windows` 的内置下载器报 `curl error 35 (SSL connect error)`（Schannel 吊销检查），显式 HTTP 代理亦无效 → 按「不好编译就交给 GitHub Actions」既定策略，真 SDK 一环由自动触发的 CI 承担。
+  - **验证**：VS2022 `Visual Studio 17 2022` x64 全量构建 `BUILD=0`、`ctest -C Release` **17/17 `CTEST=0`**；`-DAIRUI_HAVE_SKIA=1` 单独编译 `airui-win32` 验证 Skia 分支接线；默认 VS2017 构建与 `build.bat` 不受影响（本轮无产品代码/CMake 变更）。
