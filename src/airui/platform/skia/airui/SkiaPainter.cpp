@@ -10,6 +10,7 @@
 #include "airui/UiText.h"
 
 #include <algorithm>
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -176,8 +177,9 @@ constexpr int kRefCjkCount = 8;
 struct SharedFaces
 {
     sk_sp<SkTypeface> ui;        // Segoe UI           (UI text)
-    sk_sp<SkTypeface> uiBold;    // Segoe UI Semibold  (reserved for weights)
+    sk_sp<SkTypeface> uiBold;    // Segoe UI Semibold  (headings, buttons)
     sk_sp<SkTypeface> cjk;       // Microsoft YaHei UI (what GDI font-links to)
+    sk_sp<SkTypeface> cjkBold;   // Microsoft YaHei UI Semibold
     sk_sp<SkTypeface> icon;      // Segoe MDL2 Assets
     sk_sp<SkTypeface> fallback;  // system default, last resort
 };
@@ -206,6 +208,7 @@ const SharedFaces& GetSharedFaces()
         f.ui     = MakeFace(kFamilyUi,   400, 13);
         f.uiBold = MakeFace(kFamilyUi,   600, 13);
         f.cjk    = MakeFace(kFamilyCjk,  400, 13);
+        f.cjkBold = MakeFace(kFamilyCjk, 600, 13);
         f.icon   = MakeFace(kFamilyIcon, 400, 13);
 
         if (!f.ui) {
@@ -218,6 +221,7 @@ const SharedFaces& GetSharedFaces()
         }
         if (!f.uiBold) f.uiBold = f.ui;
         if (!f.cjk)    f.cjk    = f.ui;
+        if (!f.cjkBold) f.cjkBold = f.cjk;
 
         // Generic fallback for codepoints no family above covers (rare
         // symbols / emoji): an empty-faced LOGFONT lets GDI resolve the
@@ -236,6 +240,21 @@ const SharedFaces& GetSharedFaces()
     return *faces;
 }
 
+// Face a role draws with. Headings and buttons are semibold in the
+// design system, so they need the 600-weight face -- both in GDI and in
+// Skia -- or the window title reads lighter than the rest of the UI.
+const sk_sp<SkTypeface>& UiFaceFor(const SharedFaces& f, FontRole role)
+{
+    const bool isIcon = (role == FontRole::Icon || role == FontRole::IconLarge);
+    if (isIcon) return f.icon;
+    return RoleFontSpec(role).weight >= 600 && f.uiBold ? f.uiBold : f.ui;
+}
+
+const sk_sp<SkTypeface>& CjkFaceFor(const SharedFaces& f, FontRole role)
+{
+    return RoleFontSpec(role).weight >= 600 && f.cjkBold ? f.cjkBold : f.cjk;
+}
+
 // Resolve one role against GDI: width ratio -> em, tmAscent -> baseline.
 #if defined(_WIN32) && !defined(AIRUI_SKIA_MOCK)
 RoleMetrics MeasureRole(HDC dc, const SharedFaces& f, FontRole role)
@@ -249,7 +268,7 @@ RoleMetrics MeasureRole(HDC dc, const SharedFaces& f, FontRole role)
     rm.ascent  = static_cast<float>(rm.cell) * 0.8f;
     rm.descent = static_cast<float>(rm.cell) - rm.ascent;
 
-    const sk_sp<SkTypeface>& face = isIcon ? f.icon : f.ui;
+    const sk_sp<SkTypeface>& face = UiFaceFor(f, role);
     if (!face || !dc) return rm;
 
     const wchar_t* family = isIcon ? kFamilyIcon : kFamilyUi;
@@ -274,8 +293,10 @@ RoleMetrics MeasureRole(HDC dc, const SharedFaces& f, FontRole role)
                 gdiScale = static_cast<float>(tm.tmHeight) /
                            static_cast<float>(rm.cell);
             if (gdiScale <= 0.f) gdiScale = 1.f;
-            rm.ascent  = static_cast<float>(tm.tmAscent) / gdiScale;
-            rm.descent = static_cast<float>(tm.tmDescent) / gdiScale;
+            // GDI places baselines on whole pixels; rounding here keeps a
+            // row from losing its last pixel row to the clip rect.
+            rm.ascent  = std::round(static_cast<float>(tm.tmAscent) / gdiScale);
+            rm.descent = std::round(static_cast<float>(tm.tmDescent) / gdiScale);
         }
         SelectObject(dc, old);
         DeleteObject(hf);
@@ -445,6 +466,7 @@ struct SkiaPainter::Impl
     // CJK face standing in for GDI's font linking.
     sk_sp<SkTypeface>      roleFace[static_cast<int>(FontRole::Count)];
     RoleMetrics            roleM[static_cast<int>(FontRole::Count)] = {};
+    sk_sp<SkTypeface>      roleCjk[static_cast<int>(FontRole::Count)];
     sk_sp<SkTypeface>      cjkFace = nullptr;
     sk_sp<SkTypeface>      defaultFace = nullptr;
     bool                   facesReady = false;
@@ -458,8 +480,9 @@ struct SkiaPainter::Impl
         const Calibration& cal = GetCalibration(dc);
         for (int i = 0; i < static_cast<int>(FontRole::Count); ++i) {
             const FontRole role = static_cast<FontRole>(i);
-            const bool isIcon = (role == FontRole::Icon || role == FontRole::IconLarge);
-            roleFace[i] = isIcon ? (shared.icon ? shared.icon : shared.ui) : shared.ui;
+            roleFace[i] = UiFaceFor(shared, role);
+            if (!roleFace[i]) roleFace[i] = shared.ui;
+            roleCjk[i] = CjkFaceFor(shared, role);
             roleM[i] = cal.m[i];
         }
         cjkFace = shared.cjk;
@@ -480,8 +503,8 @@ struct SkiaPainter::Impl
         sk_sp<SkTypeface>& base = roleFace[i];
         if (base && base->unicharToGlyph(cp)) return base;
         if (IsCjk(static_cast<uint32_t>(cp)) &&
-            cjkFace && cjkFace->unicharToGlyph(cp))
-            return cjkFace;
+            roleCjk[i] && roleCjk[i]->unicharToGlyph(cp))
+            return roleCjk[i];
         if (defaultFace && defaultFace->unicharToGlyph(cp)) return defaultFace;
         return base;
     }
@@ -537,7 +560,7 @@ struct SkiaPainter::Impl
                 f.setTypeface(face);
                 // Chinese is sized separately: its linked family has a
                 // different win-metric ratio than the Latin face.
-                if (cjkFace && face.get() == cjkFace.get())
+                if (roleCjk[Index(role)].get() == face.get())
                     f.setSize(roleM[Index(role)].emCjk);
             }
             const float w =
@@ -566,7 +589,7 @@ struct SkiaPainter::Impl
             SkFont f = primary;
             if (face) {
                 f.setTypeface(face);
-                if (cjkFace && face.get() == cjkFace.get())
+                if (roleCjk[Index(role)].get() == face.get())
                     f.setSize(roleM[Index(role)].emCjk);
             }
             w += f.measureText(run.data(), run.size(), SkTextEncoding::kUTF8);
@@ -590,15 +613,21 @@ struct SkiaPainter::Impl
     {
         const RoleMetrics& m = roleM[i];
         const float cell = static_cast<float>(m.cell);
+        float y = 0.f;
         switch (v) {
         case skia::VAlign::Middle:
-            return static_cast<float>(r.top)
-                 + (static_cast<float>(r.Height()) - cell) / 2.f + m.ascent;
+            y = static_cast<float>(r.top)
+              + std::floor((static_cast<float>(r.Height()) - cell) / 2.f) + m.ascent;
+            break;
         case skia::VAlign::Bottom:
-            return static_cast<float>(r.bottom) - m.descent;
+            y = static_cast<float>(r.bottom) - m.descent;
+            break;
+        case skia::VAlign::Top:
         default:
-            return static_cast<float>(r.top) + m.ascent;
+            y = static_cast<float>(r.top) + m.ascent;
+            break;
         }
+        return std::floor(y);
     }
 
     int Index(FontRole role) const

@@ -53,9 +53,23 @@ inline FontSpec RoleFontSpec(FontRole role) noexcept
         18,  // IconLarge
         28,  // Display
     };
+    // Headings and buttons are semibold in the design system (see
+    // Fonts.cpp). Without the weight the Skia backend drew the window
+    // title noticeably lighter than GDI, which reads as "different
+    // font" even when the size matches.
+    static const int kWeight[static_cast<int>(FontRole::Count)] = {
+        400,  // Body
+        400,  // Meta
+        600,  // Title
+        600,  // Section
+        600,  // Button
+        400,  // Icon
+        400,  // IconLarge
+        600,  // Display
+    };
     int i = static_cast<int>(role);
     if (i < 0 || i >= static_cast<int>(FontRole::Count)) i = 0;
-    return FontSpec{ kCell[i], 400 };
+    return FontSpec{ kCell[i], kWeight[i] };
 }
 
 } // namespace ui
