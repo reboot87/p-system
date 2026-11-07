@@ -132,7 +132,7 @@ public:
 class SkBitmap
 {
 public:
-    bool        allocPixels(const SkImageInfo&) { return true; }
+    void        allocPixels(const SkImageInfo&) {}
     const void* getPixels() const { return nullptr; }
     size_t      rowBytes() const { return 0; }
 };

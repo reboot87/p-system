@@ -34,7 +34,10 @@ struct SkiaFrame::Impl
         if (w <= 0 || h <= 0) return;
         const SkImageInfo info = SkImageInfo::Make(
             w, h, kBGRA_8888_SkColorType, kPremul_SkAlphaType);
-        if (!bitmap.allocPixels(info)) return;
+        // allocPixels returns void in current Skia; a null pixel buffer
+        // is the failure signal (the old bool-returning overload is gone).
+        bitmap.allocPixels(info);
+        if (!bitmap.getPixels()) return;
         canvas.reset(new SkCanvas(bitmap));
         canvas->clear(SK_ColorTRANSPARENT);
         painter.reset(new SkiaPainter(canvas.get()));

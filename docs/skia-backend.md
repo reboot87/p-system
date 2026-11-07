@@ -125,6 +125,7 @@ CI 首次跑完 vcpkg 源码编译（约 35 分钟）并成功 Configure，Build
 | `SkTypeface::MakeFromName` 不是成员 | 现代 Skia 移除该工厂，字体查找改走 `SkFontMgr` | 后端改用 `SkFont` 的平台默认 typeface，仅按 `FontRole` 设字号；字体族对齐留作后续校准（§5） |
 | `SkPath::addRect` 不是成员 | `SkPath` 已不可变，轮廓改由 `SkPathBuilder` 构造 | `SkPathBuilder builder; builder.addRect(...); SkPath path = builder.detach();` |
 | `SkDashPathEffect::Make` 不接 3 参数 | 新签名 `Make(SkSpan<const SkScalar> intervals, SkScalar phase)` | 传 `SkSpan<const SkScalar>(intervals, 2), 0` |
+| `SkiaSurface.cpp` 报 `C2171: operator '!' cannot be applied to void` | 新版 `SkBitmap::allocPixels` 返回 `void`，不再返回 `bool` | 直接调用后用 `bitmap.getPixels()` 判空作为失败信号；mock 同步改成 `void` |
 
 配套改动：`SkiaApi.h` 增加 `SkPathBuilder.h` / `SkSpan.h`；`tests/skia_contract/SkiaApiMock.h` 同步成新契约（否则无 SDK 的语法门禁会一直验证一套已死的 API）；CI 增加 `Record real Skia API signatures` 诊断步骤，把真 SDK 头里的关键签名写进日志，便于下次版本漂移一眼定位。
 
