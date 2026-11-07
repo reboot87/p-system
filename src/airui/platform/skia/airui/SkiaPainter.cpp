@@ -157,18 +157,15 @@ struct RoleMetrics
 };
 
 // Width reference: Latin plus digits, so the average advance is
-// representative of UI text. GDI measures it at a large cell height so
-// integer advance rounding cannot skew the ratio.
+// representative of UI text and the ratio fixes the advance scale rather
+// than one glyph's bearing.
 constexpr wchar_t kRefText[] = L"AireRecord 0123456789";
-constexpr int     kRefCell   = 200;
 // One Segoe MDL2 glyph, for icon-role calibration.
 constexpr wchar_t kRefIcon   = 0xE700;
-// CJK reference ("workbench overview clipboard"), written as code
-// points so this file stays ASCII-only whatever the compiler's source
-// charset is. GDI resolves it through font linking to Microsoft YaHei
-// UI, whose win-metric ratio differs from Segoe UI's, so Chinese needs
-// its own size -- otherwise every nav label comes out a few percent wide
-// and gets ellipsised.
+// CJK reference ("workbench overview clipboard"), written as code points so
+// this file stays ASCII-only whatever the compiler's source charset is.
+// GDI resolves it through font linking to Microsoft YaHei UI, which is a
+// different size than the Latin em (see MeasureRole step 3).
 constexpr wchar_t kRefCjk[] = {
     0x5DE5, 0x4F5C, 0x53F0, 0x603B, 0x89C8, 0x526A, 0x8D34, 0x677F, 0
 };
@@ -255,7 +252,16 @@ const sk_sp<SkTypeface>& CjkFaceFor(const SharedFaces& f, FontRole role)
     return RoleFontSpec(role).weight >= 600 && f.cjkBold ? f.cjkBold : f.cjk;
 }
 
-// Resolve one role against GDI: width ratio -> em, tmAscent -> baseline.
+// Resolve one role against GDI: same font the Win32 backend selects, same
+// cell height, then copy GDI's own numbers for ascent/descent and solve
+// the em that reproduces GDI's advance widths.
+//
+// Measured at the target cell, NOT extrapolated from a large size:
+// CreateFontW(-13) realises a 17px cell for Segoe UI (GDI emulates the
+// requested character height by picking the nearest bigger cell), and the
+// 17/13 step is not linear across sizes, so scaling a 200px measurement
+// down by cell/200 lands on a size GDI never draws. Everything here is
+// therefore read straight off the DC at the size we actually ask for.
 #if defined(_WIN32) && !defined(AIRUI_SKIA_MOCK)
 RoleMetrics MeasureRole(HDC dc, const SharedFaces& f, FontRole role)
 {
@@ -272,77 +278,66 @@ RoleMetrics MeasureRole(HDC dc, const SharedFaces& f, FontRole role)
     if (!face || !dc) return rm;
 
     const wchar_t* family = isIcon ? kFamilyIcon : kFamilyUi;
-    auto makeFont = [&](int cell) {
-        return CreateFontW(-cell, 0, 0, 0, spec.weight, FALSE, FALSE, FALSE,
+    HFONT hf = CreateFontW(-rm.cell, 0, 0, 0, spec.weight, FALSE, FALSE, FALSE,
                            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
                            CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
                            DEFAULT_PITCH, family);
+    if (!hf) return rm;
+    HGDIOBJ old = SelectObject(dc, hf);
+
+    // (1) Cell + baseline: GDI's own metrics at this size. tmHeight is the
+    // cell GDI actually realises (a -13 request yields 17 for Segoe UI),
+    // and that realised cell -- not the request -- is what DrawText uses
+    // for DT_VCENTER and for line advance.
+    TEXTMETRICW tm{};
+    if (GetTextMetricsW(dc, &tm)) {
+        if (tm.tmHeight > 0)  rm.cell    = tm.tmHeight;
+        if (tm.tmAscent > 0)  rm.ascent  = static_cast<float>(tm.tmAscent);
+        if (tm.tmDescent > 0) rm.descent = static_cast<float>(tm.tmDescent);
+    }
+
+    // (2) Latin em: ratio of GDI's advance width to Skia's at em 1000.
+    auto solve = [&](const wchar_t* text, int chars, const sk_sp<SkTypeface>& tf,
+                     SkTextEncoding enc, int bytes, SkScalar& out) {
+        SIZE sz{};
+        if (!tf || !GetTextExtentPoint32W(dc, text, chars, &sz) || sz.cx <= 0)
+            return;
+        SkFont probe;
+        probe.setTypeface(tf);
+        probe.setSize(1000.f);
+        const float w1000 = probe.measureText(text, (size_t)bytes, enc);
+        if (w1000 <= 1.f) return;
+        out = 1000.f * static_cast<float>(sz.cx) / w1000;
     };
 
-    // (1) Target cell: tmAscent/tmDescent, normalised by how much the DC
-    // scales fonts. A DPI-virtualised DC reports tmHeight 17 for a
-    // requested cell of 13; the drawing surface itself is in unscaled
-    // device pixels, so both the baseline offsets and the width below
-    // must be divided by that factor.
-    float gdiScale = 1.f;
-    if (HFONT hf = makeFont(rm.cell)) {
-        HGDIOBJ old = SelectObject(dc, hf);
-        TEXTMETRICW tm{};
-        if (GetTextMetricsW(dc, &tm)) {
-            if (tm.tmHeight > 0)
-                gdiScale = static_cast<float>(tm.tmHeight) /
-                           static_cast<float>(rm.cell);
-            if (gdiScale <= 0.f) gdiScale = 1.f;
-            // GDI places baselines on whole pixels; rounding here keeps a
-            // row from losing its last pixel row to the clip rect.
-            rm.ascent  = std::round(static_cast<float>(tm.tmAscent) / gdiScale);
-            rm.descent = std::round(static_cast<float>(tm.tmDescent) / gdiScale);
+    if (isIcon) {
+        solve(&kRefIcon, 1, face, SkTextEncoding::kUTF16,
+              (int)sizeof(wchar_t), rm.em);
+    } else {
+        solve(kRefText, static_cast<int>(sizeof(kRefText) / sizeof(wchar_t)) - 1,
+              face, SkTextEncoding::kUTF16,
+              (int)(sizeof(kRefText) - sizeof(wchar_t)), rm.em);
+
+        // (3) CJK em: GDI hands Chinese to Microsoft YaHei UI through font
+        // linking, at a size that is NOT the Latin em -- at cell 13 GDI
+        // advances a hanzi 16px while the Latin em is ~12.8. So measure it:
+        // two runs of the same glyph, one long one short, give the per-glyph
+        // advance without any bearing contamination. Linking only kicks in
+        // near the requested size (measuring at 200px returns unlinked
+        // metrics), which is why this must run at the target cell.
+        SIZE many{}, one{};
+        if (GetTextExtentPoint32W(dc, kRefCjk, kRefCjkCount, &many) &&
+            GetTextExtentPoint32W(dc, kRefCjk, 1, &one) &&
+            many.cx > one.cx) {
+            const float adv = static_cast<float>(many.cx - one.cx) /
+                              static_cast<float>(kRefCjkCount - 1);
+            // One hanzi advances exactly one em, so the advance is the em.
+            if (adv > 0.f) rm.emCjk = adv;
         }
-        SelectObject(dc, old);
-        DeleteObject(hf);
     }
 
-    // (2) Large cell: advance width of a reference run, then solve for
-    // the em that reproduces it at the target cell. Both sides are pure
-    // ratios, so the large size drops out except for precision. GDI's
-    // width is measured on the same DC and normalised by gdiScale.
-    if (HFONT hf = makeFont(kRefCell)) {
-        HGDIOBJ old = SelectObject(dc, hf);
-        auto solve = [&](const wchar_t* text, int chars, const sk_sp<SkTypeface>& tf,
-                         SkTextEncoding enc, int bytes, SkScalar& out) {
-            SIZE sz{};
-            if (!tf || !GetTextExtentPoint32W(dc, text, chars, &sz) || sz.cx <= 0)
-                return;
-            SkFont probe;
-            probe.setTypeface(tf);
-            probe.setSize(1000.f);
-            const float w1000 = probe.measureText(text, (size_t)bytes, enc);
-            if (w1000 <= 1.f) return;
-            const float gdiAtCell =
-                static_cast<float>(sz.cx) / gdiScale *
-                static_cast<float>(rm.cell) / static_cast<float>(kRefCell);
-            out = 1000.f * gdiAtCell / w1000;
-        };
-
-
-        if (isIcon) {
-            solve(&kRefIcon, 1, face, SkTextEncoding::kUTF16,
-                  (int)sizeof(wchar_t), rm.em);
-        } else {
-            solve(kRefText, static_cast<int>(sizeof(kRefText) / sizeof(wchar_t)) - 1,
-                  face, SkTextEncoding::kUTF16,
-                  (int)(sizeof(kRefText) - sizeof(wchar_t)), rm.em);
-            // CJK advances are one em in both the font-linked family GDI
-            // uses and in Microsoft YaHei UI, so the Latin em transfers
-            // directly. GDI's own width API is not usable here: it does
-            // not apply font linking, so it reports CJK widths that do
-            // not match what it draws.
-            rm.emCjk = rm.em;
-        }
-        SelectObject(dc, old);
-        DeleteObject(hf);
-    }
-
+    SelectObject(dc, old);
+    DeleteObject(hf);
     return rm;
 }
 #endif
@@ -392,7 +387,7 @@ void DiagCalibration(const RoleMetrics* m)
     FILE* fp = nullptr;
     _wfopen_s(&fp, path, L"w");     // truncate once, then trace appends
     if (!fp) return;
-    fwprintf(fp, L"[calib] dpi-scaled calibration\n");
+    fwprintf(fp, L"[calib] gdi-matched calibration\n");
     for (int i = 0; i < static_cast<int>(FontRole::Count); ++i) {
         fwprintf(fp, L"[calib] role=%d cell=%d em=%.2f cjk=%.2f ascent=%.1f descent=%.1f\n",
                  i, m[i].cell, (double)m[i].em, (double)m[i].emCjk,
