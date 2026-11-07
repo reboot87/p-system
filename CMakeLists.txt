@@ -262,19 +262,25 @@ set_target_properties(airecord PROPERTIES
 )
 
 # ------------------------------------------------------------
-# Skia plugin auto-deploy (no manual DLL copy).
+# Skia plugin auto-deploy (no manual DLL copy, no separate command).
 #
 # The Skia backend is a runtime DLL (airui-skia.dll + its transitive
-# deps: skia, icu, harfbuzz...). When the app is built WITHOUT a local
-# Skia SDK (the normal Windows path), the plugin comes from a prebuilt
-# location. We resolve that location and copy everything next to the exe
-# on every build, so double-clicking the exe "just works" with Skia.
+# vcpkg runtime DLLs: skia, icu, harfbuzz...). When the app is built
+# WITHOUT a local Skia SDK (the normal Windows path), the plugin comes
+# from a prebuilt location. We resolve it and copy ONLY the *.dll files
+# next to the exe on every build, so double-clicking the exe "just
+# works" with Skia and a developer's own freshly-built exe is never
+# overwritten.
 #
-# Resolution order:
+# Resolution order (best-effort; the build never fails if nothing is
+# found -- the app silently falls back to GDI):
 #   1. -DAIRUI_SKIA_PLUGIN_DIR=<dir>                 (explicit)
-#   2. <binary-dir>/ci-all/airui-skia-windows-x64    (CI artifacts)
-#   3. <binary-dir>/ci-skia                          (fetch-skia-plugin)
-# If none is found, nothing is copied; `fetch-skia-plugin` populates (3).
+#   2. <binary-dir>/ci-all/airui-skia-windows-x64    (manual drop)
+#   3. <binary-dir>/ci-skia                          (fetched from CI)
+# Step 3 is populated automatically by `gh run download` inside
+# scripts/deploy-skia-plugin.cmake when `gh` + network + repo access
+# are available, so a plain `cmake --build` is enough -- no separate
+# fetch command, no manual copy.
 # ------------------------------------------------------------
 set(AIRUI_SKIA_PLUGIN_DIR "" CACHE PATH
     "Directory containing airui-skia.dll and its dependencies")
@@ -289,23 +295,16 @@ function(airui_deploy_skia_plugin tgt)
         return()
     endif()
 
-    set(_src "${AIRUI_SKIA_PLUGIN_DIR}")
-    if(NOT _src)
-        foreach(_cand "${CMAKE_BINARY_DIR}/ci-all/airui-skia-windows-x64"
-                      "${CMAKE_BINARY_DIR}/ci-skia")
-            if(EXISTS "${_cand}/airui-skia.dll")
-                set(_src "${_cand}")
-                break()
-            endif()
-        endforeach()
-    endif()
-
-    if(_src AND EXISTS "${_src}/airui-skia.dll")
-        add_custom_command(TARGET ${tgt} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_directory
-                    "${_src}" "$<TARGET_FILE_DIR:${tgt}>"
-            COMMENT "Deploying Skia plugin from ${_src}")
-    endif()
+    # POST_BUILD runs after the target links; deploy-skia-plugin.cmake
+    # copies only *.dll files so the exe is left untouched. It is best-
+    # effort: offline / no-gh builds simply fall back to GDI.
+    add_custom_command(TARGET ${tgt} POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+                -DTARGET_DIR="$<TARGET_FILE_DIR:${tgt}>"
+                -DBINARY_DIR="${CMAKE_BINARY_DIR}"
+                -DPLUGIN_DIR="${AIRUI_SKIA_PLUGIN_DIR}"
+                -P "${CMAKE_SOURCE_DIR}/scripts/deploy-skia-plugin.cmake"
+        COMMENT "Deploying Skia plugin next to ${tgt} (best-effort)")
 endfunction()
 
 # One-time helper: download the latest Skia plugin artifact from CI into

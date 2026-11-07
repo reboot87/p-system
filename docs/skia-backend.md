@@ -132,6 +132,19 @@ airecord.exe --paint-backend=skia
 ```
 不需要 `--core-shell`：`PaintFrame` 在帧级别覆盖整个客户区（§1.4）。`--core-shell` 只是另一套简化外壳，可单独使用。
 
+### 3.1 默认构建自动部署插件（零命令、无需手动拷贝）
+
+默认构建（无本地 Skia SDK，即 `AIRUI_WITH_SKIA=OFF`）现在会在每次 `cmake --build` 时把 Skia 插件自动放到 exe 同目录，**普通一次构建即可直接使用 Skia，无需手动下载/拷贝 DLL，也无需单独的 fetch 命令**：
+
+- `airui_deploy_skia_plugin(<target>)` 给 `airecord` / `test_skia_plugin` 挂一个 `POST_BUILD` 步骤，调用 `scripts/deploy-skia-plugin.cmake`；
+- 解析顺序（best-effort，找不到就静默回退 GDI，绝不导致构建失败）：
+  1. `-DAIRUI_SKIA_PLUGIN_DIR=<dir>`（显式指定包含 `airui-skia.dll` 的目录）；
+  2. `<binary-dir>/ci-all/airui-skia-windows-x64`（手动放置）；
+  3. `<binary-dir>/ci-skia`（自动 `gh run download` 最新成功 CI 产物）。
+- 只拷贝 `*.dll`（`FILES_MATCHING PATTERN "*.dll"`），**不会覆盖开发者自己刚编译的 `airecord.exe`**；`airui-skia.dll` 及其全部 vcpkg 运行时依赖（skia / icu / harfbuzz 等）一次性到位。
+- 自动下载需要 `gh` 已登录 + 网络 + 仓库访问；首次构建会拉取一次，之后检测到 `airui-skia.dll` 已存在即跳过。`fetch-skia-plugin` 这个独立 target 仍保留，作为手动预取入口。
+- ⚠️ 插件是 **x64**，需与 x64 的 `airecord.exe` 搭配；x86 进程无法加载 x64 DLL（§6）。
+
 手动 prefix（预编译 release 或自建产物）布局要求：
 
 ```
@@ -280,9 +293,9 @@ airecord.exe --paint-backend=skia
 | 圆角矩形 | 209 / 4992（4.2%） | 12.3 | GDI `CreateRoundRectRgn` 硬边（中间色像素 **0**）vs Skia `drawRRect` 开抗锯齿（**69** 个过渡像素） |
 | 半透明矩形 | 0 / 3456（**0.0%**） | 0.0 | 两端最终都走 `AlphaBlend`，结果完全一致 |
 | 虚线框 | 400 / 6912（5.8%） | 22.9 | `PS_USERSTYLE` 硬边 vs `SkDashPathEffect` + AA，虚线相位也不同 |
-| 文字 | 415 / 2592（**16.0%**） | 44.1 | 当前插件默认 typeface 完全没有可用字形（`drawSimpleText` + 无 CJK/字体回退），GDI 有字、Skia 一片空白；**不是** hinting 或字距差异 |
+| 文字 | 415 / 2592（**16.0%**） | 44.1 | **修复前基线**：当时插件默认 typeface 完全没有可用字形（`drawSimpleText` + 无 CJK/字体回退），GDI 有字、Skia 一片空白；**不是** hinting 或字距差异。字体修复（commit `0cb349f`）后该合成测试应大幅下降，待重测 |
 
-**肉眼分辨要点（GUI 整窗）**：看圆角卡片边缘、描边、虚线相位，以及状态栏小圆点——GDI 的 6px `Ellipse` 呈菱形，Skia 的 `FillRound` + AA 是圆形；纯色矩形与半透明矩形基本看不出区别。文字在 GUI 里由宿主 GDI 重放（`text=host`），两后端看起来一致；上表 16% 是**合成测试**直接把文字交给后端的结果，说明字体层尚未打通，而不是界面上会看到字形差异（§5.4）。
+**肉眼分辨要点（GUI 整窗）**：看圆角卡片边缘、描边、虚线相位，以及状态栏小圆点——GDI 的 6px `Ellipse` 呈菱形，Skia 的 `FillRound` + AA 是圆形；纯色矩形与半透明矩形基本看不出区别。文字在 GUI 里默认由 Skia 直接绘制（`text=backend`，探测通过时），两后端字形一致；若探测未通过则回退到宿主 GDI 重放（`text=host`），同样可读。上表 16% 是**修复前**的合成测试基线，说明当时字体层未打通，而非界面上会看到字形差异（§5.4）。
 
 ---
 
@@ -309,9 +322,11 @@ airecord.exe --paint-backend=skia
 
 **文字层策略（运行时能力自适应）**：`SkiaPluginSupportsWideText()` 通过插件 C ABI 开一个 32×32 离屏帧画「中」，读 `airui_skia_pixels()` 检查 alpha 覆盖，据此决定：
 
-- `text=host`（当前 CI 插件）：填充、圆角、描边、虚线、半透明、抗锯齿与帧合成全部由 Skia 完成；所有文字调用由 `PaintFrame` 记录（保留 HFONT / 颜色 / 矩形 / `DT_*` 格式 / clip），在帧合成之后由宿主 GDI `DrawTextW` 统一重放。中文与 MDL2 图标都可读，且不会出现「方块 + 汉字」双影。
-- `text=backend`（插件修好 CJK 字体回退后自动启用）：文字直接走 `IPainter::Text`，不做任何补画，成为纯 Skia 整窗。
+- `text=backend`（字体修复后、探测通过时的默认）：`SkiaPainter` 直接用 GDI 的同款 `LOGFONT` 经 `SkCreateTypefaceFromLOGFONT` 创建 "Microsoft YaHei UI"（正文）与 "Segoe MDL2 Assets"（图标）typeface，并对每个码点做系统级回退，文字与图标由 Skia 直接绘制，是**纯 Skia 整窗**。
+- `text=host`（探测未通过时的安全回退）：填充、圆角、描边、虚线、半透明、抗锯齿与帧合成仍由 Skia 完成；所有文字调用由 `PaintFrame` 记录，在帧合成之后由宿主 GDI `DrawTextW` 统一重放，中文与 MDL2 图标仍可读，不会出现「方块 + 汉字」双影。
 - `AIRUI_SKIA_TEXT=host|backend` 可强制覆盖探测结果，用于对比与回归。
+
+> 字体修复落点（commit `0cb349f`）：`EnsureFaces()` 不再依赖跨版本不稳定的 `SkFontMgr` 工厂（`RefDefault` / `MakeDefault` 在 CI 所用 vcpkg `skia` 上不存在），改用稳定的 Windows 端口函数，并以 `TCHAR` / `TEXT` 适配 CI 的 ANSI（LOGFONTA）构建；本地 MinGW mock 语法门禁 + CI 真实 Skia 构建均已通过。
 
 旧的 `Shell::DrawCoreChromeText()` 只补外壳文字、且页面文字仍走 GDI，已删除。`Shell::Paint()` 在 coreShell 下仍补画三键（原先命中测试在、像素不在），这与整窗路由无关。
 
@@ -323,7 +338,7 @@ airecord.exe --paint-backend=skia
 
 - **没有 Skia 版 `IWindow`**：目前只有绘制后端。窗口壳、消息泵、事件注入仍由 `Win32Window` 负责；Linux/macOS 应用本体仍不可构建。
 - **插件 ABI 有工具集与位数边界**：实测 MSVC v141 (VS2017 x64) ↔ v143 (VS2022 x64) 跨代可用（§5.2），但 **x86 进程无法加载 x64 DLL**——本机官方 `build/` 是 x86、CI 产物是 x64，直接放旁边只会静默回退 gdi。仍要求 MSVC 同族、一致 `/MD` 与 `_ITERATOR_DEBUG_LEVEL`；纯 C 绘制桥与非 MSVC 编译器验证均未做。
-- **文字仍由宿主栅格化（`text=host`）**：后端用 `SkFont` 的平台默认 typeface，与 GDI 的 "Microsoft YaHei UI" 族、CJK 回退、hinting 的差异尚未校准（设计稿 R2/R7）。当前插件连英文都画不出，整窗文字由 `PaintFrame` 在帧合成后用 GDI 重放；这是**混合渲染**，不能声称「整个窗口包括文字都是 Skia 画的」。插件修好字体回退后探测会自动切到 `text=backend`，那才是纯 Skia。
+- **文字默认由 Skia 直接绘制（`text=backend`）**：字体修复（commit `0cb349f`）后，插件用 `SkCreateTypefaceFromLOGFONT` 创建 "Microsoft YaHei UI" + "Segoe MDL2 Assets" typeface，探测 `SkiaPluginSupportsWideText()` 应返回 true，整窗含文字一起是 Skia 画的。`text=host` 仅作为探测失败时的安全回退（仍由宿主 GDI 重放文字，保证中文/图标可读）。如仍观察到 `text=host`，先确认 `airecord.exe` 同目录已部署 `airui-skia.dll` 且 CI 插件为最新（含字体修复）。
 - **真实 GUI 截图 diff**：已完成逐窗口像素统计（整窗 1.93% / 内容区 0.83% / 往返 0.07%，§5.3、§5.4），但只是手工截图比对，**SSIM 指标与自动化截图基线仍未建立**。
 - **VS2017 只验证了「使用 DLL」，未验证「编译 Skia」**：真 SDK 源码编译仍只在 VS2022 CI 上做；官方 VS2017 工具链 x64 产物通过下载 DLL 使用 Skia 已实测（整窗 GUI 截图、像素差异、启动诊断、双向热切换，§5.2 / §5.3 / §5.4）。CI 目前只出 **x64** 插件，x86 官方产物需 x64 构建或另出 x86 artifact。
 - **Skia API 版本漂移**：所有 Skia 头集中在 `SkiaApi.h`；已在 vcpkg `skia@148` 上校准（§5.1），但 `drawSimpleText` / `measureText` 等仍可能随版本变化。
@@ -333,6 +348,6 @@ airecord.exe --paint-backend=skia
 ## 7. 下一步
 
 1. ~~观察 `test_skia_plugin` 首次真 SDK 结果~~ 已完成：run `42337859169` 四个作业全绿，插件 DLL 与动态加载测试**首跑即通过**，无需修正 ABI / 导出名；后续每次 push/PR 自动复验。
-2. 校准字体度量与 CJK 回退（在 `SkiaPainter::Font()` 用 `SkFontMgr` 做逐字 fallback 或指定中文族），让 `SkiaPluginSupportsWideText()` 返回 true、自动进入 `text=backend` 纯 Skia 整窗；再补 GDI vs Skia 截图阈值 / SSIM 基线。
+2. ~~校准字体度量与 CJK 回退~~ 已完成（commit `0cb349f`）：`EnsureFaces()` 用 `SkCreateTypefaceFromLOGFONT` 创建 "Microsoft YaHei UI" / "Segoe MDL2 Assets" typeface 并做逐码点回退，`SkiaPluginSupportsWideText()` 应返回 true、自动进入 `text=backend` 纯 Skia 整窗；待重测确认探测通过后再补 GDI vs Skia 截图阈值 / SSIM 基线。
 3. 把 `test_paint_frame` 的帧路由契约与 GUI 截图比对接入 CI（需要带窗口的 runner 步骤）。
 3. Phase 2 剩余：Skia 版 `IWindow` / Linux 窗口壳（`cross-platform.md` §10 仍待定）。
