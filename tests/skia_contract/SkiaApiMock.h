@@ -141,6 +141,7 @@ public:
     enum class Edging { kAlias, kAntiAlias, kSubpixelAntiAlias };
     void setTypeface(sk_sp<SkTypeface>) {}
     void setSize(SkScalar) {}
+    SkScalar getSize() const { return 0.0f; }
     void setHinting(SkFontHinting) {}
     void setSubpixel(bool) {}
     void setEdging(Edging) {}
@@ -148,6 +149,14 @@ public:
     SkScalar measureText(const void*, size_t, SkTextEncoding,
                          SkRect* = nullptr, const SkPaint* = nullptr) const
     { return 0.0f; }
+};
+
+// Only used by the opt-in text tracer, which is compiled out under the
+// syntax gate; keep a minimal shape so the call site still parses.
+class SkMatrix
+{
+public:
+    SkScalar getScaleX() const { return 1.0f; }
 };
 
 class SkPathEffect {};
@@ -208,4 +217,8 @@ public:
     void drawPath(const SkPath&, const SkPaint&) {}
     void drawSimpleText(const void*, size_t, SkTextEncoding,
                         SkScalar, SkScalar, const SkFont&, const SkPaint&) {}
+    const SkMatrix& getTotalMatrix() const { return m_matrix; }
+
+private:
+    SkMatrix m_matrix;
 };

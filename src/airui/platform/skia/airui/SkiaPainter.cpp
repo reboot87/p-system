@@ -245,6 +245,39 @@ void DiagFonts(const SharedFaces& f)
 #endif
 }
 
+// Per-call text trace (AIRUI_PAINT_TRACE=1). Records what the backend
+// actually draws -- role, resolved size, measured width, origin and the
+// string -- so a screenshot can be matched against the calls that made
+// it, instead of guessing which path produced the pixels.
+void DiagText(int role, SkScalar size, float w, float x, float y,
+              float canvasScale, const std::string& s)
+{
+#if defined(_WIN32) && !defined(AIRUI_SKIA_MOCK)
+    static const bool on = [] {
+        wchar_t v[8] = {};
+        return GetEnvironmentVariableW(L"AIRUI_PAINT_TRACE", v, 8) > 0;
+    }();
+    if (!on) return;
+    static int budget = 60;
+    if (budget <= 0) return;
+    --budget;
+
+    wchar_t path[MAX_PATH] = {};
+    if (GetEnvironmentVariableW(L"LOCALAPPDATA", path, MAX_PATH) == 0) return;
+    wcscat_s(path, L"\\AireRecord\\skia_font.log");
+    FILE* fp = nullptr;
+    _wfopen_s(&fp, path, L"a");
+    if (!fp) return;
+    fwprintf(fp, L"[text] role=%d size=%.2f w=%.1f at=%.1f,%.1f scale=%.2f | %hs\n",
+             role, (double)size, (double)w, (double)x, (double)y,
+             (double)canvasScale, s.c_str());
+    fclose(fp);
+#else
+    (void)role; (void)size; (void)w; (void)x; (void)y;
+    (void)canvasScale; (void)s;
+#endif
+}
+
 void FillSharedFaces(SharedFaces& f)
 {
 #if defined(_WIN32)
@@ -570,6 +603,8 @@ void SkiaPainter::Text(const Rect& r, const std::wstring& s,
     }
     const float y = m->Baseline(r, primary, skia::Vertical(fmt));
     m->DrawRuns(primary, role, utf8, x, y, c);
+    DiagText(static_cast<int>(role), primary.getSize(), totalW, x, y,
+             m->canvas->getTotalMatrix().getScaleX(), utf8);
 }
 
 void SkiaPainter::TextBlock(const Rect& r, const std::wstring& s,
