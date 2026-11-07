@@ -106,7 +106,7 @@ src/airui/platform/skia/airui/
 | Skia 实现的语法/接口形状 | `scripts/check-skia-syntax.sh`（`-fsyntax-only` + mock 头） | ❌ | 本机通过；已接入 ubuntu/macOS CI |
 | option 语义 | `cmake -DAIRUI_WITH_SKIA=ON`（无 SDK） | ❌ | 明确报错并给出两条安装命令 |
 | `Shell.cpp` 的 Skia 分支（MSVC 语法/接线） | 独立以 `-DAIRUI_HAVE_SKIA=1` 编译 `airui-win32` | ❌ | VS2017 实测 EXIT=0，`Shell.obj` + `airui-win32.lib` 产出，无 error |
-| 真实编译 / 链接 / 运行 + **G5 双后端序列断言** | `test_skia_backend` | ✅ | 由 `skia-windows` CI 作业（push/PR 自动触发）承担；本机 vcpkg 安装受代理 SSL 限制未能实跑 |
+| 真实编译 / 链接 / 运行 + **G5 双后端序列断言** | `test_skia_backend` | ✅ | **已实跑通过**：`skia-windows` 用 vcpkg `skia@148` 编译 `airui-skia` + `test_skia_backend`，运行输出 `test_skia_backend: G5 parity + raster OK`（2026-11-07，run `42335700042`）；本机受代理 SSL 限制不做真 SDK |
 | 默认工具链零回归 | VS2017 `cmake --build` + `ctest` + `build.bat` | ❌ | 全绿 |
 
 `test_skia_backend` 是 G5 的落地：同一场景先由 core 的 `PaintRecorder` 录成金样，再经 `TeePainter` 一边驱动真实 Skia 后端、一边记录后端**实际收到**的 `IPainter` 调用，最后断言 `SequenceEquals` / `Diff().empty()`，并校验光栅像素确为 `BGRA + premultiplied`。这是第二个后端出现前根本无法执行的断言。
@@ -145,6 +145,6 @@ CI 首次跑完 vcpkg 源码编译（约 35 分钟）并成功 Configure，Build
 
 ## 6. 下一步
 
-1. ~~查看自动触发的 `skia-windows` 首次运行结果~~ 已完成：runner 镜像问题与真 SDK 的 4 处 API/宏差异均已修（§4.1）；后续每次 push/PR 自动复验，缓存命中后很快。下一步是确认 Build + `test_skia_backend` 全绿。
+1. ~~查看首次运行结果~~ 已完成：runner 镜像、缓存保存与真 SDK 的 5 处 API/宏差异均已修（§4.1），CI 四个作业全绿，`test_skia_backend` 实跑输出 `G5 parity + raster OK`；后续每次 push/PR 自动复验，缓存命中约 2 分钟。
 2. 校准字体度量与 CJK 回退，补 GDI vs Skia 截图阈值。
 3. Phase 2 剩余：Skia 版 `IWindow` / Linux 窗口壳（`cross-platform.md` §10 仍待定）。

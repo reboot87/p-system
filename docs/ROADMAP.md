@@ -136,3 +136,9 @@
   - **修复**：`SkiaApi.h` 在 `_WIN32 && !AIRUI_SKIA_MOCK` 下定义 `NOMINMAX` + `#undef min/max`（只作用于后端 TU，不动旧 Win32 代码），并新增 `SkPathBuilder.h`/`SkSpan.h`；`SkiaPainter.cpp` 改用 `SkFont` 平台默认 typeface（只按 `FontRole` 设字号）、`SkPathBuilder::detach()`、`SkSpan` 版 dash；`SkiaApiMock.h` 同步成新契约，避免本地语法门禁验证一套已死 API；CI 加 `Record real Skia API signatures` 诊断步骤把真 SDK 签名写进日志。细节见 `docs/skia-backend.md` §4.1。
   - **验证**：本地 `check-skia-syntax.sh`（5 个源文件 `-fsyntax-only`）与 `check-core-clean.sh`（46 core 文件）全绿；缓存命中后的第一次复验仅 **1m43s**，宏污染与 3 处 API 差异全部消除，只剩真 SDK 第 5 处差异：`SkBitmap::allocPixels` 已改返回 `void`，原 `if (!bitmap.allocPixels(...))` 报 `C2171`。已改为调用后用 `bitmap.getPixels()` 判空，并把 mock 同步成 `void`；`Record real Skia API signatures` 诊断步骤也在日志里确认了 `SkPathBuilder::detach()` / `addRect()` 与 `SkDashPathEffect::Make(SkSpan, phase)` 的真实签名。Build + `test_skia_backend` 由下一次自动 CI 复验。
   - **边界**：字体族对齐（GDI 的 Segoe UI vs Skia 默认 typeface）、CJK 回退、像素级截图 diff 仍未做；业务模块仍留最后。
+
+- **2026-11-07 — 最终复验：CI 四个作业全绿，真 SDK 双后端测试通过**
+  - 提交 `a95d0db` 触发 run `42335700042`（缓存命中，1m58s）：`airui-core` ubuntu / macOS / windows-VS2022 全绿；`skia-windows` 的 Restore→Install→Verify→诊断→Configure→**Build**→**Run G5 dual-backend parity test** 全部 success，日志输出 `test_skia_backend: G5 parity + raster OK`。
+  - 至此「Windows 的 Actions 都编译失败」彻底解决，根因是三层环境与契约问题、**均非业务代码错误**：① `windows-latest` 迁到 VS2026 镜像 → 固定 `windows-2022`；② `actions/cache` 只在 job 成功时保存 → 拆成 `restore`/`save` 并在 install 后立即保存；③ 真 SDK 的 5 处 API/宏不兼容 → 按真实签名适配 `SkiaApi.h` / `SkiaPainter.cpp` / `SkiaSurface.cpp`，并同步 `SkiaApiMock.h` 契约门禁。
+  - 提交链：`e7bfa74`（CI 镜像/缓存）→ `082af38`（真 SDK API 适配 + 签名诊断步骤）→ `a95d0db`（`allocPixels` 返回 void）。本地 `check-skia-syntax.sh`、`check-core-clean.sh` 与 VS2017 默认构建不受影响。
+  - 边界不变：`skia-windows` 仍 `continue-on-error`（隔离第三方 SDK 源码编译的偶发波动，不阻塞核心门禁）；字体族对齐、CJK 回退、像素级截图 diff、Skia 版 `IWindow` 未做；业务模块仍留最后。
