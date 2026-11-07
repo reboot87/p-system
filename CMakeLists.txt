@@ -294,6 +294,11 @@ function(airui_deploy_skia_plugin tgt)
         # into the same output dir, nothing to copy.
         return()
     endif()
+    # The CI-published plugin is x64; a 32-bit exe cannot LoadLibrary it,
+    # so don't fetch a useless bundle next to a Win32 build.
+    if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
+        return()
+    endif()
 
     # POST_BUILD runs after the target links; deploy-skia-plugin.cmake
     # copies only *.dll files so the exe is left untouched. It is best-

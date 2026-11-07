@@ -48,24 +48,27 @@ endforeach()
 if(NOT _src)
     find_program(_gh gh)
     if(_gh)
-        message(STATUS "deploy-skia: fetching artifact 'airui-skia-windows-x64' from CI (best-effort)")
-        # Latest successful CI run that produced the Skia artifact.
         # In GitHub Actions, gh needs GH_TOKEN explicitly (it does not
         # auto-use GITHUB_TOKEN); locally gh falls back to stored creds.
+        # CMake's execute_process has no ENV keyword, so we set the
+        # variable on the cmake process; children inherit it.
+        if(DEFINED ENV{GITHUB_TOKEN})
+            set(ENV GH_TOKEN "$ENV{GITHUB_TOKEN}")
+        endif()
+        message(STATUS "deploy-skia: fetching artifact 'airui-skia-windows-x64' from CI (best-effort)")
+        # Latest successful CI run that produced the Skia artifact.
         execute_process(
             COMMAND "${_gh}" run list --workflow ci.yml --status success --limit 1
                     --json databaseId --jq ".[0].databaseId"
             OUTPUT_VARIABLE _run_id
-            RESULT_VARIABLE _rc
-            ENV GH_TOKEN "$ENV{GITHUB_TOKEN}")
+            RESULT_VARIABLE _rc)
         string(STRIP "${_run_id}" _run_id)
         if(_rc EQUAL 0 AND _run_id MATCHES "^[0-9]+$")
             file(MAKE_DIRECTORY "${BINARY_DIR}/ci-skia")
             execute_process(
                 COMMAND "${_gh}" run download "${_run_id}"
                         --name airui-skia-windows-x64 -D "${BINARY_DIR}/ci-skia"
-                RESULT_VARIABLE _rc2
-                ENV GH_TOKEN "$ENV{GITHUB_TOKEN}")
+                RESULT_VARIABLE _rc2)
             if(_rc2 EQUAL 0)
                 # gh extracts the artifact under a folder named after it;
                 # locate the DLL wherever it landed.
