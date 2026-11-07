@@ -251,12 +251,16 @@ private:
 class SkSurface
 {
 public:
-    static sk_sp<SkSurface> MakeRasterDirect(const SkImageInfo&, void*,
-                                             size_t,
-                                             const SkSurfaceProps* = nullptr)
-    { return sk_sp<SkSurface>(nullptr); }
     SkCanvas* getCanvas() { return &m_canvas; }
 
 private:
     SkCanvas m_canvas{SkBitmap{}};
 };
+
+// Since m130 the raster factories live in this namespace rather than on
+// SkSurface itself; the real build is vcpkg's skia (m148 as of writing).
+namespace SkSurfaces {
+inline sk_sp<SkSurface> WrapPixels(const SkImageInfo&, void*, size_t,
+                                   const SkSurfaceProps* = nullptr)
+{ return sk_sp<SkSurface>(nullptr); }
+} // namespace SkSurfaces

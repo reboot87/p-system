@@ -76,8 +76,11 @@ struct SkiaFrame::Impl
         // transparent pixels Skia falls back to greyscale for that draw,
         // so mixing stays correct.
         const SkSurfaceProps props(0, LcdPixelGeometry());
-        surface = SkSurface::MakeRasterDirect(info, bitmap.getPixels(),
-                                              bitmap.rowBytes(), &props);
+        // Skia m130 moved the raster surface factories out of SkSurface
+        // into the SkSurfaces namespace; WrapPixels draws straight into
+        // our bitmap's pixels, so there is no extra copy on present.
+        surface = SkSurfaces::WrapPixels(info, bitmap.getPixels(),
+                                         bitmap.rowBytes(), &props);
         if (!surface) return;
         canvas = surface->getCanvas();
         if (!canvas) return;
