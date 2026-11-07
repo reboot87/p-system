@@ -125,6 +125,77 @@ static void CopyFaceName(TCHAR (&dst)[32], const TCHAR* src)
     }
 }
 
+// Process-wide typeface set.
+//
+// Building a typeface goes through GDI's font matcher
+// (SkCreateTypefaceFromLOGFONT) and costs tens of milliseconds. A
+// SkiaPainter is constructed once per *frame*, so caching the faces on
+// the painter instance meant every repaint re-resolved three faces --
+// measured at 78 ms for a 1120x780 window. Sharing one immutable set
+// removes that cost from every frame after the first.
+struct SharedFaces
+{
+    sk_sp<SkTypeface> body;
+    sk_sp<SkTypeface> icon;
+    sk_sp<SkTypeface> fallback;
+};
+
+const SharedFaces& GetSharedFaces()
+{
+    static const SharedFaces* faces = new SharedFaces([] {
+        SharedFaces f;
+        // One typeface per role, built from the exact LOGFONT the Win32
+        // GDI backend already uses. On Windows we go through Skia's
+        // Windows port SkCreateTypefaceFromLOGFONT, which is stable
+        // across Skia versions (the default font-manager factory is
+        // not). This makes Skia glyph metrics and families match GDI
+        // 1:1, so Chinese UI text and Segoe MDL2 icons both render.
+#if defined(_WIN32)
+        LOGFONT lf{};
+        lf.lfHeight         = -16;
+        lf.lfWeight         = FW_NORMAL;
+        lf.lfCharSet        = DEFAULT_CHARSET;
+        lf.lfOutPrecision   = OUT_DEFAULT_PRECIS;
+        lf.lfClipPrecision  = CLIP_DEFAULT_PRECIS;
+        lf.lfQuality        = CLEARTYPE_QUALITY;
+        lf.lfPitchAndFamily = DEFAULT_PITCH | FF_DONTCARE;
+        CopyFaceName(lf.lfFaceName, TEXT("Microsoft YaHei UI"));
+        f.body = SkCreateTypefaceFromLOGFONT(lf);
+
+        LOGFONT lfIcon = lf;
+        CopyFaceName(lfIcon.lfFaceName, TEXT("Segoe MDL2 Assets"));
+        f.icon = SkCreateTypefaceFromLOGFONT(lfIcon);
+
+        if (!f.body) {
+            // Last resort: let GDI pick the system default font.
+            LOGFONT lfDef{};
+            lfDef.lfHeight         = -16;
+            lfDef.lfCharSet        = DEFAULT_CHARSET;
+            lfDef.lfPitchAndFamily = DEFAULT_PITCH | FF_DONTCARE;
+            f.body = SkCreateTypefaceFromLOGFONT(lfDef);
+        }
+        if (!f.icon) f.icon = f.body;
+
+        // Generic fallback for codepoints neither family covers (rare
+        // symbols / emoji): an empty-faced LOGFONT lets GDI resolve the
+        // best available system font.
+        LOGFONT lfFall{};
+        lfFall.lfHeight         = -16;
+        lfFall.lfCharSet        = DEFAULT_CHARSET;
+        lfFall.lfPitchAndFamily = DEFAULT_PITCH | FF_DONTCARE;
+        f.fallback = SkCreateTypefaceFromLOGFONT(lfFall);
+#else
+        // Non-Windows is not a supported runtime target for this Win32
+        // UI library; leave the faces null so the TU still compiles.
+#endif
+        return f;
+    }());
+    // Deliberately leaked: these typefaces live for the whole process.
+    // A static destructor would run while the plugin DLL unloads, when
+    // Skia's own code may already be gone.
+    return *faces;
+}
+
 } // namespace
 
 struct SkiaPainter::Impl
@@ -148,62 +219,15 @@ struct SkiaPainter::Impl
         if (facesReady) return;
         facesReady = true;
 
-        // One typeface per role, built from the exact LOGFONT the Win32
-        // GDI backend already uses. On Windows we go through Skia's
-        // Windows port SkCreateTypefaceFromLOGFONT, which is stable
-        // across Skia versions (the default font-manager factory is
-        // not). This makes Skia glyph metrics and families match GDI
-        // 1:1, so Chinese UI text and Segoe MDL2 icons both render.
-        sk_sp<SkTypeface> body;
-        sk_sp<SkTypeface> icon;
-#if defined(_WIN32)
-        LOGFONT lf{};
-        lf.lfHeight         = -16;
-        lf.lfWeight         = FW_NORMAL;
-        lf.lfCharSet        = DEFAULT_CHARSET;
-        lf.lfOutPrecision   = OUT_DEFAULT_PRECIS;
-        lf.lfClipPrecision  = CLIP_DEFAULT_PRECIS;
-        lf.lfQuality        = CLEARTYPE_QUALITY;
-        lf.lfPitchAndFamily = DEFAULT_PITCH | FF_DONTCARE;
-        CopyFaceName(lf.lfFaceName, TEXT("Microsoft YaHei UI"));
-        body = SkCreateTypefaceFromLOGFONT(lf);
-
-        LOGFONT lfIcon = lf;
-        CopyFaceName(lfIcon.lfFaceName, TEXT("Segoe MDL2 Assets"));
-        icon = SkCreateTypefaceFromLOGFONT(lfIcon);
-
-        if (!body) {
-            // Last resort: let GDI pick the system default font.
-            LOGFONT lfDef{};
-            lfDef.lfHeight         = -16;
-            lfDef.lfCharSet         = DEFAULT_CHARSET;
-            lfDef.lfPitchAndFamily  = DEFAULT_PITCH | FF_DONTCARE;
-            body = SkCreateTypefaceFromLOGFONT(lfDef);
-        }
-        if (!icon) icon = body;
-
-        // Generic fallback for codepoints neither family covers (rare
-        // symbols / emoji): an empty-faced LOGFONT lets GDI resolve the
-        // best available system font.
-        LOGFONT lfFall{};
-        lfFall.lfHeight         = -16;
-        lfFall.lfCharSet         = DEFAULT_CHARSET;
-        lfFall.lfPitchAndFamily  = DEFAULT_PITCH | FF_DONTCARE;
-        defaultFace = SkCreateTypefaceFromLOGFONT(lfFall);
-#else
-        // Non-Windows is not a supported runtime target for this Win32
-        // UI library; leave faces null so the TU still compiles. The
-        // Windows path above is the one that ships.
-        (void)body;
-        (void)icon;
-#endif
+        const SharedFaces& shared = GetSharedFaces();
         for (int i = 0; i < static_cast<int>(FontRole::Count); ++i) {
             const FontRole role = static_cast<FontRole>(i);
             if (role == FontRole::Icon || role == FontRole::IconLarge)
-                roleFace[i] = icon ? icon : body;
+                roleFace[i] = shared.icon ? shared.icon : shared.body;
             else
-                roleFace[i] = body;
+                roleFace[i] = shared.body;
         }
+        defaultFace = shared.fallback;
     }
 
     // Pick the typeface that can actually draw `cp` for this role: prefer
