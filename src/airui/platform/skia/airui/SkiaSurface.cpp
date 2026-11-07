@@ -7,34 +7,61 @@
 #include "airui/SkiaPainter.h"
 
 #include <cstring>
+#include <string>
 
 namespace air {
 namespace ui {
 
 namespace {
+
+#if defined(_WIN32) && !defined(AIRUI_SKIA_MOCK)
+// One desktop setting, read once: these change only when the user edits
+// the ClearType wizard, so re-reading them per frame would be waste.
+std::wstring DesktopString(const wchar_t* name)
+{
+    wchar_t buf[32] = {};
+    DWORD   bytes   = sizeof(buf) - sizeof(wchar_t);
+    if (RegGetValueW(HKEY_CURRENT_USER, L"Control Panel\\Desktop", name,
+                     RRF_RT_REG_SZ, nullptr, buf, &bytes) != ERROR_SUCCESS)
+        return std::wstring();
+    return std::wstring(buf);
+}
+#endif
+
 // Subpixel text is only produced when the device reports its pixel
 // geometry. With the default (unknown) props Skia silently degrades to
 // greyscale antialiasing, which is why Skia text looked softer and
 // muddier next to the GDI backend's ClearType. Windows stores the
 // monitor's stripe order in the desktop settings; follow it so the
 // fringes land on the same subpixels ClearType uses.
+//
+// If the user has turned ClearType off, GDI draws greyscale text instead,
+// so this returns unknown on purpose: matching GDI means matching whatever
+// it is currently doing, not always being subpixel.
 SkPixelGeometry LcdPixelGeometry()
 {
+    // Cached: a SkiaFrame is created for every paint, so reading the
+    // registry here unconditionally would put three RegGetValue calls on
+    // the per-frame path.
+    static const SkPixelGeometry cached = []() -> SkPixelGeometry {
 #if defined(_WIN32) && !defined(AIRUI_SKIA_MOCK)
-    wchar_t order[8] = {};
-    DWORD   bytes    = sizeof(order) - sizeof(wchar_t);
-    if (RegGetValueW(HKEY_CURRENT_USER, L"Control Panel\\Desktop",
-                     L"FontSmoothingOrientation", RRF_RT_REG_SZ, nullptr,
-                     order, &bytes) == ERROR_SUCCESS)
-    {
-        // 1 = RGB stripe order (the default), 2 = BGR.
-        return (order[0] == L'2') ? kBGR_H_SkPixelGeometry
-                                  : kRGB_H_SkPixelGeometry;
-    }
-    return kRGB_H_SkPixelGeometry;
+        // FontSmoothing: "0" off, "1" standard greyscale, "2" on.
+        // FontSmoothingType: 1 = standard, 2 = ClearType.
+        const std::wstring smoothing = DesktopString(L"FontSmoothing");
+        const std::wstring type      = DesktopString(L"FontSmoothingType");
+        if (smoothing.empty() || smoothing[0] != L'2') return kUnknown_SkPixelGeometry;
+        if (!type.empty() && type[0] != L'2')          return kUnknown_SkPixelGeometry;
+
+        // FontSmoothingOrientation: "1" = RGB stripe order (the default),
+        // "2" = BGR.
+        const std::wstring order = DesktopString(L"FontSmoothingOrientation");
+        return (!order.empty() && order[0] == L'2') ? kBGR_H_SkPixelGeometry
+                                                   : kRGB_H_SkPixelGeometry;
 #else
-    return kUnknown_SkPixelGeometry;
+        return kUnknown_SkPixelGeometry;
 #endif
+    }();
+    return cached;
 }
 } // namespace
 
