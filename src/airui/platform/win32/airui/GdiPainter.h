@@ -13,6 +13,7 @@
 // straight through to GDI.
 // ============================================================
 #include "airui/hal.h"
+#include "airui/UiText.h"
 #include <windows.h>
 #include <string>
 #include <stack>
@@ -199,14 +200,15 @@ private:
         int i = (int)role;
         if (i < 0 || i >= (int)FontRole::Count) i = 0;
         if (!m_fonts[i]) {
-            // Logical pixel sizes per role (Segoe UI; clearType).
-            static const int kSize[(int)FontRole::Count] = {
-                13, 11, 20, 15, 13, 13, 18, 28
-            };
-            m_fonts[i] = CreateFontW(-kSize[i], 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            // Size and family come from UiText.h so the Skia backend
+            // renders the exact same box (it converts `cell` to an em
+            // size). Do not inline numbers here again.
+            const FontSpec spec = RoleFontSpec(role);
+            m_fonts[i] = CreateFontW(-spec.cell, 0, 0, 0, spec.weight,
+                                     FALSE, FALSE, FALSE,
                                      DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
                                      CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-                                     DEFAULT_PITCH, L"Segoe UI");
+                                     DEFAULT_PITCH, kFamilyUi);
         }
         return m_fonts[i];
     }

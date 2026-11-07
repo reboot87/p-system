@@ -133,11 +133,17 @@ struct LOGFONT {
 #endif
 sk_sp<SkTypeface> SkCreateTypefaceFromLOGFONT(const LOGFONT&);
 
+enum class SkFontHinting { kNone, kSlight, kNormal, kFull };
+
 class SkFont
 {
 public:
+    enum class Edging { kAlias, kAntiAlias, kSubpixelAntiAlias };
     void setTypeface(sk_sp<SkTypeface>) {}
     void setSize(SkScalar) {}
+    void setHinting(SkFontHinting) {}
+    void setSubpixel(bool) {}
+    void setEdging(Edging) {}
     void getMetrics(SkFontMetrics*) const {}
     SkScalar measureText(const void*, size_t, SkTextEncoding,
                          SkRect* = nullptr, const SkPaint* = nullptr) const

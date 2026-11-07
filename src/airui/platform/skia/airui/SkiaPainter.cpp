@@ -7,6 +7,7 @@
 #include "airui/SkiaPainter.h"
 #include "airui/SkiaApi.h"
 #include "airui/SkiaTypes.h"
+#include "airui/UiText.h"
 
 #include <algorithm>
 #include <string>
@@ -116,13 +117,37 @@ std::string EncodeUtf8(const uint32_t* cps, size_t n)
 // the secure CRT (so it also works under the syntax gate, where the real
 // <windows.h> may be absent). LOGFONT is TCHAR-based, which is char[] in
 // ANSI builds and wchar_t[] in Unicode builds -- TCHAR/TEXT keep this
-// code correct under either setting.
-static void CopyFaceName(TCHAR (&dst)[32], const TCHAR* src)
+// code correct under either setting. UiText.h families are ASCII, so the
+// narrowing cast is lossless even when TCHAR is char.
+static void CopyFaceName(TCHAR (&dst)[32], const wchar_t* src)
 {
     for (int k = 0; k < 32; ++k) {
-        dst[k] = src[k];
+        dst[k] = static_cast<TCHAR>(src[k]);
         if (src[k] == 0) break;
     }
+}
+
+// Skia sizes text by em, GDI's LOGFONT.lfHeight is the *cell* height
+// (ascent + descent). For Segoe UI the cell is ~1.33x the em, so feeding
+// a cell height straight into SkFont::setSize made every string a third
+// too large -- headings collided with the title bar and nav rows were
+// ellipsised. Metrics scale linearly with size, so one probe at 1000
+// gives an exact conversion for any cell height.
+static SkScalar EmForCell(const sk_sp<SkTypeface>& face, int cell)
+{
+    const SkScalar fallback = static_cast<SkScalar>(cell > 0 ? cell : 13);
+#if defined(_WIN32)
+    if (face && cell > 0) {
+        SkFont probe;
+        probe.setTypeface(face);
+        probe.setSize(1000.f);
+        SkFontMetrics fm{};
+        probe.getMetrics(&fm);
+        const float box = fm.fDescent - fm.fAscent;
+        if (box > 1.f) return static_cast<SkScalar>(cell) * 1000.f / box;
+    }
+#endif
+    return fallback;
 }
 
 // Process-wide typeface set.
@@ -135,65 +160,90 @@ static void CopyFaceName(TCHAR (&dst)[32], const TCHAR* src)
 // removes that cost from every frame after the first.
 struct SharedFaces
 {
-    sk_sp<SkTypeface> body;
-    sk_sp<SkTypeface> icon;
-    sk_sp<SkTypeface> fallback;
+    sk_sp<SkTypeface> ui;        // Segoe UI           (shapes Latin/UI text)
+    sk_sp<SkTypeface> uiBold;    // Segoe UI Semibold  (reserved for weights)
+    sk_sp<SkTypeface> cjk;       // Microsoft YaHei UI (what GDI font-links to)
+    sk_sp<SkTypeface> icon;      // Segoe MDL2 Assets
+    sk_sp<SkTypeface> fallback;  // system default, last resort
+    // Em size per role, derived once from the role's cell height.
+    SkScalar em[static_cast<int>(FontRole::Count)] = {};
 };
 
-const SharedFaces& GetSharedFaces()
+void FillSharedFaces(SharedFaces& f)
 {
-    static const SharedFaces* faces = new SharedFaces([] {
-        SharedFaces f;
-        // One typeface per role, built from the exact LOGFONT the Win32
-        // GDI backend already uses. On Windows we go through Skia's
-        // Windows port SkCreateTypefaceFromLOGFONT, which is stable
-        // across Skia versions (the default font-manager factory is
-        // not). This makes Skia glyph metrics and families match GDI
-        // 1:1, so Chinese UI text and Segoe MDL2 icons both render.
 #if defined(_WIN32)
+    auto make = [](const wchar_t* family, int weight, int cell) {
         LOGFONT lf{};
-        lf.lfHeight         = -16;
-        lf.lfWeight         = FW_NORMAL;
+        lf.lfHeight         = -cell;
+        lf.lfWeight         = weight;
         lf.lfCharSet        = DEFAULT_CHARSET;
         lf.lfOutPrecision   = OUT_DEFAULT_PRECIS;
         lf.lfClipPrecision  = CLIP_DEFAULT_PRECIS;
         lf.lfQuality        = CLEARTYPE_QUALITY;
         lf.lfPitchAndFamily = DEFAULT_PITCH | FF_DONTCARE;
-        CopyFaceName(lf.lfFaceName, TEXT("Microsoft YaHei UI"));
-        f.body = SkCreateTypefaceFromLOGFONT(lf);
+        CopyFaceName(lf.lfFaceName, family);
+        return SkCreateTypefaceFromLOGFONT(lf);
+    };
 
-        LOGFONT lfIcon = lf;
-        CopyFaceName(lfIcon.lfFaceName, TEXT("Segoe MDL2 Assets"));
-        f.icon = SkCreateTypefaceFromLOGFONT(lfIcon);
+    f.ui     = make(kFamilyUi,   400, 13);
+    f.uiBold = make(kFamilyUi,   600, 13);
+    f.cjk    = make(kFamilyCjk,  400, 13);
+    f.icon   = make(kFamilyIcon, 400, 13);
 
-        if (!f.body) {
-            // Last resort: let GDI pick the system default font.
-            LOGFONT lfDef{};
-            lfDef.lfHeight         = -16;
-            lfDef.lfCharSet        = DEFAULT_CHARSET;
-            lfDef.lfPitchAndFamily = DEFAULT_PITCH | FF_DONTCARE;
-            f.body = SkCreateTypefaceFromLOGFONT(lfDef);
-        }
-        if (!f.icon) f.icon = f.body;
+    if (!f.ui) {
+        // Last resort: let GDI pick the system default font.
+        LOGFONT lfDef{};
+        lfDef.lfHeight         = -13;
+        lfDef.lfCharSet        = DEFAULT_CHARSET;
+        lfDef.lfPitchAndFamily = DEFAULT_PITCH | FF_DONTCARE;
+        f.ui = SkCreateTypefaceFromLOGFONT(lfDef);
+    }
+    if (!f.uiBold) f.uiBold = f.ui;
+    if (!f.cjk)    f.cjk    = f.ui;
 
-        // Generic fallback for codepoints neither family covers (rare
-        // symbols / emoji): an empty-faced LOGFONT lets GDI resolve the
-        // best available system font.
-        LOGFONT lfFall{};
-        lfFall.lfHeight         = -16;
-        lfFall.lfCharSet        = DEFAULT_CHARSET;
-        lfFall.lfPitchAndFamily = DEFAULT_PITCH | FF_DONTCARE;
-        f.fallback = SkCreateTypefaceFromLOGFONT(lfFall);
-#else
-        // Non-Windows is not a supported runtime target for this Win32
-        // UI library; leave the faces null so the TU still compiles.
+    // Generic fallback for codepoints no family above covers (rare
+    // symbols / emoji): an empty-faced LOGFONT lets GDI resolve the
+    // best available system font.
+    LOGFONT lfFall{};
+    lfFall.lfHeight         = -13;
+    lfFall.lfCharSet        = DEFAULT_CHARSET;
+    lfFall.lfPitchAndFamily = DEFAULT_PITCH | FF_DONTCARE;
+    f.fallback = SkCreateTypefaceFromLOGFONT(lfFall);
 #endif
+    // Em size per role: Latin (primary face) and icon roles are measured
+    // against the face that actually draws them.
+    for (int i = 0; i < static_cast<int>(FontRole::Count); ++i) {
+        const FontRole role = static_cast<FontRole>(i);
+        const FontSpec spec = RoleFontSpec(role);
+        const bool isIcon = (role == FontRole::Icon || role == FontRole::IconLarge);
+        f.em[i] = EmForCell(isIcon ? f.icon : f.ui, spec.cell);
+    }
+}
+
+const SharedFaces& GetSharedFaces()
+{
+    static const SharedFaces* faces = new SharedFaces([] {
+        SharedFaces f;
+        FillSharedFaces(f);
         return f;
     }());
     // Deliberately leaked: these typefaces live for the whole process.
     // A static destructor would run while the plugin DLL unloads, when
     // Skia's own code may already be gone.
     return *faces;
+}
+
+// CJK / fullwidth ranges. GDI resolves these through font linking to
+// Microsoft YaHei UI; doing the same here is what keeps Chinese text on
+// the same family (and therefore the same shapes) across backends.
+bool IsCjk(uint32_t cp)
+{
+    return (cp >= 0x2E80u && cp <= 0x9FFFu) ||   // radicals .. CJK unified
+           (cp >= 0x3000u && cp <= 0x303Fu) ||   // CJK punctuation
+           (cp >= 0x3040u && cp <= 0x30FFu) ||   // kana
+           (cp >= 0xAC00u && cp <= 0xD7AFu) ||   // hangul
+           (cp >= 0xF900u && cp <= 0xFAFFu) ||   // compatibility ideographs
+           (cp >= 0xFF00u && cp <= 0xFFEFu);     // fullwidth forms
 }
 
 } // namespace
@@ -207,11 +257,13 @@ struct SkiaPainter::Impl
     bool      ready[static_cast<int>(FontRole::Count)] = {};
     int       clipDepth = 0;
 
-    // Font fallback: one explicit typeface per role so we match GDI's
-    // families (Microsoft YaHei UI for UI text, Segoe MDL2 Assets for
-    // icons). Lazy: created on first use, never fails the whole painter.
+    // Font faces per role: Segoe UI for UI text, Segoe MDL2 Assets for
+    // icons -- exactly what the GDI backend selects -- plus a CJK face
+    // standing in for GDI's font linking. Lazy: resolved on first use.
     sk_sp<SkTypeface>      roleFace[static_cast<int>(FontRole::Count)];
+    sk_sp<SkTypeface>      cjkFace = nullptr;
     sk_sp<SkTypeface>      defaultFace = nullptr;
+    SkScalar               roleSize[static_cast<int>(FontRole::Count)] = {};
     bool                   facesReady = false;
 
     void EnsureFaces()
@@ -222,18 +274,18 @@ struct SkiaPainter::Impl
         const SharedFaces& shared = GetSharedFaces();
         for (int i = 0; i < static_cast<int>(FontRole::Count); ++i) {
             const FontRole role = static_cast<FontRole>(i);
-            if (role == FontRole::Icon || role == FontRole::IconLarge)
-                roleFace[i] = shared.icon ? shared.icon : shared.body;
-            else
-                roleFace[i] = shared.body;
+            const bool isIcon = (role == FontRole::Icon || role == FontRole::IconLarge);
+            roleFace[i] = isIcon ? (shared.icon ? shared.icon : shared.ui) : shared.ui;
+            roleSize[i] = shared.em[i];
         }
+        cjkFace = shared.cjk;
         defaultFace = shared.fallback;
     }
 
-    // Pick the typeface that can actually draw `cp` for this role: prefer
-    // the role's explicit family, else fall back to a generic system font
-    // that covers the codepoint (this is what keeps rare symbols/emoji
-    // from rendering as tofu).
+    // Pick the typeface that can actually draw `cp` for this role. Order
+    // mirrors GDI: role family -> font-linked CJK family -> system
+    // default. Falling back to the generic system font first would give
+    // Chinese a different family from GDI's and change its shapes.
     sk_sp<SkTypeface> FaceFor(FontRole role, SkUnichar cp)
     {
         EnsureFaces();
@@ -242,6 +294,9 @@ struct SkiaPainter::Impl
                           ? 0 : static_cast<int>(role);
         sk_sp<SkTypeface>& base = roleFace[i];
         if (base && base->unicharToGlyph(cp)) return base;
+        if (IsCjk(static_cast<uint32_t>(cp)) &&
+            cjkFace && cjkFace->unicharToGlyph(cp))
+            return cjkFace;
         if (defaultFace && defaultFace->unicharToGlyph(cp)) return defaultFace;
         return base;
     }
@@ -253,11 +308,17 @@ struct SkiaPainter::Impl
         if (!ready[i]) {
             EnsureFaces();
             SkFont f;
-            f.setSize(static_cast<SkScalar>(skia::RoleFontSize(role)));
-            // Bind the role's family so glyph metrics match GDI; per-
-            // codepoint fallback in DrawRuns still overrides when a
-            // codepoint is missing from this family.
+            // roleSize is already an em size converted from the GDI cell
+            // height, so both backends occupy the same box.
+            f.setSize(roleSize[i] > 0 ? roleSize[i] : 13.f);
             if (roleFace[i]) f.setTypeface(roleFace[i]);
+            // GDI CLEARTYPE_QUALITY snaps stems to the pixel grid with
+            // integer advances. Full hinting + no subpixel positioning is
+            // the closest Skia equivalent, and is what keeps 13 px UI
+            // text from looking soft and blurry next to GDI's.
+            f.setHinting(SkFontHinting::kFull);
+            f.setSubpixel(false);
+            f.setEdging(SkFont::Edging::kAntiAlias);
             fonts[i] = f;
             ready[i] = true;
         }

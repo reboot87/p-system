@@ -2,6 +2,7 @@
 // AirUI - SkiaTypes.cpp (pure C++, no Skia SDK required)
 // ============================================================
 #include "airui/SkiaTypes.h"
+#include "airui/UiText.h"
 
 namespace air {
 namespace ui {
@@ -32,13 +33,11 @@ void AppendUtf8(std::string& out, uint32_t cp)
 
 int RoleFontSize(FontRole role) noexcept
 {
-    // Must stay byte-for-byte in sync with GdiPainter::FontFor().
-    static const int kSize[static_cast<int>(FontRole::Count)] = {
-        13, 11, 20, 15, 13, 13, 18, 28
-    };
-    int i = static_cast<int>(role);
-    if (i < 0 || i >= static_cast<int>(FontRole::Count)) i = 0;
-    return kSize[i];
+    // Character height in logical pixels, NOT a Skia em size. The painter
+    // converts it (SkiaPainter::EmForCell) so the glyph box matches the
+    // GDI backend exactly; the table itself lives in UiText.h so the two
+    // backends can never drift apart again.
+    return RoleFontSpec(role).cell;
 }
 
 std::string WideToUtf8(const std::wstring& s)

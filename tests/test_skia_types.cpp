@@ -6,6 +6,7 @@
 // honest even when Skia itself is not installed.
 // ============================================================
 #include "airui/SkiaTypes.h"
+#include "airui/UiText.h"
 
 #include <cstdio>
 #include <string>
@@ -87,6 +88,24 @@ int main()
     Check(Vertical(dt::Top)                == VAlign::Top,    "vertical top");
     Check(Vertical(dt::VCenter)            == VAlign::Middle, "vertical middle");
     Check(Vertical(dt::Bottom)             == VAlign::Bottom, "vertical bottom");
+
+    // Typography contract. Skia sizes by em, GDI by cell height, so the
+    // two backends drifted once already (Skia text came out ~33% too big
+    // and every nav label was ellipsised). Pin the table and the unit.
+    static const int kExpected[(int)FontRole::Count] = {
+        13, 11, 20, 15, 13, 13, 18, 28
+    };
+    for (int i = 0; i < (int)FontRole::Count; ++i) {
+        const FontRole role = static_cast<FontRole>(i);
+        Check(RoleFontSpec(role).cell == kExpected[i], "role cell height");
+        Check(RoleFontSize(role) == kExpected[i],
+              "RoleFontSize is a cell height, not an em size");
+        Check(RoleFontSpec(role).weight >= 400 &&
+              RoleFontSpec(role).weight <= 700, "role weight is a LOGFONT weight");
+    }
+    const FontSpec oob = RoleFontSpec(static_cast<FontRole>((int)FontRole::Count));
+    Check(oob.cell == 13 && oob.weight == 400,
+          "out-of-range role falls back to Body");
 
     if (g_fail == 0) std::printf("test_skia_types: all checks passed\n");
     else             std::printf("test_skia_types: %d check(s) failed\n", g_fail);
