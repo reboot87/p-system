@@ -149,7 +149,11 @@ jobs:
             Write-Host "deploy-skia: download failed; app will fall back to GDI"
             exit 0
           }
-          Write-Host "deploy-skia: plugin staged under build-core/ci-all/airui-skia-windows-x64"
+          # Stamp the run id so the deploy script can tell a fresh bundle
+          # from a leftover one (a stale bundle must never be copied while
+          # the newer run id is recorded -- that froze plugins before).
+          Set-Content -Path "build-core/ci-all/airui-skia-windows-x64/airui-skia.ci-run" -Value $runId
+          Write-Host "deploy-skia: plugin staged under build-core/ci-all/airui-skia-windows-x64 (run $runId)"
 
       - name: Build ALL targets (app, gallery, tests, libs)
         run: cmake --build build-core --config Release

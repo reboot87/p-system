@@ -141,6 +141,22 @@ if(_have_dll)
 
     message(STATUS "deploy-skia: newer plugin available (run ${_latest}); refreshing")
     set(_src "${_bundle}")
+    # A pre-downloaded bundle is trustworthy only if it carries the run id it
+    # came from, or if the caller pinned PLUGIN_DIR explicitly. Otherwise it
+    # can be an older run, and copying it while stamping _latest would leave
+    # the deployed DLL stale *and* mark it current -- which then never
+    # refreshes again.
+    if(_src AND NOT PLUGIN_DIR)
+        set(_bundle_run "")
+        if(EXISTS "${_src}/airui-skia.ci-run")
+            file(READ "${_src}/airui-skia.ci-run" _bundle_run)
+            string(STRIP "${_bundle_run}" _bundle_run)
+        endif()
+        if(NOT "${_bundle_run}" STREQUAL "${_latest}")
+            message(STATUS "deploy-skia: local bundle is not from run ${_latest}; downloading instead")
+            set(_src "")
+        endif()
+    endif()
     if(NOT _src)
         # Force a real download; the on-disk cache belongs to an older run.
         _deploy_download(_src)
