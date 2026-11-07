@@ -140,10 +140,11 @@ airecord.exe --paint-backend=skia
 - **仅 x64 构建部署**：插件是 x64，32 位（Win32）构建直接跳过，避免拉取一个无法被 32 位 exe 加载的无用包（§6）。
 - 解析顺序（best-effort，找不到就静默回退 GDI，绝不导致构建失败）：
   1. `-DAIRUI_SKIA_PLUGIN_DIR=<dir>`（显式指定包含 `airui-skia.dll` 的目录）；
-  2. `<binary-dir>/ci-all/airui-skia-windows-x64`（CI 步骤或手动放置）；
-  3. `<binary-dir>/ci-skia`（本地 `cmake --build` 时由 POST_BUILD 内 `gh run download` 最新成功 CI 产物拉取）。
+  2. `<binary-dir>/ci-all/airui-skia-windows-x64`（CI 步骤预下载，必然对应当前 run）；
+  3. `<binary-dir>/ci-skia`（本地构建时由 `gh run download` 拉取；**只作离线兜底，不当作「已是最新」**）。
 - 只拷贝 `*.dll`（`FILES_MATCHING PATTERN "*.dll"`），**不会覆盖开发者自己刚编译的 `airecord.exe`**；`airui-skia.dll` 及其全部 vcpkg 运行时依赖（skia / icu / harfbuzz 等）一次性到位。
 - **自动更新（不会用旧插件卡住）**：部署后在 exe 旁写一个标记 `airui-skia.ci-run`（记录来源 CI run id）。之后每次 x64 构建都做一次轻量 `gh run list`，若 CI 发布了更新的成功构建就自动重新拉取并覆盖，标记随之更新；标记与最新 run 一致则跳过（不重复下载）；离线 / 无 `gh` 则保留当前插件，绝不误删可用的 DLL。
+  - 刷新时必须**真正重下**（先 `REMOVE_RECURSE` 清掉 `ci-skia` 再 `gh run download`）。早期版本把 `ci-skia` 里的旧缓存当成可用源，导致「跳过下载 + 把标记写成新 run id」，插件被永久钉在旧构建上（commit `c6b6db5`）。若怀疑插件没更新，删掉 exe 旁的 `airui-skia.ci-run` 后重新构建即可强制刷新。
 - **本地**：一次 `cmake --build build/vs2017-x64` 即自动把插件放到 exe 同目录——`gh` 已登录（`gh auth login`）+ 网络即可，无需任何手动拷贝或 fetch 命令；首次构建拉取一次，同版本后续构建跳过，CI 出新插件时自动更新。`fetch-skia-plugin` 这个独立 target 仍保留，作为手动强制预取入口。
 - **CI（x64 Windows 构建）**：专门的 `Download Skia plugin artifact` 步骤在 `cmake --build` 之前用 `gh`（`GH_TOKEN=${{ github.token }}`）把 `airui-skia-windows-x64` 产物预拉到 `build-core/ci-all/airui-skia-windows-x64`，POST_BUILD 再本地拷贝，从而绕开 `GITHUB_TOKEN` 难以传入 `cmake -P` 子进程的问题。该步骤 `continue-on-error`，失败只回退 GDI，不影响构建（已实测 run `42372024140` 自动部署成功）。
 
@@ -344,6 +345,8 @@ airecord.exe --paint-backend=skia
 - **真实 GUI 截图 diff**：已完成逐窗口像素统计（整窗 1.93% / 内容区 0.83% / 往返 0.07%，§5.3、§5.4），但只是手工截图比对，**SSIM 指标与自动化截图基线仍未建立**。
 - **VS2017 只验证了「使用 DLL」，未验证「编译 Skia」**：真 SDK 源码编译仍只在 VS2022 CI 上做；官方 VS2017 工具链 x64 产物通过下载 DLL 使用 Skia 已实测（整窗 GUI 截图、像素差异、启动诊断、双向热切换，§5.2 / §5.3 / §5.4）。CI 目前只出 **x64** 插件，x86 官方产物需 x64 构建或另出 x86 artifact。
 - **Skia API 版本漂移**：所有 Skia 头集中在 `SkiaApi.h`；已在 vcpkg `skia@148` 上校准（§5.1），但 `drawSimpleText` / `measureText` 等仍可能随版本变化。
+- **整窗重绘的时序约束（切页/切菜单不能闪）**：Skia 一帧是「离屏光栅化 → `AlphaBlend` 到内存 DC → `BitBlt` 上屏」，只有最后那次 `BitBlt` 会真正改变屏幕。因此**任何中间态都不能被呈现**：`Shell::SwitchPage()` 把「隐藏旧页 → 改选中态 → 布局 → 显示新页」整段包在 `WM_SETREDRAW FALSE` 里，解冻后 `RedrawWindow(RDW_UPDATENOW|RDW_NOERASE)` 一次性同步上屏（commit `b2870df`）。曾经的写法把 `OnShow(true)` 放在解冻之后，于是「旧页已隐藏、新页未显示」的半成品帧会被真正画出来——Skia 下单帧 63–109 ms，肉眼就是整窗闪一下。同一原因下 `PaintDC` 的 `CreateCompatibleBitmap` 必须先填主题底色，否则后端帧的透明像素会与未初始化的 DDB 做 AlphaBlend 露出黑噪声。
+- **Skia 单帧成本远高于 GDI**：1120×780 窗口实测 GDI 重绘 0–15 ms，Skia `draw` 段 63–109 ms（`present` 另占约 16 ms；`begin` 可忽略）。首次绘制因要建 3 个 typeface 达 125–188 ms，之后 typeface 进程级共享（commit `014cef7`）。定位手段：`AIRUI_PAINT_TRACE=1` 启动后会在 `%LOCALAPPDATA%\AireRecord\shell_paint.log` 打出每帧 `begin/draw/present` 分段耗时，默认关闭、零开销。这也是「切页比 GDI 明显钝」的原因，属已知性能边界，非正确性问题。
 
 ---
 
