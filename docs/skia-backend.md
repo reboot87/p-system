@@ -230,8 +230,25 @@ em = 1000 * gdiWidth / skiaWidthAt1000
 **（7）字重来自设计系统。**
 Title / Section / Button / Display 是 **600（semibold）**，Body / Meta / Icon 是 400。Skia 原先只有 400 face，标题明显更轻、"像换了字体"。现在 `SharedFaces` 同时持 400/600（含 `Microsoft YaHei UI Semibold`），用 `UiFaceFor()` / `CjkFaceFor()` 按 role 选面；`MeasureRole` 也按同一字重造 GDI 参考字体，标定与绘制一致。
 
-**（8）清晰度贴近 `CLEARTYPE_QUALITY`。**
-`setHinting(kFull)` + `setSubpixel(false)` + `setEdging(kAntiAlias)`：不用 subpixel 是因为 Skia 的 LCD 滤镜与 GDI ClearType 的滤色矩阵不同，混排会在彩色边缘上看出来；全 hinting + 灰度抗锯齿更接近。
+**（8）清晰度：走 LCD 亚像素，和 ClearType 同一条路。**
+宽度、字号、字重都对上之后，两个后端**一眼还是不像**——差异在栅格化方式：GDI 的 `CLEARTYPE_QUALITY` 把覆盖率分配到 RGB 三个子像素，边缘有彩色条带、竖笔锐利；Skia 默认是全灰抗锯齿，同一个字形看着软、糊、发灰。
+
+量化口径：区域内的 `max(R,G,B) - min(R,G,B)` 均值（彩色边缘强度）。卡片标题区 GDI **19.2**（峰值 157）、深色正文 **14.1**；改之前的 Skia **恒为 0.0**。
+
+关键坑：**只把字体设成 `kSubpixelAntiAlias` 不够。** Skia 的 LCD 覆盖率要求设备知道自己的子像素几何，而 `SkCanvas(bitmap)` 的 props 是 unknown，于是静默降级为灰度——这就是"参数都对、结果还是不像"的原因。必须经由 surface 携带 props：
+
+```cpp
+const SkSurfaceProps props(0, LcdPixelGeometry());   // 来自系统 ClearType 设置
+surface = SkSurfaces::WrapPixels(info, bitmap.getPixels(),
+                                 bitmap.rowBytes(), &props);
+canvas  = surface->getCanvas();
+```
+
+- **几何取自系统设置**：`HKCU\Control Panel\Desktop` 的 `FontSmoothing` / `FontSmoothingType` 必须都是 `2`（ClearType 打开）才用 LCD，否则返回 `kUnknown`，让 Skia 退回灰度——**与 GDI 当前行为一致**比"一律亚像素"更重要。`FontSmoothingOrientation` 决定 `kRGB_H` / `kBGR_H`。结果用函数内 static 缓存（`SkiaFrame` 每帧重建，不能把三次 `RegGetValue` 放到绘制路径上）。
+- **前提是不透明目标**：Skia 模式下 `gfx::Fill(dc, rc, Pal().bg)` 也走 PaintFrame，整窗先被填满，alpha 为 255；若某次绘制落在透明像素上，Skia 对该次绘制自动退回灰度，所以 Skia chrome 与 GDI 页面混排仍然正确。
+- **实测结果**：Skia 彩色边缘强度 19.7（标题）/ 14.5（正文），与 GDI 的 19.2 / 14.1 基本一致；整窗像素差 `YAVG` 从 **1.82 降到 0.79**（/255）。
+
+**API 版本注意**：vcpkg 的 `skia` 是 **m148**，栅格 surface 工厂自 m130 起搬到 `SkSurfaces` 命名空间（`SkSurfaces::WrapPixels`），`SkSurface::MakeRasterDirect` 已不存在。本地语法门禁用 `SkiaApiMock.h` 校验同一契约。
 
 **字号与字重的唯一来源是 `src/airui/core/include/airui/UiText.h`**（`RoleFontSpec()`，header-only、平台无关，因为 Skia 插件不链接 core）。GDI 的 `GdiPainter::FontFor()`、Skia 的 `SkiaTypes::RoleFontSize()` 与标定都读它，避免两边各维护一张表再次漂移。
 
@@ -392,7 +409,7 @@ airecord.exe --paint-backend=skia
 - **VS2017 只验证了「使用 DLL」，未验证「编译 Skia」**：真 SDK 源码编译仍只在 VS2022 CI 上做；官方 VS2017 工具链 x64 产物通过下载 DLL 使用 Skia 已实测（整窗 GUI 截图、像素差异、启动诊断、双向热切换，§5.2 / §5.3 / §5.4）。CI 目前只出 **x64** 插件，x86 官方产物需 x64 构建或另出 x86 artifact。
 - **Skia API 版本漂移**：所有 Skia 头集中在 `SkiaApi.h`；已在 vcpkg `skia@148` 上校准（§5.1），但 `drawSimpleText` / `measureText` 等仍可能随版本变化。
 - **整窗重绘的时序约束（切页/切菜单不能闪）**：Skia 一帧是「离屏光栅化 → `AlphaBlend` 到内存 DC → `BitBlt` 上屏」，只有最后那次 `BitBlt` 才真正改变屏幕。所以**任何中间态都不能被呈现**，而最容易被呈现的中间态恰恰是「背景色」。实测根因（commit `d6374b8`）：`SwitchPage()` 解除 `WM_SETREDRAW FALSE` 冻结时，Windows 会以**带 erase** 的方式重绘整个客户区，`WM_ERASEBKGND` 先把 1120×780 全填成主题背景色，而真正的 Skia 帧还要 46–63 ms 才上屏——这一帧纯背景就是用户看到的「全屏闪动」。修法是切页期间用 `m_eraseSuppressed` 让 `WM_ERASEBKGND` 只认领不填充，随后一次 `RedrawWindow(RDW_INVALIDATE|RDW_UPDATENOW|RDW_NOERASE|RDW_ALLCHILDREN)` 同步呈现唯一一帧；`m_paintedOnce` 保证窗口第一帧仍正常擦背景（否则新暴露区域会露未初始化内容）。同时「隐藏旧页 → 改选中态 → 布局 → 显示新页」整段收在冻结区内（`OnShow(true)` 若留在解冻之后，子控件会先擦背景露白块）。
-- **字体已与 GDI 对齐，但仍是"近似逐像素"**：字号（GDI 宽度标定）、字重（400/600 分面）、基线（GDI cell/ascent + 整像素取整）、中文回退（CJK 1 em）、省略号语义（只在放不下时截断）都已统一，见 §4.1。残余差异来自抗锯齿本身：GDI ClearType 是 RGB 子像素、Skia 走灰度全 hinting，两边的灰阶过渡不同，逐像素 diff 不会归零；`MeasureText` 也可能与 GDI 有 ±1px 差别。这属于渲染质量差异，不是"字体不同"。
+- **字体已与 GDI 对齐**：字号（GDI 宽度标定）、字重（400/600 分面）、基线（GDI cell/ascent + 整像素取整）、中文回退（CJK 1 em）、省略号语义（只在放不下时截断）、抗锯齿（LCD 亚像素，与 ClearType 同路）都已统一，见 §4.1。整窗像素差 `YAVG` 0.79/255，剩余差异是子像素覆盖率的具体权重（GDI 的 ClearType 滤色矩阵与 Skia 的 LCD 混合不完全相同）以及 `MeasureText` 可能有的 ±1px，属于同一字形的栅格化噪声，不是"字体不同"。
 - **诊断入口**：`AIRUI_PAINT_TRACE=1` 启动后，`%LOCALAPPDATA%\AireRecord\shell_paint.log` 会打出每帧 `[paint] ... (begin/draw/present)` 分段耗时、`[switch] sync_ms`、`[erase] ... suppressed=` 探针。默认关闭、零开销。判断「是否还在闪」看 `[erase]` 行的 `suppressed` 是否为 1。文字标定与逐条文本的 role/size/宽度/坐标写到同目录的 `skia_font.log`（§4.1）。
 - **Skia 单帧成本远高于 GDI**：1120×780 窗口实测 GDI 重绘 0–15 ms，Skia `draw` 段 63–109 ms（`present` 另占约 16 ms；`begin` 可忽略）。首次绘制因要建 3 个 typeface 达 125–188 ms，之后 typeface 进程级共享（commit `014cef7`）。定位手段：`AIRUI_PAINT_TRACE=1` 启动后会在 `%LOCALAPPDATA%\AireRecord\shell_paint.log` 打出每帧 `begin/draw/present` 分段耗时，默认关闭、零开销。这也是「切页比 GDI 明显钝」的原因，属已知性能边界，非正确性问题。
 
