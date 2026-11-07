@@ -129,3 +129,10 @@
   - **修复**：`windows` 与 `skia-windows` 两个作业统一固定 `runs-on: windows-2022`（仍带 VS2022，且与本机第二工具链 VS2022 Professional 一致）；新增 `Verify VS2022 toolchain` 步骤，用 `vswhere -all -products *` 断言镜像上确实存在 VS2022 并打印 CMake 版本，镜像再漂移时能一眼定位。本地官方构建仍为 CMake + VS2017（`build.bat`），不变。
   - **顺带修缓存**：原 `actions/cache@v4` 的隐式 post 保存**只在整个 job 成功时执行**，Skia 作业失败导致每次丢弃约 35 分钟的源码编译产物；且 `${{ env.VCPKG_ROOT }}/installed` 在 `with:` 表达式里取不到动态写入 `GITHUB_ENV` 的值（env context 只含 workflow 静态定义），路径实际为空前缀。改为 `actions/cache/restore@v4` + `actions/cache/save@v4`（install 成功后立即保存），路径改用 `steps.vcpkg.outputs.root` 的正斜杠绝对路径，缓存 key 带 `windows-2022` 标识。
   - **边界**：`skia-windows` 仍 `continue-on-error`，不阻塞核心门禁；真 SDK 首次在新镜像上跑通后，才谈得上按真实 Skia API 校准 `SkiaApi.h` / 双后端 diff。业务模块仍留最后。
+
+- **2026-11-07 — 修复后 CI 复验结果 + 真 Skia SDK 首次编译校准**
+  - `e7bfa74` 的新 run：ubuntu / macOS / **windows-VS2022 三个核心作业全部 success**，workflow 整体 success；`skia-windows` 首次跑完 vcpkg 源码编译（约 39 分钟）并 Configure 成功，`Save vcpkg Skia artifacts` 也成功，后续 push 可直接命中缓存。唯一失败步骤是 Build（非阻塞）。
+  - **真 SDK 报错归纳**：① `SkRect.h`/`SkSamplingOptions.h`/`SkTArray.h` 的 MSVC `C2589` 语法错 → `SkiaSurface.h` 的 `<windows.h>` 带进 `min/max` 宏，污染 Skia 头的 `std::max/numeric_limits::max`；② `SkTypeface::MakeFromName` 已移除；③ `SkPath` 变不可变、`addRect` 移到 `SkPathBuilder`；④ `SkDashPathEffect::Make` 由 `(ptr,count,phase)` 改为 `(SkSpan<const SkScalar>, phase)`。
+  - **修复**：`SkiaApi.h` 在 `_WIN32 && !AIRUI_SKIA_MOCK` 下定义 `NOMINMAX` + `#undef min/max`（只作用于后端 TU，不动旧 Win32 代码），并新增 `SkPathBuilder.h`/`SkSpan.h`；`SkiaPainter.cpp` 改用 `SkFont` 平台默认 typeface（只按 `FontRole` 设字号）、`SkPathBuilder::detach()`、`SkSpan` 版 dash；`SkiaApiMock.h` 同步成新契约，避免本地语法门禁验证一套已死 API；CI 加 `Record real Skia API signatures` 诊断步骤把真 SDK 签名写进日志。细节见 `docs/skia-backend.md` §4.1。
+  - **验证**：本地 `check-skia-syntax.sh`（5 个源文件 `-fsyntax-only`）与 `check-core-clean.sh`（46 core 文件）全绿；真 SDK 的 Build + `test_skia_backend` 由下一次自动 CI 复验（缓存已命中，无需再等 35 分钟）。
+  - **边界**：字体族对齐（GDI 的 Segoe UI vs Skia 默认 typeface）、CJK 回退、像素级截图 diff 仍未做；业务模块仍留最后。

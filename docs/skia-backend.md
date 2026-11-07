@@ -111,22 +111,39 @@ src/airui/platform/skia/airui/
 
 `test_skia_backend` 是 G5 的落地：同一场景先由 core 的 `PaintRecorder` 录成金样，再经 `TeePainter` 一边驱动真实 Skia 后端、一边记录后端**实际收到**的 `IPainter` 调用，最后断言 `SequenceEquals` / `Diff().empty()`，并校验光栅像素确为 `BGRA + premultiplied`。这是第二个后端出现前根本无法执行的断言。
 
-GitHub Actions 的 `skia-windows` 作业用 **VS2022 + vcpkg** 跑上述最后一环，**push / PR 到 `main` 时自动触发**（不需要手动 dispatch，`workflow_dispatch` 仅保留给事后重跑）。vcpkg 的 `skia` port 是 `vcpkg_from_github` + GN/Ninja **源码编译**、不下载预编译库，所以作业用 `VCPKG_BINARY_SOURCES` 的 files 缓存 + `actions/cache` 缓存 `installed`/`downloads`：首次付编译成本，后续直接还原。另有独立并发组（不取消正在编译的作业，保证缓存能写入）、`timeout-minutes: 120`，并保留 `continue-on-error` 不阻塞核心 CI。
+GitHub Actions 的 `skia-windows` 作业用 **VS2022 + vcpkg** 跑上述最后一环，**push / PR 到 `main` 时自动触发**（不需要手动 dispatch，`workflow_dispatch` 仅保留给事后重跑）。vcpkg 的 `skia` port 是 `vcpkg_from_github` + GN/Ninja **源码编译**、不下载预编译库，所以作业用 `VCPKG_BINARY_SOURCES` 的 files 缓存 + `actions/cache` 的 `restore`/`save` 拆分缓存（install 成功后立即保存，不依赖 job 整体成功）缓存 `installed`/`downloads`：首次付编译成本，后续直接还原。另有独立并发组（不取消正在编译的作业，保证缓存能写入）、`timeout-minutes: 120`，并保留 `continue-on-error` 不阻塞核心 CI。
+
+> CI 的两个 Windows 作业固定 `runs-on: windows-2022`：`windows-latest` 自 2026-06 起指向 VS2026 镜像（无 VS2022，且自带 CMake < 4.2 不支持 VS18 生成器），硬写 `Visual Studio 17 2022` 会在 Configure 阶段直接失败。
+
+### 4.1 真 SDK 首次编译实测（2026-11-07，vcpkg `skia:x64-windows@148`）
+
+CI 首次跑完 vcpkg 源码编译（约 35 分钟）并成功 Configure，Build 阶段暴露两类问题，都不是业务逻辑错误：
+
+| 现象 | 根因 | 修法 |
+|---|---|---|
+| Skia 自带头 `SkRect.h` / `SkSamplingOptions.h` / `SkTArray.h` 报 MSVC `C2589 '(': illegal token on right side of '::'`，连带 `C2059` / `C1004` | `SkiaSurface.h` 引入 `<windows.h>`，`min/max` 宏把 Skia 头里的 `std::numeric_limits<>::max()` / `std::max(...)` 展开成非法表达式 | `SkiaApi.h`（唯一 Skia 头入口）在 `_WIN32 && !AIRUI_SKIA_MOCK` 下定义 `NOMINMAX` 并 `#undef min/max`。只影响少数后端 TU，不动全局 Win32 代码对 min/max 宏的使用 |
+| `SkTypeface::MakeFromName` 不是成员 | 现代 Skia 移除该工厂，字体查找改走 `SkFontMgr` | 后端改用 `SkFont` 的平台默认 typeface，仅按 `FontRole` 设字号；字体族对齐留作后续校准（§5） |
+| `SkPath::addRect` 不是成员 | `SkPath` 已不可变，轮廓改由 `SkPathBuilder` 构造 | `SkPathBuilder builder; builder.addRect(...); SkPath path = builder.detach();` |
+| `SkDashPathEffect::Make` 不接 3 参数 | 新签名 `Make(SkSpan<const SkScalar> intervals, SkScalar phase)` | 传 `SkSpan<const SkScalar>(intervals, 2), 0` |
+
+配套改动：`SkiaApi.h` 增加 `SkPathBuilder.h` / `SkSpan.h`；`tests/skia_contract/SkiaApiMock.h` 同步成新契约（否则无 SDK 的语法门禁会一直验证一套已死的 API）；CI 增加 `Record real Skia API signatures` 诊断步骤，把真 SDK 头里的关键签名写进日志，便于下次版本漂移一眼定位。
+
+> **约定**：`SkiaApi.h`（真 SDK 入口）与 `SkiaApiMock.h`（契约门禁）必须**同改**。真 SDK 的权威结论以 `skia-windows` 的 Build + `test_skia_backend` 运行为准，本地 mock 只保证形状。
 
 ---
 
 ## 5. 已知边界（不要误当成已完成）
 
 - **没有 Skia 版 `IWindow`**：目前只有绘制后端。窗口壳、消息泵、事件注入仍由 `Win32Window` 负责；Linux/macOS 应用本体仍不可构建。
-- **字体度量未对齐**：`SkFont` 用 `MakeFromName("Segoe UI")`，CJK 回退、hinting 与 GDI 的差异尚未校准（设计稿 R2/R7）。
+- **字体度量未对齐**：后端用 `SkFont` 的平台默认 typeface（现代 Skia 已移除 `SkTypeface::MakeFromName`，字体工厂平台相关），仅按 `FontRole` 设字号；与 GDI 的 "Segoe UI" 族、CJK 回退、hinting 的差异尚未校准（设计稿 R2/R7）。
 - **像素级 GDI vs Skia 截图 diff 未做**：当前断言的是**调用序列一致性**与「Skia 确实产出像素」，不是 SSIM 截图比对（§6 计划项）。
 - **VS2017 + Skia 未验证**：真 SDK 路径只在 VS2022 CI 上验证。
-- **Skia API 版本漂移**：所有 Skia 头集中在 `SkiaApi.h`；若新版改了 `drawSimpleText` / `measureText` 等签名，改这一个文件即可。`SkiaApiMock.h` 只保证形状，不是实现，也不是渲染测试。
+- **Skia API 版本漂移**：所有 Skia 头集中在 `SkiaApi.h`；已在 vcpkg `skia@148` 上校准 `SkPathBuilder` / `SkSpan` / 字体策略（§4.1），但 `drawSimpleText` / `measureText` 等仍可能随版本变化。`SkiaApiMock.h` 必须与真入口同改，且只保证形状，不是实现，也不是渲染测试。
 
 ---
 
 ## 6. 下一步
 
-1. 查看**自动触发**的 `skia-windows` 首次运行结果（Actions → CI，push/PR 到 `main` 即跑），按真实 SDK 的报错修正 `SkiaApi.h` 的 API 适配；缓存命中后每次 push/PR 都会复验。
+1. ~~查看自动触发的 `skia-windows` 首次运行结果~~ 已完成：runner 镜像问题与真 SDK 的 4 处 API/宏差异均已修（§4.1）；后续每次 push/PR 自动复验，缓存命中后很快。下一步是确认 Build + `test_skia_backend` 全绿。
 2. 校准字体度量与 CJK 回退，补 GDI vs Skia 截图阈值。
 3. Phase 2 剩余：Skia 版 `IWindow` / Linux 窗口壳（`cross-platform.md` §10 仍待定）。

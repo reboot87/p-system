@@ -9,14 +9,31 @@
 // It deliberately does NOT draw anything and is never linked.
 //
 // The authoritative check is the CI job that builds with a real Skia
-// SDK (see .github/workflows/ci.yml). If a real Skia version changes
-// an API, fix src/airui/platform/skia/airui/SkiaApi.h, not this file.
+// SDK (see .github/workflows/ci.yml). When a real Skia version changes
+// an API, update BOTH SkiaApi.h (the real include set) and this mock,
+// otherwise this gate silently validates a dead contract.
+//
+// Current contract follows modern Skia: SkPath is immutable (build
+// contours with SkPathBuilder), SkDashPathEffect::Make takes an
+// SkSpan, and SkTypeface::MakeFromName no longer exists.
 // ============================================================
 #include <cstddef>
 #include <cstdint>
 
 using SkScalar = float;
 using SkColor  = uint32_t;
+
+template <class T>
+class SkSpan
+{
+public:
+    constexpr SkSpan(T* p, size_t n) : m_p(p), m_n(n) {}
+    T*     data() const { return m_p; }
+    size_t size() const { return m_n; }
+private:
+    T*     m_p = nullptr;
+    size_t m_n = 0;
+};
 
 constexpr SkColor SK_ColorTRANSPARENT = 0u;
 
@@ -60,12 +77,10 @@ struct SkFontMetrics
 
 struct SkFontStyle {};
 
-class SkTypeface
-{
-public:
-    static sk_sp<SkTypeface> MakeFromName(const char*, SkFontStyle)
-    { return sk_sp<SkTypeface>(nullptr); }
-};
+// Modern Skia removed SkTypeface::MakeFromName; typeface lookup goes
+// through SkFontMgr instead. The backend currently relies on SkFont's
+// default typeface, so no factory is part of our API contract.
+class SkTypeface {};
 
 class SkFont
 {
@@ -83,7 +98,7 @@ class SkPathEffect {};
 class SkDashPathEffect
 {
 public:
-    static sk_sp<SkPathEffect> Make(const SkScalar*, int, SkScalar)
+    static sk_sp<SkPathEffect> Make(SkSpan<const SkScalar>, SkScalar)
     { return sk_sp<SkPathEffect>(nullptr); }
 };
 
@@ -98,10 +113,14 @@ public:
     void setPathEffect(sk_sp<SkPathEffect>) {}
 };
 
-class SkPath
+// SkPath is immutable in current Skia; contours are built separately.
+class SkPath {};
+
+class SkPathBuilder
 {
 public:
-    void addRect(const SkRect&) {}
+    SkPathBuilder& addRect(const SkRect&) { return *this; }
+    SkPath detach() { return SkPath{}; }
 };
 
 class SkImageInfo

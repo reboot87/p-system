@@ -71,8 +71,11 @@ struct SkiaPainter::Impl
         if (i < 0 || i >= static_cast<int>(FontRole::Count)) i = 0;
         if (!ready[i]) {
             SkFont f;
-            sk_sp<SkTypeface> tf = SkTypeface::MakeFromName("Segoe UI", SkFontStyle());
-            if (tf) f.setTypeface(tf);
+            // Skia's font factory keeps moving between releases
+            // (SkTypeface::MakeFromName is gone; choose-your-own SkFontMgr
+            // is platform-dependent). SkFont's default typeface already
+            // uses the platform font manager, so only the role size is
+            // set here. Family alignment with GDI is a separate task.
             f.setSize(static_cast<SkScalar>(skia::RoleFontSize(role)));
             fonts[i] = f;
             ready[i] = true;
@@ -145,13 +148,19 @@ void SkiaPainter::StrokeRound(const Rect& r, int radius, Color c, int width)
 void SkiaPainter::StrokeDashed(const Rect& r, Color c, int width, int dash)
 {
     if (!m->canvas || r.Empty()) return;
-    SkPath path;
-    path.addRect(ToSk(r));
+    // SkPath is immutable in current Skia: contours are built with
+    // SkPathBuilder and materialised with detach().
+    SkPathBuilder builder;
+    builder.addRect(ToSk(r));
+    const SkPath path = builder.detach();
     const SkScalar d = static_cast<SkScalar>(dash > 0 ? dash : 6);
     const SkScalar gap = static_cast<SkScalar>(dash > 0 ? dash : 4);
     const SkScalar intervals[2] = { d, gap };
     SkPaint p = MakeStroke(c, width);
-    p.setPathEffect(SkDashPathEffect::Make(intervals, 2, 0));
+    // Make() now takes (SkSpan<const SkScalar> intervals, SkScalar phase);
+    // the old (pointer, count, phase) overload is gone.
+    p.setPathEffect(SkDashPathEffect::Make(
+        SkSpan<const SkScalar>(intervals, 2), 0));
     m->canvas->drawPath(path, p);
 }
 

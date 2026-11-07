@@ -171,6 +171,25 @@ jobs:
             throw "Visual Studio 2022 is missing; pin this job to a VS2022 image."
           }
 
+      # Skia's API drifts between releases; keep the real signatures in
+      # the job log so a future compile failure is a one-look diagnosis.
+      - name: Record real Skia API signatures (diagnostics)
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $inc = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\include\skia\include"
+          foreach ($f in @("core\SkTypeface.h", "core\SkFontMgr.h",
+                           "core\SkPathBuilder.h", "core\SkSpan.h",
+                           "effects\SkDashPathEffect.h")) {
+            $p = Join-Path $inc $f
+            Write-Host "--- $f ---"
+            if (-not (Test-Path $p)) { Write-Host "(not present)"; continue }
+            Get-Content $p |
+              Select-String -Pattern 'RefDefault|MakeFromName|MakeDefault|addRect\(|detach\(|Make\(|constexpr SkSpan' |
+              Select-Object -First 20 |
+              ForEach-Object { $_.Line.Trim() }
+          }
+
       - name: Configure (CMake + VS2022, Skia ON)
         shell: pwsh
         run: |
