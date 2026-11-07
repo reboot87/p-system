@@ -83,29 +83,50 @@ struct SkFontStyle
 
 using SkUnichar = int32_t;
 
-// Modern Skia removed SkTypeface::MakeFromName; typeface lookup goes
-// through SkFontMgr instead. The backend uses RefDefault() +
-// matchFamily() / matchFamilyStyleCharacter() to get CJK/icon fonts.
+// Modern Skia removed SkTypeface::MakeFromName. On Windows the backend
+// builds typefaces from the GDI LOGFONT the UI already uses via Skia's
+// SkCreateTypefaceFromLOGFONT (include/ports/SkTypeface_win.h); on other
+// platforms it leaves faces null (non-Windows is not a supported runtime
+// target). A SkFontMgr-based path is intentionally avoided because its
+// factory API differs between Skia versions.
 class SkTypeface
 {
 public:
     SkUnichar unicharToGlyph(SkUnichar) const { return 0; }
 };
 
-class SkFontMgr
-{
-public:
-    static sk_sp<SkFontMgr> RefDefault() { return sk_sp<SkFontMgr>(nullptr); }
-    sk_sp<SkTypeface> matchFamily(const char*) const
-    { return sk_sp<SkTypeface>(nullptr); }
-    sk_sp<SkTypeface> legacyMakeTypeface(const char*,
-                                        SkFontStyle = SkFontStyle()) const
-    { return sk_sp<SkTypeface>(nullptr); }
-    sk_sp<SkTypeface> matchFamilyStyleCharacter(int, SkFontStyle,
-                                               const char*[], int,
-                                               SkUnichar) const
-    { return sk_sp<SkTypeface>(nullptr); }
+// ---- Windows font loading (mocked) ----
+// In real Windows builds the backend calls Skia's free function
+// SkCreateTypefaceFromLOGFONT(const LOGFONT&). Under the syntax gate we
+// never include SkTypeface_win.h, so we declare the function and -- when
+// the real <windows.h> has NOT been pulled into this TU -- a minimal
+// LOGFONT plus the few GDI constants the backend's font setup needs.
+#ifndef _INC_WINDOWS
+struct LOGFONT {
+    long          lfHeight = 0;
+    long          lfWidth = 0;
+    long          lfEscapement = 0;
+    long          lfOrientation = 0;
+    long          lfWeight = 0;
+    unsigned char lfItalic = 0;
+    unsigned char lfUnderline = 0;
+    unsigned char lfStrikeOut = 0;
+    unsigned char lfCharSet = 0;
+    unsigned char lfOutPrecision = 0;
+    unsigned char lfClipPrecision = 0;
+    unsigned char lfQuality = 0;
+    unsigned char lfPitchAndFamily = 0;
+    wchar_t       lfFaceName[32] = {};
 };
+#define FW_NORMAL           400
+#define DEFAULT_CHARSET     1
+#define OUT_DEFAULT_PRECIS  0
+#define CLIP_DEFAULT_PRECIS 0
+#define CLEARTYPE_QUALITY   5
+#define DEFAULT_PITCH       0
+#define FF_DONTCARE         0
+#endif
+sk_sp<SkTypeface> SkCreateTypefaceFromLOGFONT(const LOGFONT&);
 
 class SkFont
 {
