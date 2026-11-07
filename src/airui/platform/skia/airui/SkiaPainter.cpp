@@ -245,7 +245,7 @@ RoleMetrics MeasureRole(HDC dc, const SharedFaces& f, FontRole role)
     const bool isIcon = (role == FontRole::Icon || role == FontRole::IconLarge);
     rm.cell = spec.cell > 0 ? spec.cell : 13;
     rm.em   = static_cast<SkScalar>(rm.cell);
-    rm.emCjk = static_cast<SkScalar>(rm.cell);
+    rm.emCjk = rm.em;
     rm.ascent  = static_cast<float>(rm.cell) * 0.8f;
     rm.descent = static_cast<float>(rm.cell) - rm.ascent;
 
@@ -303,6 +303,7 @@ RoleMetrics MeasureRole(HDC dc, const SharedFaces& f, FontRole role)
             out = 1000.f * gdiAtCell / w1000;
         };
 
+
         if (isIcon) {
             solve(&kRefIcon, 1, face, SkTextEncoding::kUTF16,
                   (int)sizeof(wchar_t), rm.em);
@@ -310,39 +311,17 @@ RoleMetrics MeasureRole(HDC dc, const SharedFaces& f, FontRole role)
             solve(kRefText, static_cast<int>(sizeof(kRefText) / sizeof(wchar_t)) - 1,
                   face, SkTextEncoding::kUTF16,
                   (int)(sizeof(kRefText) - sizeof(wchar_t)), rm.em);
+            // CJK advances are one em in both the font-linked family GDI
+            // uses and in Microsoft YaHei UI, so the Latin em transfers
+            // directly. GDI's own width API is not usable here: it does
+            // not apply font linking, so it reports CJK widths that do
+            // not match what it draws.
+            rm.emCjk = rm.em;
         }
         SelectObject(dc, old);
         DeleteObject(hf);
     }
 
-    // Chinese needs a size of its own: GDI resolves CJK through font
-    // linking, and the linked family's advance per glyph is a little
-    // smaller than the Latin em. Measure at 3x the target cell -- GDI's
-    // linking only kicks in near the requested size (at a 200 px
-    // reference it reports a completely different ratio), and 3x still
-    // keeps integer-advance rounding down to about one percent.
-    if (!isIcon && f.cjk) {
-        const int measCell = rm.cell * 3;
-        if (HFONT hf = makeFont(measCell)) {
-            HGDIOBJ old = SelectObject(dc, hf);
-            SIZE sz{};
-            if (GetTextExtentPoint32W(dc, kRefCjk, kRefCjkCount, &sz) && sz.cx > 0) {
-                SkFont probe;
-                probe.setTypeface(f.cjk);
-                probe.setSize(1000.f);
-                const float w1000 = probe.measureText(
-                    kRefCjk, kRefCjkCount * sizeof(wchar_t), SkTextEncoding::kUTF16);
-                if (w1000 > 1.f) {
-                    const float gdiPerChar =
-                        static_cast<float>(sz.cx) / gdiScale /
-                        static_cast<float>(kRefCjkCount);
-                    rm.emCjk = 1000.f * gdiPerChar / w1000;
-                }
-            }
-            SelectObject(dc, old);
-            DeleteObject(hf);
-        }
-    }
     return rm;
 }
 #endif
@@ -405,7 +384,7 @@ void DiagCalibration(const RoleMetrics* m)
 // calibration dump: what the backend actually draws, so a screenshot can
 // be matched against the calls that produced it.
 void DiagText(int role, SkScalar size, float w, float x, float y,
-              float canvasScale, const std::string& s)
+              float avail, float canvasScale, const std::string& s)
 {
 #if defined(_WIN32) && !defined(AIRUI_SKIA_MOCK)
     static const bool on = [] {
@@ -423,13 +402,13 @@ void DiagText(int role, SkScalar size, float w, float x, float y,
     FILE* fp = nullptr;
     _wfopen_s(&fp, path, L"a");
     if (!fp) return;
-    fwprintf(fp, L"[text] role=%d size=%.2f w=%.1f at=%.1f,%.1f scale=%.2f | %hs\n",
-             role, (double)size, (double)w, (double)x, (double)y,
+    fwprintf(fp, L"[text] role=%d size=%.2f w=%.1f avail=%.1f at=%.1f,%.1f scale=%.2f | %hs\n",
+             role, (double)size, (double)w, (double)avail, (double)x, (double)y,
              (double)canvasScale, s.c_str());
     fclose(fp);
 #else
     (void)role; (void)size; (void)w; (void)x; (void)y;
-    (void)canvasScale; (void)s;
+    (void)avail; (void)canvasScale; (void)s;
 #endif
 }
 
@@ -695,7 +674,11 @@ void SkiaPainter::Text(const Rect& r, const std::wstring& s,
     DecodeUtf8(utf8, cps);
 
     if ((fmt & dt::EndEllipsis) && !cps.empty()) {
-        const float avail = static_cast<float>(r.Width());
+        // GDI's DrawText decides in integer device pixels, so a
+        // sub-pixel difference must not flip a label from "fits" to
+        // "ellipsised". One pixel of slack reproduces that rounding; the
+        // nav labels sit exactly on this boundary at the Title role.
+        const float avail = static_cast<float>(r.Width()) + 1.f;
         const float dotsW = primary.measureText("...", 3, SkTextEncoding::kUTF8);
         while (cps.size() > 1 &&
                m->MeasureRuns(role, cps, primary) + dotsW > avail)
@@ -717,7 +700,8 @@ void SkiaPainter::Text(const Rect& r, const std::wstring& s,
     const float y = m->Baseline(r, m->Index(role), skia::Vertical(fmt));
     m->DrawRuns(primary, role, utf8, x, y, c);
     DiagText(static_cast<int>(role), primary.getSize(), totalW, x, y,
-             m->canvas->getTotalMatrix().getScaleX(), utf8);
+             static_cast<float>(r.Width()), m->canvas->getTotalMatrix().getScaleX(),
+             utf8);
 }
 
 void SkiaPainter::TextBlock(const Rect& r, const std::wstring& s,
