@@ -182,3 +182,10 @@
   - **根因**：hover 是我们自己在子类化里维护的，但 `WM_MOUSELEAVE` 处理完直接 `break` 下传，标准 LISTBOX 自己的 leave 处理会整客户区失效一次；owner-draw 列表于是"擦整块 → 逐行画回"，就是那一下闪。`WS_EX_COMPOSITED` **不是**原因（A/B 保留合成标志后依旧只有单行失效）。
   - **修复**：① `WM_MOUSELEAVE` 吃掉消息（`return 0`），只失效原悬停行；② `Shell::WM_MOUSEMOVE` / `WM_MOUSELEAVE` 拆成 caption / nav / content 三块失效，只有外壳 chrome 变化时不再整窗失效（顺带减少无谓重绘，让子控件完全不被父窗口重绘牵连）。
   - **验证**：本地 VS2017 `ctest -C Release` 21/21；实测日志「导航悬停 0 字节（列表完全不重绘）」「跨越边界只重绘一行」；界面截图核对 hover / 选中 / 详情面板无回归。
+
+- **2026-11-08 — 修掉「Skia 下点击筛选胶囊整窗闪一下」**
+  - 现象：`--paint-backend=skia` 时点「全部/文本/链接/手动」，整个窗口闪一帧。
+  - **定位**（`AIRUI_PAINT_TRACE=1` → `shell_paint.log`）：点胶囊是 `[paint-req] update=0,0-1120,780` → `[erase]` → `[paint] ms=31~47`。即「先整窗擦成背景色，再花 31~47ms 出帧」，擦底那一帧跨 2~3 次呈现，肉眼就是整窗闪；GDI 帧 2~5ms 所以看不出来。
+  - **根因**：`Paint()` 本来就把整个客户区画进后备缓冲再 BitBlt，擦底永远不修正任何东西，只是把纯背景推上屏幕。此外 `Shell::SetStatus` 每次列表刷新都整窗失效（文案没变也一样）。
+  - **修复**：`WM_ERASEBKGND` 只在尺寸/显隐变化后真的擦（`m_eraseAllowed`，WM_SIZE / WM_SHOWWINDOW 置位，擦一次或出帧一次即清）；`SetStatus` 文案未变直接返回；`uiDebugLog` 改为逐条开关文件以便运行中实时读日志，`[erase]` 增记 `allowed` 与失效矩形，新增 `[paint-req]`。
+  - **验证**：`ctest -C Release` 21/21；窗口态与最大化态点四个胶囊都是「内容区失效 + allowed=0 + 单帧 31ms」；最大化仍保留一次 `allowed=1` 的背景擦除（DWM 黑帧保护）。
