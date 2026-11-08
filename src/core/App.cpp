@@ -132,6 +132,16 @@ int App::Run(HINSTANCE hInstance)
                 result = 0;
                 return true;
             }
+            // 防抖到期由应用层统一刷新共享数据。不能交给 Shell 按
+            // CurrentPage() 分发：以前只有剪贴板页认这个 id，停在总览 /
+            // 配置页时定时器空转，看上去就是「复制了但总数不动」，非得
+            // 点一下剪贴板页（OnShow 主动拉数据）才补上。
+            if (msg == WM_TIMER && wParam == TIMER_REFRESH_NOTIFY) {
+                KillTimer(hwnd, TIMER_REFRESH_NOTIFY);
+                RefreshData();
+                result = 0;
+                return true;
+            }
             // 定时器先给插件（F3 搜索防抖 250ms）
             if (msg == WM_TIMER)
                 m_plugins.DispatchTimer(*this, (UINT_PTR)wParam);
@@ -219,16 +229,13 @@ int App::Run(HINSTANCE hInstance)
                     L"确定清空全部剪贴板记录吗？\n此操作不可恢复。",
                     L"清空记录", MB_OKCANCEL | MB_ICONWARNING) == IDOK) {
                 m_ipc.Request(L"CLEAR");
-                if (m_clips) m_clips->RefreshList(GetSearchText());
-                RefreshStats();
-                SyncServiceUi();
+                RefreshData();
                 Toast(L"已清空", L"所有剪贴板记录已删除");
             }
             break;
         case -2:    // 服务管理 → 配置页
             m_shell.SwitchPage(2);
-            RefreshStats();
-            SyncServiceUi();
+            RefreshData();
             break;
         default:
             break;
@@ -250,10 +257,9 @@ int App::Run(HINSTANCE hInstance)
     }
 
     // ---- 首屏 ----
+    // SwitchPage(0) 的 OnShow(true) 已走 RefreshData()：拉列表快照 +
+    // 统计 + 同步外壳文案 + 标脏，不必再重复三次 IPC。
     m_shell.SwitchPage(0);
-    RefreshList();
-    RefreshStats();
-    SyncServiceUi();
 
     diag::Log(L"[ui] message loop begin, stats.total=%lld, svc=%d hidden=%d delay=%d",
               (long long)m_stats.total, (int)m_svcState,
@@ -284,6 +290,26 @@ HWND App::NoteEditMulti() { return m_clips ? m_clips->NoteEditMulti().Native() :
 void App::RefreshList(const std::wstring& filter)
 {
     if (m_clips) m_clips->RefreshList(filter);
+}
+
+void App::RefreshData()
+{
+    // m_entries / m_stats 是跨页共享的：总览页画总数与「最近动态」，
+    // 标题栏胶囊和侧栏角标画总数。所以无论用户停在哪一页都要拉全。
+    // 只有当前正是剪贴板页时才需要把快照灌进 ListBox；其它页重建
+    // 隐藏的列表控件既无意义，还可能在切页时留下半帧。
+    if (m_shell.CurrentPageId() == 1)
+        RefreshList(GetSearchText());
+    else if (m_clips)
+        // 共享快照必须是**全量**：搜索框里可能还留着上次的关键字，
+        // 用过滤结果覆盖 m_entries 会让总览页「最近动态」只剩几条，
+        // 和 STATS 报的总数对不上。
+        m_clips->ReloadEntries();
+
+    RefreshStats();
+    SyncServiceUi();
+    // 总览页 / 配置页是纯自绘，数据变了没有子控件会替它们标脏。
+    m_shell.Invalidate();
 }
 
 std::wstring App::GetSearchText()

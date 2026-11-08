@@ -158,7 +158,8 @@ void ClipsPage::OnShow(bool shown)
 
     if (!shown) {
         SyncVisibility();
-        KillTimer(TIMER_REFRESH_NOTIFY);
+        // 不要 KillTimer(TIMER_REFRESH_NOTIFY)：那条防抖定时器属于应用层
+        // 的共享数据刷新，页面切走时取消它会把挂起的刷新整个丢掉。
         return;
     }
 
@@ -168,9 +169,7 @@ void ClipsPage::OnShow(bool shown)
     SyncVisibility();
     BatchDraw(true);
 
-    RefreshList(GetSearchText());
-    m_app.RefreshStats();
-    m_app.SyncServiceUi();
+    m_app.RefreshData();
 }
 
 void ClipsPage::SyncVisibility()
@@ -342,7 +341,9 @@ int ClipsPage::TypeOfEntry(const UiEntry& e)
     return 1;
 }
 
-void ClipsPage::RefreshList(const std::wstring& filter)
+// 只更新应用层共享快照，不碰任何控件。总览页的「最近动态」读的就是
+// 这份数据，因此停在工作台总览 / 机器配置页时也必须能刷新它。
+bool ClipsPage::ReloadEntries(const std::wstring& filter)
 {
     std::vector<UiEntry> entries;
 
@@ -368,6 +369,12 @@ void ClipsPage::RefreshList(const std::wstring& filter)
         }
     }
     m_app.SetEntries(std::move(entries));
+    return ok;
+}
+
+void ClipsPage::RefreshList(const std::wstring& filter)
+{
+    const bool ok = ReloadEntries(filter);
     const std::vector<UiEntry>& all = m_app.Entries();
 
     m_shell->SetStatus(ok ? L"记录中" : L"服务未连接", ok);
@@ -935,16 +942,6 @@ bool ClipsPage::OnCommand(int ctrlId, int code)
     return false;
 }
 
-bool ClipsPage::OnTimer(UINT_PTR id)
-{
-    if (id != TIMER_REFRESH_NOTIFY) return false;
-    KillTimer(TIMER_REFRESH_NOTIFY);
-    RefreshList(GetSearchText());
-    m_app.RefreshStats();
-    m_app.SyncServiceUi();
-    return true;
-}
-
 // ============================================================
 // 备注编辑流
 // ============================================================
@@ -1005,9 +1002,7 @@ void ClipsPage::SaveNoteEdit()
     m_noteMulti->Clear();
     Relayout();
     SyncVisibility();
-    RefreshList(GetSearchText());
-    m_app.RefreshStats();
-    m_app.SyncServiceUi();
+    m_app.RefreshData();
     m_app.Toast(L"备注已保存", L"这条记录的备注已更新");
 }
 
@@ -1062,9 +1057,7 @@ void ClipsPage::OnListOp(int entryIdx, int op)
             if (m_editingId == e.id) CancelNoteEdit();
             m_app.Ipc().Request(L"DEL\t" + std::to_wstring(e.id));
             m_selEntry = -1;
-            RefreshList(GetSearchText());
-            m_app.RefreshStats();
-            m_app.SyncServiceUi();
+            m_app.RefreshData();
             m_app.Toast(L"已删除", L"记录已从本地数据库移除");
         }
         break;

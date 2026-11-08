@@ -54,7 +54,8 @@ bool ManualEntryPlugin::SaveFromManual(App& app)
         SetWindowTextW(app.ManualEdit(), L""); // 清空录入框和备注框
         SetWindowTextW(app.NoteEdit(), L"");
         app.ToggleForm(false);                 // 保存成功 → 收起表单卡
-        app.RefreshList(app.GetSearchText());  // 刷新列表
+        // 新增记录会改变总数 / 侧栏角标 / 总览页数字，不能只刷列表
+        app.RefreshData();
         app.Toast(L"保存成功", L"记录已写入本地数据库");
         return true;
     }

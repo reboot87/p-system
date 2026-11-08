@@ -35,7 +35,6 @@ public:
     bool OnMouseLeave() override;
     bool HandCursorAt(POINT pt) override;
     bool OnCommand(int ctrlId, int code) override;
-    bool OnTimer(UINT_PTR id) override;
     void OnSetFocus() override;
 
     // ---- 对外（App 门面 / 插件） ----
@@ -45,6 +44,9 @@ public:
     air::ui::TextBox& NoteEdit()      { return *m_noteEdit; }
     air::ui::TextBox& NoteEditMulti() { return *m_noteMulti; }
 
+    // 只拉取共享快照（m_app.Entries()），不碰列表控件。总览页的
+    // 「最近动态」也读这份数据，因此停在任何页面都要能刷新它。
+    bool         ReloadEntries(const std::wstring& filter = L"");
     void         RefreshList(const std::wstring& filter = L"");
     std::wstring GetSearchText();
 

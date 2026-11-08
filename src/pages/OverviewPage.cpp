@@ -7,7 +7,9 @@ using namespace air::ui;
 
 void OverviewPage::OnShow(bool shown)
 {
-    if (shown) m_app.RefreshStats();
+    // 切回总览页时也走统一刷新：这里画的是共享快照（总数 / 今日 / 最近动态），
+    // 只 RefreshStats() 不会更新「最近动态」，也不会同步侧栏角标。
+    if (shown) m_app.RefreshData();
 }
 
 void OverviewPage::OnLayout(const RECT& content)
