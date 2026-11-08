@@ -571,14 +571,14 @@ void NavBar::SetBadge(int id, const std::wstring& text, bool ok)
 // ============================================================
 // PaintDC
 // ============================================================
-PaintDC::PaintDC(HWND hwnd) : m_hwnd(hwnd)
+PaintDC::PaintDC(HWND hwnd, bool useBackBuffer) : m_hwnd(hwnd)
 {
     m_wdc = BeginPaint(hwnd, &m_ps);
     m_began = true;
     GetClientRect(hwnd, &m_client);
 
     int w = m_client.right, h = m_client.bottom;
-    if (w <= 0 || h <= 0) return;
+    if (!useBackBuffer || w <= 0 || h <= 0) return;
 
     m_mem = CreateCompatibleDC(m_wdc);
     m_bmp = CreateCompatibleBitmap(m_wdc, w, h);

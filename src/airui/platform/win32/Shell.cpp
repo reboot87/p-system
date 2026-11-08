@@ -786,7 +786,8 @@ void Shell::Paint(HDC dc)
     // selected backend draws chrome, pages and core widgets alike --
     // not just a separate HAL chrome path. A plain GDI frame leaves
     // the routing inactive and runs the original code untouched.
-    const bool wantSkia = (NormalizeBackend(m_paintBackend) == "skia");
+    const bool wantSkia = (NormalizeBackend(m_paintBackend) == "skia") &&
+                          PainterRegistry::Instance().Available("skia");
     std::unique_ptr<IPainter> backend;
     bool frameActive = false;
 
@@ -1356,7 +1357,15 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                        (long)upd.right, (long)upd.bottom);
         }
         const long long tDc0 = QpcUs();
-        PaintDC pdc(hwnd);
+        // Skia composites a finished, whole-client DIB onto this DC, so a
+        // back buffer here would be a second full-size copy of pixels
+        // nobody reads: it cost 3.2 ms to create+fill and 1.0 ms to blit
+        // out of a 21 ms frame. GDI paints onto the DC directly and does
+        // need it, so only the Skia path skips the buffer.
+        const bool skiaDirect =
+            (NormalizeBackend(m_paintBackend) == "skia") &&
+            PainterRegistry::Instance().Available("skia");
+        PaintDC pdc(hwnd, !skiaDirect);
         const long long tDc1 = QpcUs();
         if (pdc.dc()) {
             Paint(pdc.dc());

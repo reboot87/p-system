@@ -150,13 +150,17 @@ private:
 class PaintDC
 {
 public:
-    explicit PaintDC(HWND hwnd);
+    // useBackBuffer=false paints straight onto the BeginPaint DC. That is
+    // only correct for a backend which has its own back buffer and
+    // blits the finished client area (the Skia path); for GDI it would
+    // flicker, so the default stays buffered.
+    explicit PaintDC(HWND hwnd, bool useBackBuffer = true);
     ~PaintDC();
 
     PaintDC(const PaintDC&) = delete;
     PaintDC& operator=(const PaintDC&) = delete;
 
-    HDC         dc() const { return m_mem; }
+    HDC         dc() const { return m_mem ? m_mem : m_wdc; }
     const RECT& client() const { return m_client; }
     int         width()  const { return m_client.right; }
     int         height() const { return m_client.bottom; }
