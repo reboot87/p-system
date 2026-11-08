@@ -6,6 +6,7 @@
 #include "airui/Responsive.h"
 #include <commctrl.h>
 #include <algorithm>
+#include <share.h>
 
 #pragma comment(lib, "comctl32.lib")
 
@@ -29,15 +30,16 @@ static bool PaintTraceEnabled()
 static void uiDebugLog(const wchar_t* fmt, ...)
 {
     if (!PaintTraceEnabled()) return;
-    static FILE* f = nullptr;
-    if (!f) {
-        wchar_t path[MAX_PATH] = {};
-        DWORD n = GetEnvironmentVariableW(L"LOCALAPPDATA", path, MAX_PATH);
-        if (n == 0 || n >= MAX_PATH - 40) return;
-        wcscat_s(path, L"\\AireRecord\\shell_paint.log");
-        _wfopen_s(&f, path, L"a");
-        if (!f) return;
-    }
+
+    // Open per record with read sharing: a held handle would lock the log
+    // for the whole session, and the trace is only useful live -- the
+    // analyst reads it while the client is still running.
+    wchar_t path[MAX_PATH] = {};
+    DWORD n = GetEnvironmentVariableW(L"LOCALAPPDATA", path, MAX_PATH);
+    if (n == 0 || n >= MAX_PATH - 40) return;
+    wcscat_s(path, L"\\AireRecord\\shell_paint.log");
+    FILE* f = _wfsopen(path, L"a", _SH_DENYWR);
+    if (!f) return;
     SYSTEMTIME st;
     GetLocalTime(&st);
     fwprintf_s(f, L"%02d:%02d:%02d.%03d ", st.wHour, st.wMinute, st.wSecond,
@@ -45,7 +47,7 @@ static void uiDebugLog(const wchar_t* fmt, ...)
     va_list ap; va_start(ap, fmt);
     vfwprintf_s(f, fmt, ap);
     va_end(ap); fwprintf_s(f, L"\n");
-    fflush(f);
+    fclose(f);
 }
 
 // ============================================================
@@ -390,6 +392,10 @@ void Shell::SetCaptionSubtitle(const std::wstring& text)
 void Shell::SetStatus(const std::wstring& text, bool ok)
 {
     StatusState ss = m_shellCore.Status();
+    // Pages call this on every list refresh, usually with the same string.
+    // Repainting the whole client for an unchanged status is pure cost --
+    // and on the Skia path every such repaint is a full window frame.
+    if (ss.text == text && ss.ok == ok) return;
     ss.text = text;
     ss.ok   = ok;
     m_shellCore.SetStatus(ss);
@@ -1039,24 +1045,33 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         return 0;
 
     case WM_ERASEBKGND: {
-        // 最大化/缩放时 DWM 会在 WM_PAINT 之前呈现新暴露的区域：
-        // 完全不擦背景会让该区域渲染成黑帧（最大化闪黑屏的根源）。
-        // 这里同步填一层与页面一致的背景色，随后的 WM_PAINT 双缓冲
-        // 全帧覆盖——最坏情况暴露的是主题背景色，视觉无感。
         HDC dc = (HDC)wParam;
         RECT rcClient;
         GetClientRect(hwnd, &rcClient);
-        uiDebugLog(L"[erase] page=%d %dx%d suppressed=%d", m_pageId,
+        RECT upd = {};
+        GetUpdateRect(hwnd, &upd, FALSE);
+        uiDebugLog(L"[erase] page=%d %dx%d suppressed=%d allowed=%d "
+                   L"update=%ld,%ld-%ld,%ld",
+                   m_pageId,
                    (int)(rcClient.right - rcClient.left),
                    (int)(rcClient.bottom - rcClient.top),
-                   m_eraseSuppressed ? 1 : 0);
-        if (m_eraseSuppressed) {
-            // A switch is assembling its frame. Filling here would put a
-            // flat background frame on screen for the whole duration of
-            // the next paint (tens of ms with Skia). The paint that
-            // follows covers every pixel anyway, so claim it as erased.
-            return 1;
-        }
+                   m_eraseSuppressed ? 1 : 0, m_eraseAllowed ? 1 : 0,
+                   (long)upd.left, (long)upd.top,
+                   (long)upd.right, (long)upd.bottom);
+        // Paint() renders the WHOLE client (page, chrome, widgets) into a
+        // back buffer and blits it, so an erase can never correct anything
+        // an ordinary invalidation asked to repaint -- it only puts a flat
+        // background frame on screen while that frame is being built.
+        // With Skia a frame costs 31-47 ms at 1120x780, so the erased state
+        // spans two or three presents: the user sees the entire window
+        // blink every time a control invalidates the client (the filter
+        // chips were the loudest case). Erasing is still needed right after
+        // a size/show change, where DWM presents the newly exposed area
+        // before our first paint can land (a maximized window would flash
+        // black) -- that is what m_eraseAllowed marks, and it is consumed
+        // by the first erase that follows.
+        if (m_eraseSuppressed || !m_eraseAllowed) return 1;
+        m_eraseAllowed = false;
         // Cache the brush but re-create it when the palette changes:
         // a once-only static brush keeps erasing with the old theme's
         // colour after a light/dark switch, which reads as a flash of
@@ -1245,18 +1260,37 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         return 0;
 
     case WM_PAINT: {
+        if (PaintTraceEnabled()) {
+            RECT upd = {};
+            GetUpdateRect(hwnd, &upd, FALSE);
+            uiDebugLog(L"[paint-req] page=%d update=%ld,%ld-%ld,%ld", m_pageId,
+                       (long)upd.left, (long)upd.top,
+                       (long)upd.right, (long)upd.bottom);
+        }
         PaintDC pdc(hwnd);
         if (pdc.dc()) {
             Paint(pdc.dc());
             pdc.Flush();
         }
+        // The exposed area is on screen now: stop allowing background
+        // erases until the next size/show change asks for one.
+        m_eraseAllowed = false;
         return 0;
     }
 
     case WM_SIZE:
         LayoutAll();
+        // New pixels were just exposed: let the next erase fill them with
+        // the theme background instead of leaving them uninitialised until
+        // the (possibly slow) first frame lands.
+        m_eraseAllowed = true;
         ::InvalidateRect(hwnd, nullptr, FALSE);
         return 0;
+
+    case WM_SHOWWINDOW:
+        // Same exposure problem on the very first show / after a hide.
+        if (wParam) m_eraseAllowed = true;
+        break;
 
     case WM_GETMINMAXINFO: {
         auto* mmi = (MINMAXINFO*)lParam;

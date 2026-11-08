@@ -254,6 +254,13 @@ private:
     // which painted a full-window background frame a whole Skia frame
     // (46-63 ms) before the real content arrived -- the visible "flash".
     bool          m_eraseSuppressed = false;
+    // Erasing the client is only useful for areas DWM exposes *before* the
+    // next paint can land (size / show changes). For an ordinary
+    // invalidation the erase just puts a flat background frame on screen
+    // while the frame is being built -- 31-47 ms with the Skia backend,
+    // which reads as the whole window blinking. Paint() always renders
+    // every pixel from a back buffer, so the erase is dropped there.
+    bool          m_eraseAllowed = true;
     // First paint of a window has nothing on screen yet; erasing then is
     // what keeps the exposed area from showing as uninitialised black.
     bool          m_paintedOnce = false;
