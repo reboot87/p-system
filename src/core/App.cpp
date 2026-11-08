@@ -19,7 +19,7 @@ int App::Run(HINSTANCE hInstance)
 {
     ShellOptions opt;
     // 类名保持不变：单实例检测与任务栏行为维持原样
-    opt.className = L"AireRecordWnd";
+    opt.className = ipc::kUiWindowClass;
     opt.appName   = L"AireRecord";
     opt.width     = 1120;
     opt.height    = 780;
@@ -108,6 +108,30 @@ int App::Run(HINSTANCE hInstance)
                 diag::Log(L"[msg] 0x%04X wParam=%llu insend=%d cursor=%ld,%ld",
                           msg, (unsigned long long)wParam,
                           (int)InSendMessage(), cur.x, cur.y);
+            }
+            // 服务安装器 / SCM 启动失败的提权进程通过 WM_COPYDATA 把
+            // 结果送过来：由主界面用自绘 Toast 呈现，服务端自己不弹窗。
+            if (msg == WM_COPYDATA) {
+                const auto* cds = reinterpret_cast<const COPYDATASTRUCT*>(lParam);
+                if (cds && cds->dwData == ipc::kUiToastTag && cds->lpData &&
+                    cds->cbData >= sizeof(wchar_t)) {
+                    const wchar_t* raw = static_cast<const wchar_t*>(cds->lpData);
+                    const size_t cap = (size_t)cds->cbData / sizeof(wchar_t);
+                    size_t len = 0;
+                    while (len < cap && raw[len]) ++len;
+                    const std::wstring payload(raw, len);
+                    // 载荷：ok(1/0) \t 标题 \t 正文
+                    const size_t p1 = payload.find(L'\t');
+                    const size_t p2 = p1 == std::wstring::npos
+                        ? std::wstring::npos : payload.find(L'\t', p1 + 1);
+                    if (p1 != std::wstring::npos && p2 != std::wstring::npos) {
+                        Toast(payload.substr(p1 + 1, p2 - p1 - 1),
+                              payload.substr(p2 + 1),
+                              payload.compare(0, 1, L"1") == 0);
+                    }
+                }
+                result = TRUE;
+                return true;
             }
             // 延迟显示：窗口已隐藏建好，到点再显示（规避启动期的可见窗口检查）
             if (msg == WM_TIMER && wParam == TIMER_PROBE_HIDDEN) {
@@ -228,9 +252,12 @@ int App::Run(HINSTANCE hInstance)
             if (m_shell.ShowMessageBox(
                     L"确定清空全部剪贴板记录吗？\n此操作不可恢复。",
                     L"清空记录", MB_OKCANCEL | MB_ICONWARNING) == IDOK) {
-                m_ipc.Request(L"CLEAR");
+                const std::wstring resp = m_ipc.Request(L"CLEAR");
                 RefreshData();
-                Toast(L"已清空", L"所有剪贴板记录已删除");
+                if (resp.rfind(L"OK", 0) == 0)
+                    Toast(L"已清空", L"所有剪贴板记录已删除");
+                else
+                    Toast(L"清空失败", L"服务未响应，请稍后重试", false);
             }
             break;
         case -2:    // 服务管理 → 配置页

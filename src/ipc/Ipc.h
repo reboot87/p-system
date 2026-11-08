@@ -24,6 +24,12 @@
 
 namespace ipc
 {
+    // 主界面窗口类名 / WM_COPYDATA 标记。服务安装器（提升进程）靠它
+    // 把安装结果交给客户端的自绘 Toast；服务端自身在 Session 0，
+    // 不能弹任何系统对话框（会阻塞服务线程且用户永远看不到）。
+    const wchar_t* const kUiWindowClass = L"AireRecordWnd";
+    const unsigned long  kUiToastTag    = 0x41525431ul;  // 'ART1'
+
     // 管道全名（从机器级配置 service.ini [service] pipe_name 读取，
     // 默认 AireRecordIpc，并追加 _s<会话ID> 做会话隔离；首次调用后缓存。
     // 同一会话内的代理与客户端算出的名字一致，跨会话互不干扰）

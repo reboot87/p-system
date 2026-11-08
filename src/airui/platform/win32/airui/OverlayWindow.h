@@ -14,6 +14,7 @@
 #include <windows.h>
 #include <functional>
 #include <string>
+#include <vector>
 #include "airui/Fonts.h"
 
 namespace air {
@@ -89,6 +90,23 @@ private:
 int RunModalDialog(HWND owner, const Fonts& fonts,
                    const std::wstring& caption,
                    const std::wstring& text, UINT flags);
+
+// ------------------------------------------------------------
+// 自绘上下文菜单项。与 Page.h 的 MenuItem 分开定义，避免浮层骨架
+// 反向依赖页面框架；Shell::ShowPopupMenu 负责两者之间的转换。
+// ------------------------------------------------------------
+struct OverlayMenuItem
+{
+    int          id        = 0;
+    std::wstring label;
+    bool         separator = false;
+    bool         disabled  = false;
+};
+
+// 阻塞式弹出菜单，语义与 TrackPopupMenu 一致：返回被选中的命令 id，
+// 取消返回 0。菜单由 core 的 PaintMenu 绘制，命中用同一份 MenuItemAt。
+int RunPopupMenu(HWND owner, const Fonts& fonts, POINT anchor,
+                 const std::vector<OverlayMenuItem>& items);
 
 } // namespace ui
 } // namespace air

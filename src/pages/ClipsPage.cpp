@@ -73,9 +73,13 @@ void ClipsPage::CreateControls()
     m_list->onDoubleClicked = [this](int sel) {
         if (sel < 0 || sel >= (int)m_rows.size() || m_rows[sel].header) return;
         const std::vector<UiEntry>& entries = m_app.Entries();
-        if (m_rows[sel].entry < entries.size())
-            m_app.Ipc().Request(
-                L"COPY\t" + ipc::EscapeField(entries[m_rows[sel].entry].content));
+        if (m_rows[sel].entry >= entries.size()) return;
+        const std::wstring resp = m_app.Ipc().Request(
+            L"COPY\t" + ipc::EscapeField(entries[m_rows[sel].entry].content));
+        if (resp.rfind(L"OK", 0) == 0)
+            m_app.Toast(L"已复制", L"内容已写入系统剪贴板");
+        else
+            m_app.Toast(L"复制失败", L"服务未响应，请稍后重试", false);
     };
     m_list->onItemClicked = [this](int item, POINT ptInItem) -> bool {
         if (item < 0 || item >= (int)m_rows.size()) return false;
@@ -995,15 +999,19 @@ void ClipsPage::SaveNoteEdit()
 {
     if (!m_editingId) return;
     std::wstring note = m_noteMulti->Text();
-    m_app.Ipc().Request(L"NOTE\t" + std::to_wstring(m_editingId) +
-                        L"\t" + ipc::EscapeField(note));
+    const std::wstring resp = m_app.Ipc().Request(
+        L"NOTE\t" + std::to_wstring(m_editingId) +
+        L"\t" + ipc::EscapeField(note));
     m_editingId = 0;
     m_saveBtn->SetText(L"保存记录");
     m_noteMulti->Clear();
     Relayout();
     SyncVisibility();
     m_app.RefreshData();
-    m_app.Toast(L"备注已保存", L"这条记录的备注已更新");
+    if (resp.rfind(L"OK", 0) == 0)
+        m_app.Toast(L"备注已保存", L"这条记录的备注已更新");
+    else
+        m_app.Toast(L"备注保存失败", L"服务未响应，请稍后重试", false);
 }
 
 void ClipsPage::SwitchNoteEditTarget(int newEntryIdx)
@@ -1023,9 +1031,14 @@ void ClipsPage::SwitchNoteEditTarget(int newEntryIdx)
     for (UiEntry& e : m_app.EntriesMut()) {
         if (e.id == m_editingId) {
             if (cur != e.note) {
-                m_app.Ipc().Request(L"NOTE\t" + std::to_wstring(e.id) +
-                                    L"\t" + ipc::EscapeField(cur));
-                e.note = cur;
+                const std::wstring resp = m_app.Ipc().Request(
+                    L"NOTE\t" + std::to_wstring(e.id) +
+                    L"\t" + ipc::EscapeField(cur));
+                // 只有落库成功才改本地缓存，否则切回来会看到一条
+                // 「看着存了、其实没存」的假备注。
+                if (resp.rfind(L"OK", 0) == 0) e.note = cur;
+                else m_app.Toast(L"备注保存失败",
+                                 L"切换条目时未能写入上一条备注", false);
             }
             break;
         }
@@ -1043,10 +1056,15 @@ void ClipsPage::OnListOp(int entryIdx, int op)
     const UiEntry& e = entries[entryIdx];
 
     switch (op) {
-    case 0:
-        m_app.Ipc().Request(L"COPY\t" + ipc::EscapeField(e.content));
-        m_app.Toast(L"已复制", L"内容已写入系统剪贴板");
+    case 0: {
+        const std::wstring resp =
+            m_app.Ipc().Request(L"COPY\t" + ipc::EscapeField(e.content));
+        if (resp.rfind(L"OK", 0) == 0)
+            m_app.Toast(L"已复制", L"内容已写入系统剪贴板");
+        else
+            m_app.Toast(L"复制失败", L"服务未响应，请稍后重试", false);
         break;
+    }
     case 1:
         StartNoteEdit(e.id, e.note);
         break;
@@ -1055,10 +1073,14 @@ void ClipsPage::OnListOp(int entryIdx, int op)
                            L"删除记录", MB_OKCANCEL | MB_ICONWARNING) == IDOK) {
             // 删除的正是正在编辑的条目 → 先退出编辑态
             if (m_editingId == e.id) CancelNoteEdit();
-            m_app.Ipc().Request(L"DEL\t" + std::to_wstring(e.id));
+            const std::wstring resp =
+                m_app.Ipc().Request(L"DEL\t" + std::to_wstring(e.id));
             m_selEntry = -1;
             m_app.RefreshData();
-            m_app.Toast(L"已删除", L"记录已从本地数据库移除");
+            if (resp.rfind(L"OK", 0) == 0)
+                m_app.Toast(L"已删除", L"记录已从本地数据库移除");
+            else
+                m_app.Toast(L"删除失败", L"服务未响应，请稍后重试", false);
         }
         break;
     }

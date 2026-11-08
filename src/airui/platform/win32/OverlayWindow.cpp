@@ -6,6 +6,7 @@
 #include "airui/ControlsExtra.h"
 #include "airui/Interaction.h"
 #include "airui/Theme.h"
+#include "airui/Gfx.h"
 
 #include <algorithm>
 #include <vector>
@@ -55,6 +56,42 @@ AlertKind ToAlertKind(ToastKind kind)
     case ToastKind::Error:   return AlertKind::Error;
     default:                 return AlertKind::Info;
     }
+}
+
+// 浮层坐标都是屏幕物理像素。窗口可能跨屏、贴边或最大化（GetWindowRect
+// 会带出屏幕外的隐形缩放边框），所以一律约束到所属显示器的工作区 /
+// 全屏矩形，避免卡片或遮罩跑出可视范围。
+RECT MonitorBounds(HWND owner, bool workArea)
+{
+    MONITORINFO mi{};
+    mi.cbSize = sizeof(mi);
+    HMONITOR mon = MonitorFromWindow(owner, MONITOR_DEFAULTTONEAREST);
+    if (!GetMonitorInfoW(mon, &mi)) {
+        return { 0, 0, GetSystemMetrics(SM_CXSCREEN),
+                       GetSystemMetrics(SM_CYSCREEN) };
+    }
+    return workArea ? mi.rcWork : mi.rcMonitor;
+}
+
+void ClampInside(RECT& r, const RECT& area, int pad)
+{
+    const int w = r.right - r.left;
+    const int h = r.bottom - r.top;
+    if (w <= area.right - area.left - 2 * pad) {
+        if (r.left < area.left + pad) { r.left = area.left + pad; r.right = r.left + w; }
+        if (r.right > area.right - pad) { r.right = area.right - pad; r.left = r.right - w; }
+    }
+    if (h <= area.bottom - area.top - 2 * pad) {
+        if (r.top < area.top + pad) { r.top = area.top + pad; r.bottom = r.top + h; }
+        if (r.bottom > area.bottom - pad) { r.bottom = area.bottom - pad; r.top = r.bottom - h; }
+    }
+}
+
+// PaintMenu 用 IPainter::MeasureText(FontRole::Body)，底层就是
+// gfx::MeasureWidth。这里用同一套度量算菜单宽度，避免文字被截断。
+int MeasureMenuLabel(HDC dc, const Fonts& fonts, const std::wstring& s)
+{
+    return gfx::MeasureWidth(dc, fonts.Get(FontRole::Body), s);
 }
 
 // Toast 卡片几何：固定宽、两行高、右下角堆叠。绘制与命中共用这份
@@ -156,12 +193,20 @@ void OverlayWindow::Move(const RECT& screenRect)
 
 void OverlayWindow::Show(bool visible)
 {
-    if (!m_hwnd || m_visible == visible) return;
+    if (!m_hwnd) return;
+    // owner 隐藏 / 最小化时 Windows 会自动把 owned popup 一起藏起来，
+    // 但不会通知我们。若只信 m_visible 这个缓存，恢复后 Show(true)
+    // 会被短路，Toast 从此再也不出现。以真实可见性为准。
+    const bool reallyShown = IsWindowVisible(m_hwnd) != FALSE;
     m_visible = visible;
-    ShowWindow(m_hwnd, visible
-        ? (m_activate ? SW_SHOW : SW_SHOWNOACTIVATE)
-        : SW_HIDE);
-    if (visible) Redraw();
+    if (!visible) {
+        if (reallyShown) ShowWindow(m_hwnd, SW_HIDE);
+        return;
+    }
+    if (!reallyShown) {
+        ShowWindow(m_hwnd, m_activate ? SW_SHOW : SW_SHOWNOACTIVATE);
+    }
+    Redraw();
 }
 
 void OverlayWindow::StartTimer(UINT ms)
@@ -266,7 +311,37 @@ RECT ToastManager::ComputeRect() const
 
     RECT r = { origin.x + x, origin.y + y,
                origin.x + x + kToastW, origin.y + y + totalH };
+    // 主窗口可能贴着屏幕右缘 / 下缘，甚至跨屏：把整叠卡片约束进
+    // 所属显示器的工作区（排除任务栏），保证始终完整可见。
+    ClampInside(r, MonitorBounds(m_owner, true), kToastPad);
     return r;
+}
+
+bool ToastManager::OwnerVisible() const
+{
+    return m_owner && IsWindowVisible(m_owner) && !IsIconic(m_owner);
+}
+
+void ToastManager::AdvanceClock(uint64_t now, bool ownerVisible)
+{
+    if (m_lastTick) {
+        uint64_t dt = now - m_lastTick;
+        // 系统休眠 / 调试断点后的大跳变不该让一屏 Toast 瞬间过期。
+        if (dt > 1000) dt = 50;
+        if (m_wasVisible && ownerVisible) m_visibleClock += dt;
+    }
+    m_lastTick   = now;
+    m_wasVisible = ownerVisible;
+}
+
+void ToastManager::Resume()
+{
+    if (!m_suspended || !m_layer) return;
+    m_suspended   = false;
+    m_lastOpacity = -1;      // 强制下一帧重算淡入，不沿用挂起前的透明度
+    m_layer->Show(true);
+    m_layer->Move(ComputeRect());
+    m_layer->Redraw();
 }
 
 RECT ToastManager::CardRect(int index) const
@@ -294,9 +369,16 @@ void ToastManager::EnsureLayer()
 void ToastManager::Show(const Toast& toast)
 {
     if (!m_owner || !m_fonts) return;
+    // 自绘模态框会 EnableWindow(owner, FALSE)，但主窗口的定时器仍在
+    // 跑。此时弹出 Toast 会浮在遮罩/对话框上，且抢不到焦点关不掉。
+    // 这些都是即时操作反馈，模态期间直接丢弃比事后补一条过期提示好。
+    if (!IsWindowEnabled(m_owner)) return;
+
+    const bool vis = OwnerVisible();
+    AdvanceClock(GetTickCount64(), vis);
     InternalToast t;
     static_cast<Toast&>(t) = toast;
-    t.startTime = GetTickCount64();
+    t.startTime = m_visibleClock;   // 显示时钟：隐藏期间不会流逝
     m_toasts.push_back(std::move(t));
     while (m_toasts.size() > 3) {
         if (m_toasts.front().onDismiss) m_toasts.front().onDismiss();
@@ -305,12 +387,21 @@ void ToastManager::Show(const Toast& toast)
 
     EnsureLayer();
     if (!m_layer) return;
+    // 主窗口被隐藏（Ctrl+Shift+V 收起）或最小化时，只入队不显示；
+    // 窗口回来后由显示时钟自然开始计时并淡入。
+    if (!vis) {
+        m_suspended = true;
+        m_layer->Show(false);
+        return;
+    }
+    m_suspended = false;
     m_layer->Show(true);
     m_layer->SetOpacity(0);
     m_layer->Move(ComputeRect());
     m_layer->Redraw();
-    m_hoverIndex = -1;
-    m_hoverClose = false;
+    m_lastOpacity = 0;
+    m_hoverIndex  = -1;
+    m_hoverClose  = false;
 }
 
 void ToastManager::Show(const std::wstring& title,
@@ -435,9 +526,20 @@ void ToastManager::Tick()
 {
     if (!m_layer) return;
     const uint64_t now = GetTickCount64();
+    const bool vis = OwnerVisible();
+    AdvanceClock(now, vis);
+
+    if (!vis) {
+        // 窗口不在屏幕上：藏起浮层，显示时钟随之冻结。
+        if (!m_suspended) { m_suspended = true; m_layer->Show(false); }
+        return;
+    }
+    if (m_suspended) Resume();   // 继续往下重算淡入，不另起一帧
+
     bool removed = false;
     for (auto it = m_toasts.begin(); it != m_toasts.end(); ) {
-        if (now - it->startTime > (uint64_t)(std::max)(1, it->durationMs)) {
+        if (m_visibleClock - it->startTime >
+            (uint64_t)(std::max)(1, it->durationMs)) {
             if (it->onDismiss) it->onDismiss();
             it = m_toasts.erase(it);
             removed = true;
@@ -461,7 +563,7 @@ void ToastManager::Tick()
 
     // 淡入 150ms / 淡出 250ms，以最新一条为准（通常只有一条）。
     const InternalToast& last = m_toasts.back();
-    const int64_t age = (int64_t)(now - last.startTime);
+    const int64_t age = (int64_t)(m_visibleClock - last.startTime);
     const int64_t dur = (int64_t)(std::max)(1, last.durationMs);
     int fade = 255;
     if (age < 150) fade = (int)(age * 255 / 150);
@@ -481,15 +583,24 @@ void ToastManager::CloseAll()
     for (auto& t : m_toasts)
         if (t.onDismiss) t.onDismiss();
     m_toasts.clear();
+    m_suspended  = false;
+    m_lastOpacity = 0;
     if (m_layer) m_layer->Show(false);
 }
 
 void ToastManager::Reposition()
 {
-    if (m_layer && !m_toasts.empty()) {
-        m_layer->Move(ComputeRect());
-        m_layer->Redraw();
+    if (!m_layer || m_toasts.empty()) return;
+    const bool vis = OwnerVisible();
+    AdvanceClock(GetTickCount64(), vis);
+    if (!vis) {
+        if (!m_suspended) { m_suspended = true; m_layer->Show(false); }
+        return;
     }
+    // WM_SIZE / WM_SHOWWINDOW 一到就恢复，不必等 50ms 的浮层定时器。
+    if (m_suspended) Resume();
+    m_layer->Move(ComputeRect());
+    m_layer->Redraw();
 }
 
 // ============================================================
@@ -501,16 +612,27 @@ int RunModalDialog(HWND owner, const Fonts& fonts,
 {
     if (!owner) return IDCANCEL;
 
-    RECT client{};
-    GetClientRect(owner, &client);
-    POINT origin{ 0, 0 };
-    ClientToScreen(owner, &origin);
-    RECT screen = { origin.x, origin.y,
-                    origin.x + client.right, origin.y + client.bottom };
+    // 遮罩要盖住整个窗口（含标题栏和系统按钮），不能只盖客户区。
+    // 最大化时 GetWindowRect 会带出屏幕外的隐形缩放边框，用所属
+    // 显示器的全屏矩形裁一下，卡片才不会被推偏。
+    RECT screen{};
+    GetWindowRect(owner, &screen);
+    const RECT mon = MonitorBounds(owner, false);
+    screen.left   = (std::max)(screen.left,   mon.left);
+    screen.top    = (std::max)(screen.top,    mon.top);
+    screen.right  = (std::min)(screen.right,  mon.right);
+    screen.bottom = (std::min)(screen.bottom, mon.bottom);
+    if (screen.right <= screen.left || screen.bottom <= screen.top)
+        return IDCANCEL;
+    // 命中与绘制共用浮层自身尺寸：PaintModal 的坐标系原点就是浮层
+    // 客户区左上角，不再依赖主窗口的 client rect。
+    const Rect layerRc(0, 0, screen.right - screen.left,
+                             screen.bottom - screen.top);
 
     OverlayWindow layer;
     if (!layer.Create(owner, screen, true)) return IDCANCEL;
     layer.SetMode(OverlayAlphaMode::Scrim);
+    const bool ownerWasEnabled = IsWindowEnabled(owner) != FALSE;
 
     const UINT kind = flags & 0x0F;
     const bool yesNo   = (kind == MB_YESNO || kind == MB_YESNOCANCEL);
@@ -538,8 +660,7 @@ int RunModalDialog(HWND owner, const Fonts& fonts,
 
     auto hitAt = [&](LPARAM lp) {
         const POINT pt = PointFromLParam(lp);
-        return ModalButtonAt(Rect(0, 0, client.right, client.bottom),
-                             st, Mx(), Point{ pt.x, pt.y });
+        return ModalButtonAt(layerRc, st, Mx(), Point{ pt.x, pt.y });
     };
 
     layer.SetPaint([&](HDC dc, int w, int h) {
@@ -643,8 +764,195 @@ int RunModalDialog(HWND owner, const Fonts& fonts,
         DispatchMessageW(&msg);
     }
 
-    EnableWindow(owner, TRUE);
-    SetForegroundWindow(owner);
+    // 只在原本启用时恢复：若调用方（或上一层模态）已经禁用了 owner，
+    // 无条件 TRUE 会把不该放开的输入放开。窗口被隐藏 / 最小化时也
+    // 不要硬抢前台，否则会把用户当前正在用的程序挤掉。
+    if (ownerWasEnabled) EnableWindow(owner, TRUE);
+    if (IsWindowVisible(owner) && !IsIconic(owner))
+        SetForegroundWindow(owner);
+    layer.Destroy();
+    return result;
+}
+
+// ============================================================
+// 自绘上下文菜单
+// ============================================================
+int RunPopupMenu(HWND owner, const Fonts& fonts, POINT anchor,
+                 const std::vector<OverlayMenuItem>& items)
+{
+    if (!owner || items.empty()) return 0;
+
+    MenuState st;
+    for (const auto& src : items) {
+        MenuItemState mi;
+        mi.text      = src.label;
+        mi.separator = src.separator;
+        mi.disabled  = src.disabled;
+        st.items.push_back(std::move(mi));
+    }
+
+    // 宽度公式与 core 的 PaintContextMenu / Menu::Paint 保持一致：
+    // pad*2 + 图标列 + gap + 文本 + gap + 快捷键列，再加 1px 描边。
+    const Metrics& mx = Mx();
+    const int pad       = mx.unit;
+    const int gap       = mx.unit;
+    const int glyphW    = (std::max)(8, mx.rowH - mx.unit);
+    const int shortcutW = mx.rowH * 2;
+
+    HDC dc = GetDC(nullptr);
+    int textW = 0;
+    for (const auto& mi : st.items)
+        if (!mi.separator)
+            textW = (std::max)(textW, MeasureMenuLabel(dc, fonts, mi.text));
+    ReleaseDC(nullptr, dc);
+
+    int w = pad * 2 + glyphW + gap + textW + gap + shortcutW + 2;
+    w = (std::max)(w, mx.rowH * 6);
+    const int h = MenuContentHeight(st, mx) + 2;
+
+    // 右下空间不够就向左 / 向上翻转，最后约束进显示器工作区。
+    const RECT area = MonitorBounds(owner, true);
+    int x = anchor.x;
+    int y = anchor.y;
+    if (x + w > area.right - 2)  x = anchor.x - w;
+    if (y + h > area.bottom - 2) y = anchor.y - h;
+    RECT screen = { x, y, x + w, y + h };
+    ClampInside(screen, area, 2);
+
+    OverlayWindow layer;
+    if (!layer.Create(owner, screen, true)) return 0;
+    layer.SetMode(OverlayAlphaMode::Transparent);
+
+    const Rect rc(0, 0, w, h);
+    int  hovered = -1;
+    int  result  = 0;
+    bool done    = false;
+
+    // -2 = 点在浮层外（取消），-1 = 浮层内但不可选，>=0 = 项下标。
+    auto hitAt = [&](LPARAM lp) -> int {
+        const POINT pt = PointFromLParam(lp);
+        if (pt.x < 0 || pt.y < 0 || pt.x >= w || pt.y >= h) return -2;
+        const int idx = MenuItemAt(rc, st, mx, Point{ pt.x, pt.y });
+        if (idx < 0 || st.items[(size_t)idx].separator ||
+            st.items[(size_t)idx].disabled) return -1;
+        return idx;
+    };
+
+    layer.SetPaint([&](HDC paintDc, int pw, int ph) {
+        Canvas canvas(paintDc, fonts);
+        CanvasPainter painter(canvas);
+        MenuState draw = st;
+        draw.hovered  = hovered;
+        draw.selected = hovered;
+        PaintMenu(painter, Rect(0, 0, pw, ph), draw, Pal(), mx);
+    });
+
+    auto moveSelection = [&](int dir) {
+        const int n = (int)st.items.size();
+        int next = hovered;
+        for (int i = 0; i < n; ++i) {
+            next += dir;
+            if (next < 0)  next = n - 1;
+            if (next >= n) next = 0;
+            if (!st.items[(size_t)next].separator &&
+                !st.items[(size_t)next].disabled) break;
+        }
+        if (next != hovered) { hovered = next; layer.Redraw(); }
+    };
+
+    layer.SetEvents([&](UINT msg, WPARAM wp, LPARAM lp, LRESULT& res) -> bool {
+        switch (msg) {
+        case WM_MOUSEMOVE: {
+            const int hit = hitAt(lp);
+            const int nh  = (hit >= 0) ? hit : -1;
+            if (nh != hovered) { hovered = nh; layer.Redraw(); }
+            TRACKMOUSEEVENT tme{};
+            tme.cbSize    = sizeof(tme);
+            tme.dwFlags   = TME_LEAVE;
+            tme.hwndTrack = layer.Native();
+            TrackMouseEvent(&tme);
+            res = 0;
+            return true;
+        }
+        case WM_MOUSELEAVE:
+            if (hovered != -1) { hovered = -1; layer.Redraw(); }
+            res = 0;
+            return true;
+
+        case WM_LBUTTONDOWN:
+            if (hitAt(lp) == -2) { result = 0; done = true; }
+            res = 0;
+            return true;
+
+        case WM_LBUTTONUP: {
+            const int hit = hitAt(lp);
+            if (hit >= 0) result = items[(size_t)hit].id;
+            done = true;
+            res = 0;
+            return true;
+        }
+
+        case WM_RBUTTONDOWN:
+        case WM_RBUTTONUP:
+        case WM_MBUTTONDOWN:
+            if (hitAt(lp) == -2) { result = 0; done = true; }
+            res = 0;
+            return true;
+
+        case WM_KEYDOWN:
+            switch (wp) {
+            case VK_ESCAPE:
+                result = 0; done = true; break;
+            case VK_RETURN:
+            case VK_SPACE:
+                if (hovered >= 0) result = items[(size_t)hovered].id;
+                done = true; break;
+            case VK_UP:   moveSelection(-1); break;
+            case VK_DOWN: moveSelection(1);  break;
+            default: return false;
+            }
+            res = 0;
+            return true;
+
+        case WM_SETCURSOR:
+            SetCursor(hovered >= 0 ? HandCursor() : ArrowCursor());
+            res = TRUE;
+            return true;
+
+        case WM_CANCELMODE:
+            result = 0; done = true;
+            res = 0;
+            return true;
+
+        case WM_NCHITTEST:
+            res = HTCLIENT;
+            return true;
+
+        default:
+            return false;
+        }
+    });
+
+    const HWND prevFocus = GetFocus();
+    layer.Show(true);
+    SetForegroundWindow(layer.Native());
+    SetActiveWindow(layer.Native());
+    SetFocus(layer.Native());
+    SetCapture(layer.Native());
+
+    // 与 TrackPopupMenu 一样是阻塞式：拿到命令 id 或取消才返回。
+    // 捕获鼠标保证点在菜单外也只会关掉菜单，不会漏给下面的控件。
+    MSG msg{};
+    while (!done) {
+        const BOOL got = GetMessageW(&msg, nullptr, 0, 0);
+        if (got == 0) { PostQuitMessage((int)msg.wParam); break; }
+        if (got < 0) break;
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
+    }
+
+    ReleaseCapture();
+    if (prevFocus && IsWindow(prevFocus)) SetFocus(prevFocus);
     layer.Destroy();
     return result;
 }

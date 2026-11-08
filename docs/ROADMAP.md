@@ -389,8 +389,8 @@
     焦点环），禁用 owner + 局部消息循环，支持 hover / 按下 / Enter / Esc / Tab。
     为单按钮场景给 `ModalState` 加了 `singleButton`（`MB_OK`），
     并为 hover/pressed 加了 `hovered` / `pressed`，默认态输出不变，
-    原金样测试保持通过。`App.cpp` 里「清空记录」的直接 `MessageBoxW` 也收编。
-    服务安装器（`airecordd /install`）是命令行工具、没有 Shell，仍用系统弹窗。
+    原金样测试保持通过。    `App.cpp` 里「清空记录」的直接 `MessageBoxW` 也收编。
+    （服务安装器当时仍用系统弹窗，已在下一节收尾走查中一并清掉。）
   - **实测**：F3 焦点落在 `Edit id=1001`、F4 落在 `Edit id=1003` 且表单卡展开
     （真实键盘与消息投递两条路径都通过）；Toast 卡片显示「已复制 / 已删除」、
     按钮区无遮挡、3.2s 后浮层自动隐藏；删除确认框的半透明遮罩让整窗变暗、
@@ -432,3 +432,46 @@
   - **判据**：跨页面共享的数据（统计、快照）刷新必须挂在**应用层**，
     不能挂在「当前页面」的回调里；页面回调只负责自己的控件。
     自绘页面数据变了要显式标脏，没有子控件会替它 invalidate。
+
+- **2026-11-08 — 收尾：原生 UI 清零、浮层边界、Toast 生命周期**
+  - **原生 UI 残留**：`Shell::ShowPopupMenu` 还在用 `TrackPopupMenu`（系统菜单），
+    `airecordd.exe` 的 `-install` / `-uninstall` / `RunAsService` 共 4 处
+    `MessageBoxW`。后者在 Session 0 里弹窗会**阻塞服务线程且用户永远看不到**，
+    不只是风格问题。现全部替换：
+    - 右键菜单改走 `RunPopupMenu()`：复用 core 的 `PaintMenu / MenuItemAt /
+      MenuContentHeight` + `OverlayWindow`，宽度用 `gfx::MeasureWidth` 与
+      IPainter 同度量，锚点右下空间不足就翻转并 clamp 进显示器工作区；
+      hover / 方向键 / Enter / Esc / 点击外部取消 / 手型光标闭环，
+      `SetCapture` 保证点在菜单外不会漏给下面的控件。
+    - 安装器结果通过 `WM_COPYDATA` 发给主窗口（`ipc::kUiWindowClass` +
+      `kUiToastTag`），由 `App` 的 message hook 解析后走自绘 Toast；
+      主窗口没开就只留日志和进程返回码。提升 → 普通完整性方向发
+      `WM_COPYDATA` 是 UIPI 允许的。主界面进程内已无 `MessageBoxW` /
+      `TrackPopupMenu`；托盘菜单属于系统通知区的会话代理进程（没有 airui
+      链接），保持系统原生。顺手补了 UAC 被拒时的错误 Toast（以前静默）。
+    - 所有 `Ipc().Request()` 现在检查 `OK` 前缀：复制 / 删除 / 备注 /
+      清空 / 双击复制失败时给错误 Toast，不再「服务没连上也报已复制」；
+      切换条目自动存备注只在成功时改本地缓存。
+  - **浮层坐标与模态边界**：Toast 位置按 `MonitorFromWindow` 的工作区 clamp
+    （跨屏 / 贴边 / 任务栏）；模态遮罩由客户区改为**整个窗口矩形**
+    （`GetWindowRect` + 显示器矩形裁剪，顺带消掉最大化的隐形边框），
+    命中与绘制统一用浮层自身尺寸。模态前后保存 / 恢复 owner 的
+    `IsWindowEnabled`，窗口隐藏时不再硬抢前台；`ToastManager::Show()` 在
+    owner 被禁用时直接丢弃，避免 Toast 浮到遮罩上。
+  - **Toast 生命周期（本次最关键的坑）**：owner 最小化 / 隐藏时 Windows 会
+    自动藏起 owned popup 但不通知我们，`m_visible` 缓存与真实可见性不同步，
+    恢复后 `Show(true)` 被短路，Toast 再也不出现。改成以 `IsWindowVisible`
+    为准；并引入**只在主窗口可见时推进的「显示时钟」** `m_visibleClock`：
+    隐藏期间时钟冻结，恢复后无需逐条补偿 `startTime`。
+    早期尝试过「按隐藏时长统一补 `startTime`」，在恢复动画里被重复触发，
+    会出现负 `age`（淡入被无限推回 0，窗口可见但全透明）和无符号下溢
+    导致 Toast 瞬间过期——这套补偿已废弃。
+  - **实测**：右键菜单浮层 `(606,321)-(798,437)` 三项 + 分隔线 + hover 高亮，
+    点击「复制内容」出「已复制」Toast；「删除记录」弹出遮罩覆盖整窗
+    `(156,156)-(1276,936)`、`IsWindowEnabled(owner)` 0→1、期间 Toast 层隐藏；
+    `WM_COPYDATA` 跨进程 Toast 标题/正文正确；最小化期间入队的 Toast
+    在 3.6s 隐藏后仍存在、恢复 +0.3s 可见并正常渲染、+3.8s 到期消失。
+    `ctest -C Release` 22/22，`check-core-clean.sh` PASSED（50 files）。
+  - **判据**：任何浮层的显示状态都要以 Win32 真实状态为准，不能只信自己的
+    bool；「用户实际看到的时间」应该是一根独立时钟，不要用墙钟减去补偿量
+    反复改写起点；服务端进程永远不允许弹模态对话框。

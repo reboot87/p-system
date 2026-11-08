@@ -576,23 +576,14 @@ int Shell::ShowPopupMenu(POINT screenPt, const std::vector<MenuItem>& items)
 {
     if (!m_hwnd || items.empty()) return 0;
 
-    HMENU menu = CreatePopupMenu();
-    for (const auto& it : items) {
-        if (it.separator) {
-            AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-        } else {
-            UINT f = MF_STRING | (it.disabled ? MF_DISABLED : 0);
-            AppendMenuW(menu, f, it.id, it.label.c_str());
-        }
-    }
+    // 原生 TrackPopupMenu 的系统菜单和无边框外壳 / 设计系统不搭，
+    // 也不受我们的 hover / DPI / 后端规则约束。统一走自绘浮层。
+    std::vector< ::air::ui::OverlayMenuItem> converted;
+    converted.reserve(items.size());
+    for (const auto& it : items)
+        converted.push_back({ it.id, it.label, it.separator, it.disabled });
 
-    SetForegroundWindow(m_hwnd);
-    int cmd = TrackPopupMenu(menu,
-                             TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON,
-                             screenPt.x, screenPt.y, 0, m_hwnd, nullptr);
-    PostMessageW(m_hwnd, WM_NULL, 0, 0);
-    DestroyMenu(menu);
-    return cmd;
+    return ::air::ui::RunPopupMenu(m_hwnd, m_fonts, screenPt, converted);
 }
 
 int Shell::MeasureTextWidth(const std::wstring& s, FontRole role)
@@ -1526,6 +1517,9 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             m_eraseCount    = 1;
             if (rcShow.right <= rcShow.left) m_eraseCount = 0;
         }
+        // 浮层是 owned popup，收起 / 恢复要立刻跟着走，不能等 50ms
+        // 的 Toast 定时器慢慢发现（那一帧会看到悬空的卡片）。
+        if (m_toastMgr) m_toastMgr->Reposition();
         break;
 
     case WM_GETMINMAXINFO: {

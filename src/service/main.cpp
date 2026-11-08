@@ -92,8 +92,31 @@ static std::wstring g_lastInternalCopy;           // 应用内复制过滤（COP
 // 通知客户端窗口刷新列表（客户端收到后 300ms 防抖）
 static void NotifyClientRefresh()
 {
-    HWND client = FindWindowW(L"AireRecordWnd", nullptr);
+    HWND client = FindWindowW(ipc::kUiWindowClass, nullptr);
     if (client) PostMessageW(client, WM_APP + 2, 0, 0);
+}
+
+// 一次性结果交给主界面的自绘 Toast。服务端 / 提权进程绝不弹系统
+// MessageBox：Session 0 没有交互桌面，弹窗会卡住服务线程而且用户
+// 永远看不到；安装器是提升进程，风格也应该跟客户端保持一致。
+// 提升 → 普通完整性方向发 WM_COPYDATA 是 UIPI 允许的。
+static void NotifyUi(bool ok, const wchar_t* title, const wchar_t* message)
+{
+    diag::Log(L"[ui-notify] ok=%d title=%ls msg=%ls",
+              (int)ok, title, message);
+    HWND client = FindWindowW(ipc::kUiWindowClass, nullptr);
+    if (!client) return;   // 主界面没开：日志 + 进程返回码即结果
+
+    const std::wstring payload = (ok ? L"1\t" : L"0\t") +
+                                 std::wstring(title) + L"\t" + message;
+    COPYDATASTRUCT cds{};
+    cds.dwData = ipc::kUiToastTag;
+    cds.cbData = (DWORD)((payload.size() + 1) * sizeof(wchar_t));
+    cds.lpData = const_cast<wchar_t*>(payload.c_str());
+    DWORD_PTR ignored = 0;
+    SendMessageTimeoutW(client, WM_COPYDATA, 0,
+                        reinterpret_cast<LPARAM>(&cds),
+                        SMTO_ABORTIFHUNG, 1000, &ignored);
 }
 
 // ---------- 剪贴板（代理自己的 COPY → 过滤不入库） ----------
@@ -226,8 +249,13 @@ static void ShowTrayMenu()
         int ret = (int)ShellExecuteW(nullptr, L"runas", g_selfPath.c_str(),
                                      (!on) ? L"-install" : L"-uninstall",
                                      nullptr, SW_HIDE);
-        if (ret <= 32)  // 用户拒绝 UAC 或失败 → 回滚偏好
+        if (ret <= 32) {
+            // 用户拒绝 UAC 或提权失败 → 回滚偏好，并给主界面一条错误
+            // Toast（以前是纯静默，用户只会看到开关没反应）。
             g_db.SetSetting(L"autostart", on ? L"1" : L"0");
+            NotifyUi(false, L"未能更改自启动",
+                     L"系统权限请求被取消或失败，设置已回滚。");
+        }
         break;
     }
     case CMD_EXIT:
@@ -711,7 +739,7 @@ static int RunAsService()
             L"启动服务调度失败（错误码 %u）。\n"
             L"请通过系统服务管理器或 -install 安装后运行。",
             GetLastError());
-        MessageBoxW(nullptr, msg, L"AireRecord", MB_ICONERROR);
+        NotifyUi(false, L"服务启动失败", msg);
         return 1;
     }
     return 0;
@@ -730,7 +758,7 @@ static int InstallService()
         StringCchPrintfW(msg, 160,
             L"打开服务管理器失败（错误码 %u）。\n请以管理员身份运行。",
             GetLastError());
-        MessageBoxW(nullptr, msg, L"AireRecord 安装服务", MB_ICONERROR);
+        NotifyUi(false, L"安装服务失败", msg);
         CoUninitialize();
         return 1;
     }
@@ -774,11 +802,9 @@ static int InstallService()
     machine::Set(L"mode", L"run_mode", L"scm");
     SetAgentStoppedFlag(false);
 
-    MessageBoxW(nullptr,
-        started ? L"系统服务安装成功，已随系统自动启动。\n"
-                  L"后台记录将在每次登录后自动运行。"
-                : L"系统服务已注册，但启动失败（可能已有代理在运行）。",
-        L"AireRecord 安装服务", MB_ICONINFORMATION);
+    NotifyUi(started, L"AireRecord 安装服务",
+        started ? L"系统服务安装成功，已随系统自动启动，后台记录将在每次登录后自动运行。"
+                : L"系统服务已注册，但启动失败（可能已有代理在运行）。");
     CoUninitialize();
     return started ? 0 : 1;
 }
@@ -814,8 +840,8 @@ static int UninstallService()
     ShellExecuteW(nullptr, L"open", L"explorer.exe", arg.c_str(),
                   nullptr, SW_SHOWNORMAL);
 
-    MessageBoxW(nullptr, L"系统服务已卸载，已恢复为普通后台运行。",
-                L"AireRecord 卸载服务", MB_ICONINFORMATION);
+    NotifyUi(true, L"AireRecord 卸载服务",
+             L"系统服务已卸载，已恢复为普通后台运行。");
     CoUninitialize();
     return 0;
 }

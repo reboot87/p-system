@@ -69,6 +69,9 @@ private:
 
     RECT ComputeRect() const;
     RECT CardRect(int index) const;
+    bool OwnerVisible() const;
+    void AdvanceClock(uint64_t now, bool ownerVisible);
+    void Resume();
     void EnsureLayer();
     void Paint(HDC dc, int width, int height);
     void HitTest(POINT pt, int& index, bool& onClose) const;
@@ -81,6 +84,13 @@ private:
     int  m_hoverIndex  = -1;
     bool m_hoverClose  = false;
     int  m_lastOpacity = 0;
+    // Toast 的寿命走「显示时钟」：只有主窗口可见时它才推进。窗口
+    // 隐藏 / 最小化期间时钟冻结，恢复后无需逐条补偿 startTime，
+    // 也就不会有负年龄、淡入被反复推回 0 或定时器误判过期。
+    uint64_t m_visibleClock = 0;
+    uint64_t m_lastTick     = 0;
+    bool     m_wasVisible   = true;
+    bool     m_suspended    = false;
 
     friend class Shell;
 };
