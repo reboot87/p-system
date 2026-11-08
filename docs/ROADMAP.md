@@ -221,3 +221,31 @@
     亮度 245~247、墨量 0.017~0.026 没有掉到 0 的空白帧；`ctest -C Release` 21/21。
   - **判据补充**：原生 owner-draw 列表「重建即闪」要先看重建过程中有没有被呈现
     （`WM_SETREDRAW`），而不是先怀疑双缓冲。
+
+- **2026-11-08 — Skia 一帧 35 ms 的分解与优化（提交 573d8db）**
+  - **先换计时器**：原来只有 `GetTickCount64`，分辨率是系统 timer tick（15.6 ms），
+    报出的"31~35 ms"其实是同一个桶里的两次测量。改 QPC 后一帧实测 **34.9 ms**：
+    `dc 3.07 / begin 2.26 / draw 23.01 / present 5.59 / flush 0.94`。同尺寸 GDI 后端
+    `draw` 只有 **4.48 ms**。
+  - **draw 的重心是文字**：按原语统计，`text` 71.4 段/帧、285 us/段、合计 **20.39 ms**，
+    占 draw 的 89%（`fill` 1.44、`fillRound` 1.23、`stroke` 0.17）。平均 4.7 字符/段，
+    即 **58.9 us/字符**。
+  - **根因不是光栅，是每段之前的重复准备**：`SkiaPainter::Text` 一段要测 2~4 遍
+    （ellipsis 判断一次、ellipsis 逐字符回退每步重测一次、`totalW` 一次、`DrawRuns` 内
+    再测一次），每次测量都对每个码点调 `FaceFor -> unicharToGlyph`（cmap 查找），
+    且 `SkFont f = primary; f.setTypeface(face)` 会丢掉 SkFont 的 strike spec，下一次
+    measure/draw 要重建描述符并重新查表。带 ellipsis 的 18.6 段/帧单价 463 us，
+    不带的是 223 us。
+  - **上屏重复搬运**：Skia 自己分配位图 → 画 → present 时 memcpy 到 DIB → AlphaBlend。
+    1920x1040 就是每帧 8 MB 拷贝 + 8 MB 混合，而帧是 opaque 的、混合不改变任何像素。
+  - **修法**：① `cp -> face` 按 role 缓存（上限 4096 防无界增长）；② 每个
+    (role, face 种类) 预建 SkFont，测量与绘制都取引用；③ 构造时先建 DIB，让
+    surface 直接画进 DIB 像素（WrapPixels），present 不再拷贝；④ opaque 时用 BitBlt。
+    离屏帧与 DIB 创建失败仍走 Skia 位图 + 拷贝回退，`AIRUI_SKIA_ALPHA=premul` 对照构建
+    保留 AlphaBlend。
+  - **实测（1920x1040 / Skia / VS2022 产物）**：一帧 **34.9 → 21.3 ms**，
+    `draw 23.0 → 12.2`、`present 5.6 → 2.1`、`text 285 → ~145 us/段`
+    （`us/char` 58.9 → 31.7）。截图核对列表/文字/详情面板正常，还原-最大化后正常，
+    `ctest -C Release` 21/21。
+  - **判据**：Skia 文字慢先看"每段测了几遍"，再看 `SkFont` 有没有被每次拷贝/改 typeface；
+    一帧 `present` 接近 `draw` 的一半时，看是不是拷贝 + 混合各走了一遍全屏。
