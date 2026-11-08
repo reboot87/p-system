@@ -175,3 +175,10 @@
   - **像素对比工具**：新增 `tests/test_paint_compare.cpp`（Windows，接 ctest）——同一 240×120 32bpp DIB、同一 `IPainter` 调用序列，分别由 gdi / skia 绘制，读回 BGRA 后按图元分区输出差异像素数、平均通道差、光栅 checksum 与圆角中间色像素数；无 DLL 时只出 GDI 基线并跳过（默认构建仍可跑）。
   - **本机实测**（VS2017 x64 产物 + 已下载的 CI VS2022 x64 插件包）：`ctest -C Release` **20/20**；圆角中间色像素 GDI **0** vs Skia **69**（抗锯齿）；整帧差异 1274/28800（4.4%）、半透明矩形 **0** 差异、虚线 400/6912（5.8%）、文字 415/2592（**16.0%**、平均差 44.1，字体族未对齐所致）。四组启动日志实测：`coreShell=0`（旧版 GDI 路径）、`coreShell=1 + skia`（`probe=ok`）、`coreShell=1 + gdi`、以及 `AIRUI_SKIA_DLL` 指向不存在文件时 `available=[gdi] ... fell back to gdi`。
   - **边界**：仍是合成场景的像素 diff，不是完整 GUI 窗口截图比对；字体族/hinting 未对齐；x86 Skia 插件仍未做。业务模块仍留最后。
+
+- **2026-11-08 — 修掉「鼠标从左侧列表移到右侧列表时整列表闪一下」**
+  - 现象：指针从侧栏导航移进/移出剪贴板列表，右侧列表整块闪一帧（列表被擦成底色再逐行画回来）。
+  - **定位方式**：新增 `AIRUI_HOVER_TRACE=1` 追踪（`%LOCALAPPDATA%\AireRecord\list_hover.log`，记录 LISTBOX 的 `move / leave / paint update=<invalid rect> / erase / draw idx=...`），把"肉眼看到闪"变成消息序列。修复前 `leave` 之后必跟 `paint update=0,0-549,634` + `erase` + 11 行重画（约 12ms）；修复后只有 `paint update=0,286-549,350` 一行。
+  - **根因**：hover 是我们自己在子类化里维护的，但 `WM_MOUSELEAVE` 处理完直接 `break` 下传，标准 LISTBOX 自己的 leave 处理会整客户区失效一次；owner-draw 列表于是"擦整块 → 逐行画回"，就是那一下闪。`WS_EX_COMPOSITED` **不是**原因（A/B 保留合成标志后依旧只有单行失效）。
+  - **修复**：① `WM_MOUSELEAVE` 吃掉消息（`return 0`），只失效原悬停行；② `Shell::WM_MOUSEMOVE` / `WM_MOUSELEAVE` 拆成 caption / nav / content 三块失效，只有外壳 chrome 变化时不再整窗失效（顺带减少无谓重绘，让子控件完全不被父窗口重绘牵连）。
+  - **验证**：本地 VS2017 `ctest -C Release` 21/21；实测日志「导航悬停 0 字节（列表完全不重绘）」「跨越边界只重绘一行」；界面截图核对 hover / 选中 / 详情面板无回归。

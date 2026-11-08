@@ -1127,34 +1127,52 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
     case WM_MOUSEMOVE: {
         POINT pt = { (short)LOWORD(lParam), (short)HIWORD(lParam) };
-        bool needRepaint = false;
+        bool captionDirty = false;   // 标题栏三键 / 渲染后端按钮
+        bool navDirty     = false;   // 侧栏导航列表
 
         int btn = CaptionButtonAt(pt);
         if (btn != m_capHover) {
             m_capHover = btn;
-            needRepaint = true;
+            captionDirty = true;
         }
         bool onPaintBtn = HitTestPaintBackendButton(pt);
         if (onPaintBtn != m_paintBtnHover) {
             m_paintBtnHover = onPaintBtn;
-            needRepaint = true;
+            captionDirty = true;
         }
         bool tracking = (btn != 0) || onPaintBtn;
 
         if (m_opt.sidebar && pt.x < m_side.right && pt.y >= m.titleH) {
-            if (m_nav.OnMouseMove(pt)) needRepaint = true;
+            if (m_nav.OnMouseMove(pt)) navDirty = true;
             tracking = true;
         } else {
-            if (m_nav.OnMouseLeave()) needRepaint = true;
+            if (m_nav.OnMouseLeave()) navDirty = true;
         }
         // Keep the platform-free hit-test state in step with the mouse.
         m_shellCore.SetNavHover(m_shellCore.HitTestNav(Point{ pt.x, pt.y }));
 
         POINT cp = { pt.x - m_content.left, pt.y - m_content.top };
+        bool contentDirty = false;
         if (IPage* p = CurrentPage())
-            if (p->OnMouseMove(cp)) needRepaint = true;
+            contentDirty = p->OnMouseMove(cp);
 
-        if (needRepaint) ::InvalidateRect(hwnd, nullptr, FALSE);
+        if (contentDirty) {
+            ::InvalidateRect(hwnd, nullptr, FALSE);
+        } else if (captionDirty || navDirty) {
+            // 只失效真正变化的那一块。整窗失效会连带把子控件（剪贴板
+            // 列表）拖进一次重绘：LISTBOX 的 owner-draw 帧是"先擦成背
+            // 景色，再逐行画回来"，十几次这样闪就会看成列表在抖。
+            RECT rcClient;
+            GetClientRect(hwnd, &rcClient);
+            if (captionDirty) {
+                RECT rcCap = { 0, 0, rcClient.right, m.titleH };
+                ::InvalidateRect(hwnd, &rcCap, FALSE);
+            }
+            if (navDirty && m_opt.sidebar) {
+                RECT rcNav = { 0, m.titleH, m_side.right, rcClient.bottom };
+                ::InvalidateRect(hwnd, &rcNav, FALSE);
+            }
+        }
         if (tracking) {
             TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hwnd, 0 };
             TrackMouseEvent(&tme);
@@ -1163,14 +1181,27 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     }
 
     case WM_MOUSELEAVE: {
-        bool dirty = false;
-        if (m_capHover) { m_capHover = 0; dirty = true; }
-        if (m_paintBtnHover) { m_paintBtnHover = false; dirty = true; }
-        if (m_nav.OnMouseLeave()) dirty = true;
+        bool captionDirty = false, navDirty = false;
+        if (m_capHover) { m_capHover = 0; captionDirty = true; }
+        if (m_paintBtnHover) { m_paintBtnHover = false; captionDirty = true; }
+        if (m_nav.OnMouseLeave()) navDirty = true;
         m_shellCore.SetNavHover(-1);
-        if (IPage* p = CurrentPage())
-            if (p->OnMouseLeave()) dirty = true;
-        if (dirty) ::InvalidateRect(hwnd, nullptr, FALSE);
+        bool contentDirty = false;
+        if (IPage* p = CurrentPage()) contentDirty = p->OnMouseLeave();
+        if (contentDirty) {
+            ::InvalidateRect(hwnd, nullptr, FALSE);
+            return 0;
+        }
+        RECT rcClient;
+        GetClientRect(hwnd, &rcClient);
+        if (captionDirty) {
+            RECT rcCap = { 0, 0, rcClient.right, m.titleH };
+            ::InvalidateRect(hwnd, &rcCap, FALSE);
+        }
+        if (navDirty) {
+            RECT rcNav = { 0, m.titleH, m_side.right, rcClient.bottom };
+            ::InvalidateRect(hwnd, &rcNav, FALSE);
+        }
         return 0;
     }
 

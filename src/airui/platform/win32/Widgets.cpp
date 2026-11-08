@@ -2,9 +2,52 @@
 #include "airui/Shell.h"
 #include "airui/Gfx.h"
 #include <commctrl.h>
+#include <cstdarg>
+#include <cstdio>
 
 namespace air {
 namespace ui {
+
+// List-hover forensics: AIRUI_HOVER_TRACE=1 appends the LISTBOX message and
+// draw-item sequence to %LOCALAPPDATA%\AireRecord\list_hover.log, so a
+// "the list blinks when the pointer crosses over" report can be turned into
+// an actual message trace (which paint ran with which hover index, and how
+// much of the list that paint covered). Off by default; costs one cached
+// environment lookup.
+static bool HoverTraceOn()
+{
+    static int enabled = -1;
+    if (enabled < 0) {
+        wchar_t v[8] = {};
+        enabled = GetEnvironmentVariableW(L"AIRUI_HOVER_TRACE", v, 8) > 0;
+    }
+    return enabled > 0;
+}
+
+static void HoverLog(const wchar_t* fmt, ...)
+{
+    if (!HoverTraceOn()) return;
+
+    // Open/append/close per record: the log must stay readable while the
+    // client runs, otherwise a held handle blocks the analyst's shell.
+    wchar_t path[MAX_PATH] = {};
+    DWORD n = GetEnvironmentVariableW(L"LOCALAPPDATA", path, MAX_PATH);
+    if (n == 0 || n >= MAX_PATH - 40) return;
+    wcscat_s(path, L"\\AireRecord\\list_hover.log");
+    FILE* f = nullptr;
+    _wfopen_s(&f, path, L"a");
+    if (!f) return;
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    fwprintf_s(f, L"%02d:%02d:%02d.%03d ", st.wHour, st.wMinute, st.wSecond,
+               st.wMilliseconds);
+    va_list ap;
+    va_start(ap, fmt);
+    vfwprintf_s(f, fmt, ap);
+    va_end(ap);
+    fwprintf_s(f, L"\n");
+    fclose(f);
+}
 
 // 子类化 id（占位提示 0xA1 / 按钮 hover 0xB1 已占用）
 constexpr UINT_PTR kSubTextBox = 0xC1;
@@ -241,6 +284,7 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
 
     switch (msg) {
     case WM_ERASEBKGND: {
+        HoverLog(L"erase");
         // LISTBOX 标准类背景刷是白色：滚动/失效时系统先白擦再画条目，
         // 造成滚动闪烁。改为填一层与条目打底一致的页面灰（WS_EX_COMPOSITED
         // 下此填充与条目绘制合成在同一缓冲帧，不产生中间态）。
@@ -266,6 +310,8 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
         if (!self) break;
         POINT pt = { (short)LOWORD(lParam), (short)HIWORD(lParam) };
         int item = list::ItemFromPoint(hwnd, pt);
+        HoverLog(L"move pt=%d,%d item=%d hover=%d", (int)pt.x, (int)pt.y, item,
+                 self->m_hover);
         if (item != self->m_hover) {
             int old = self->m_hover;
             self->m_hover = item;
@@ -288,15 +334,29 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
         if (!self) break;
         int old = self->m_hover;
         self->m_hover = -1;
+        RECT rc = {};
         if (old >= 0) {
-            RECT rc;
             SendMessageW(hwnd, LB_GETITEMRECT, old, (LPARAM)&rc);
             InvalidateRect(hwnd, &rc, FALSE);
         }
-        break;
+        HoverLog(L"leave hover=%d invalidated=%ld,%ld-%ld,%ld", old,
+                 (long)rc.left, (long)rc.top, (long)rc.right, (long)rc.bottom);
+        // 吃掉这条消息，不下传：标准 LISTBOX 自己的 WM_MOUSELEAVE 处理
+        // 会整客户区失效一次（整块擦成底色再逐行画回来，约 10ms），鼠标
+        // 一离开列表就能看到整列表闪一下。hover 完全由我们自己维护，
+        // 这里只失效原先悬停的那一行。
+        return 0;
     }
     case WM_PAINT: {
-        if (!self || !self->onPaintEmpty) break;
+        if (!self) break;
+        if (HoverTraceOn()) {
+            RECT upd = {};
+            GetUpdateRect(hwnd, &upd, FALSE);
+            HoverLog(L"paint update=%ld,%ld-%ld,%ld hover=%d",
+                     (long)upd.left, (long)upd.top, (long)upd.right,
+                     (long)upd.bottom, self->m_hover);
+        }
+        if (!self->onPaintEmpty) break;
         if (SendMessageW(hwnd, LB_GETCOUNT, 0, 0) != 0) break;
         PAINTSTRUCT ps;
         HDC dc = BeginPaint(hwnd, &ps);
@@ -417,6 +477,10 @@ bool ListBox::HandleDrawItem(const DRAWITEMSTRUCT* dis)
     it.rc       = dis->rcItem;
     it.selected = (dis->itemState & ODS_SELECTED) != 0;
     it.hovered  = ((int)dis->itemID == m_hover);
+    HoverLog(L"draw idx=%d hover=%d sel=%d rc=%ld,%ld-%ld,%ld",
+             it.index, (int)it.hovered, (int)it.selected,
+             (long)it.rc.left, (long)it.rc.top, (long)it.rc.right,
+             (long)it.rc.bottom);
 
     // 行底 = 页面灰（卡片浮于其上），与旧实现保持一致
     gfx::Fill(dis->hDC, dis->rcItem, Pal().bg);
