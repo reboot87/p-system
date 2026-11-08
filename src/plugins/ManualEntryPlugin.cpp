@@ -42,6 +42,7 @@ bool ManualEntryPlugin::SaveFromManual(App& app)
         if (!iswspace(c)) { hasContent = true; break; }
     if (!hasContent) {
         SetFocus(app.ManualEdit());
+        app.Toast(L"内容不能为空", L"请输入要保存的内容后再试", false);
         return false;
     }
 
@@ -54,8 +55,10 @@ bool ManualEntryPlugin::SaveFromManual(App& app)
         SetWindowTextW(app.NoteEdit(), L"");
         app.ToggleForm(false);                 // 保存成功 → 收起表单卡
         app.RefreshList(app.GetSearchText());  // 刷新列表
+        app.Toast(L"保存成功", L"记录已写入本地数据库");
         return true;
     }
+    app.Toast(L"保存失败", L"服务未响应，请稍后重试", false);
     return false;
 }
 

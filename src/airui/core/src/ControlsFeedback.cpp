@@ -376,9 +376,16 @@ ModalLayout Modal::Measure(const Metrics& mx) const
     int btnY = out.card.bottom - pad - btnH;
     if (btnY < out.titleRc.bottom) btnY = out.titleRc.bottom;
     const int gap = mx.unit;
-    out.cancelRc = Rect(right - btnW, btnY, right, btnY + btnH);
-    out.confirmRc = Rect(out.cancelRc.left - gap - btnW, btnY,
-                         out.cancelRc.left - gap, btnY + btnH);
+    if (st.singleButton) {
+        // One action: keep it right-aligned where the primary button
+        // would be, and leave the cancel slot empty so hit tests skip it.
+        out.confirmRc = Rect(right - btnW, btnY, right, btnY + btnH);
+        out.cancelRc  = Rect();
+    } else {
+        out.cancelRc = Rect(right - btnW, btnY, right, btnY + btnH);
+        out.confirmRc = Rect(out.cancelRc.left - gap - btnW, btnY,
+                             out.cancelRc.left - gap, btnY + btnH);
+    }
 
     const int bodyTop = out.titleRc.bottom + pad / 2;
     const int bodyBottom = btnY - pad;
@@ -426,14 +433,24 @@ void Modal::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     if (!lay.bodyRc.Empty())
         g.TextBlock(lay.bodyRc, st.body, FontRole::Body, pal.textSub, 3);
 
+    // Keyboard focus and pointer hover share the highlight; a held button
+    // is only visual, the action is taken on release by the host window.
+    auto stateFor = [&st](int which) {
+        ControlState cs = FocusedButton(which, st.focused);
+        if (st.hovered == which) cs.hover = true;
+        if (st.pressed == which && st.hovered == which) cs.pressed = true;
+        return cs;
+    };
+
     PaintButton(g, lay.confirmRc, st.confirmText, ButtonStyle::Primary,
-                FocusedButton(1, st.focused), pal, mx);
-    PaintButton(g, lay.cancelRc, st.cancelText, ButtonStyle::Secondary,
-                FocusedButton(2, st.focused), pal, mx);
+                stateFor(1), pal, mx);
+    if (!st.singleButton)
+        PaintButton(g, lay.cancelRc, st.cancelText, ButtonStyle::Secondary,
+                    stateFor(2), pal, mx);
 
     if (st.focused == 1)
         PaintFocusRing(g, lay.confirmRc, pal, mx);
-    else if (st.focused == 2)
+    else if (!st.singleButton && st.focused == 2)
         PaintFocusRing(g, lay.cancelRc, pal, mx);
 
     g.PopClip();

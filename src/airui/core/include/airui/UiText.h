@@ -20,7 +20,7 @@
 // in sync if the design system moves.
 //
 // Keep this header platform-free: it is consumed by the Win32 GDI
-// backend, the Skia plugin (which may compile without <windows.h>),
+// backend, the Skia plugin (which may compile without native SDK headers),
 // and the syntax-gate mock.
 // ============================================================
 #include "airui/hal.h"

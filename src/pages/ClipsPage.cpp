@@ -1008,6 +1008,7 @@ void ClipsPage::SaveNoteEdit()
     RefreshList(GetSearchText());
     m_app.RefreshStats();
     m_app.SyncServiceUi();
+    m_app.Toast(L"备注已保存", L"这条记录的备注已更新");
 }
 
 void ClipsPage::SwitchNoteEditTarget(int newEntryIdx)
@@ -1049,6 +1050,7 @@ void ClipsPage::OnListOp(int entryIdx, int op)
     switch (op) {
     case 0:
         m_app.Ipc().Request(L"COPY\t" + ipc::EscapeField(e.content));
+        m_app.Toast(L"已复制", L"内容已写入系统剪贴板");
         break;
     case 1:
         StartNoteEdit(e.id, e.note);
@@ -1063,6 +1065,7 @@ void ClipsPage::OnListOp(int entryIdx, int op)
             RefreshList(GetSearchText());
             m_app.RefreshStats();
             m_app.SyncServiceUi();
+            m_app.Toast(L"已删除", L"记录已从本地数据库移除");
         }
         break;
     }

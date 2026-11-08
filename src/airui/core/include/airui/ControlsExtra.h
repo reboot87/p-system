@@ -696,7 +696,10 @@ struct ModalState
     std::wstring body  = L"确定要执行这个操作吗？";
     std::wstring confirmText = L"确定";
     std::wstring cancelText  = L"取消";
-    int  focused = 0;      // 0 none, 1 confirm, 2 cancel
+    int  focused = 0;      // 0 none, 1 confirm, 2 cancel (keyboard focus)
+    int  hovered = 0;      // pointer target; mirrors focused for highlighting
+    int  pressed = 0;      // button held down (visual only, action on release)
+    bool singleButton = false;  // one centred action, no cancel slot
     bool scrim = true;
 };
 

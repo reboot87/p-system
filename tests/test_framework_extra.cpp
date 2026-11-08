@@ -483,6 +483,20 @@ void TestFeedbackAndLayout()
           "MeasureModal: card and buttons are laid out");
     Check(ModalButtonAt(client, modal, M(), Point{900, 900}) == 0,
           "ModalButtonAt: outside is none");
+
+    // MB_OK 只有一个动作：取消槽必须为空，主按钮靠右且仍可命中。
+    ModalState single;
+    single.singleButton = true;
+    const ModalLayout sl = MeasureModal(client, single, M());
+    Check(sl.cancelRc.Empty() && !sl.confirmRc.Empty(),
+          "MeasureModal: single button has no cancel slot");
+    Check(ModalButtonAt(client, single, M(),
+                        Point{sl.confirmRc.left + 2, sl.confirmRc.top + 2}) == 1,
+          "ModalButtonAt: single confirm is hittable");
+    Check(ModalButtonAt(client, single, M(),
+                        Point{sl.confirmRc.left - 4, sl.confirmRc.top + 2}) == 0,
+          "ModalButtonAt: empty cancel slot never hits");
+
     DrawerState drawer;
     const DrawerLayout dl = MeasureDrawer(client, drawer, M());
     Check(!dl.panel.Empty() && !dl.closeRc.Empty(),

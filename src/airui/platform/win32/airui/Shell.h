@@ -9,6 +9,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <cstdint>
 #include "airui/Theme.h"
 #include "airui/Fonts.h"
 #include "airui/Controls.h"
@@ -27,32 +28,60 @@ namespace air { namespace ui {
 } }
 
 // ------------------------------------------------------------
-// ToastManager —— 轻量级消息提示（定义在 Shell.h 避免循环依赖）
+// ToastManager —— 自绘消息提示（定义在 Shell.h 避免循环依赖）
+//
+// 卡片由 core 的 PaintToast 画在独立分层窗口上：主窗口带
+// WS_CLIPCHILDREN，右下角被子控件占着，画在父窗口的 WM_PAINT 里
+// 会被裁掉。浮层自己带 50ms 定时器做淡入淡出 / 自动消失。
 // ------------------------------------------------------------
 namespace air {
 namespace ui {
+
+enum class ToastKind { Info, Success, Warning, Error };
+
+class OverlayWindow;
 
 class ToastManager
 {
 public:
     struct Toast {
-        std::wstring text;
-        bool ok = true;
-        int durationMs = 3000;
+        std::wstring title;
+        std::wstring message;
+        ToastKind kind = ToastKind::Success;
+        int  durationMs = 3200;
+        bool closable   = true;
         std::function<void()> onDismiss;
     };
 
+    ~ToastManager();
+
     void Show(const Toast& toast);
-    void Paint(Canvas& g, const RECT& viewport);
+    void Show(const std::wstring& title, const std::wstring& message,
+              ToastKind kind = ToastKind::Success);
     void Tick();
+    void CloseAll();
+    void Reposition();
 
 private:
     struct InternalToast : Toast {
         uint64_t startTime = 0;
     };
+
+    RECT ComputeRect() const;
+    RECT CardRect(int index) const;
+    void EnsureLayer();
+    void Paint(HDC dc, int width, int height);
+    void HitTest(POINT pt, int& index, bool& onClose) const;
+    bool OnEvent(UINT msg, WPARAM wp, LPARAM lp, LRESULT& res);
+
     std::vector<InternalToast> m_toasts;
-    std::function<void()> m_invalidateCb;
-    void InvalidateAll() { if (m_invalidateCb) m_invalidateCb(); }
+    std::unique_ptr<OverlayWindow> m_layer;
+    HWND        m_owner  = nullptr;
+    const Fonts* m_fonts = nullptr;
+    int  m_hoverIndex  = -1;
+    bool m_hoverClose  = false;
+    int  m_lastOpacity = 0;
+
     friend class Shell;
 };
 
@@ -184,6 +213,12 @@ public:
     void SetMessageHook(
         std::function<bool(HWND, UINT, WPARAM, LPARAM, LRESULT&)> hook);
 
+    // 功能键等加速键：在消息循环里、TranslateMessage 之前过一遍。
+    // 焦点常落在 EDIT / LISTBOX 上，主窗口的 WM_KEYDOWN 收不到，
+    // 只挂在 WndProc 上是「按了没反应」最常见的原因。返回 true 吞掉。
+    void SetAcceleratorHandler(std::function<bool(const MSG&)> handler);
+    bool IsModalActive() const { return m_modalActive; }
+
     virtual bool OnShellMessage(HWND hwnd, UINT msg, WPARAM wParam,
                                 LPARAM lParam, LRESULT& result)
     { (void)hwnd; (void)msg; (void)wParam; (void)lParam; (void)result; return false; }
@@ -283,8 +318,10 @@ private:
     std::vector<InfoRow> m_infoRows;
 
     std::function<bool(HWND, UINT, WPARAM, LPARAM, LRESULT&)> m_hook;
+    std::function<bool(const MSG&)> m_accel;
     std::function<void(int)> m_navHandler;
     std::function<bool()>    m_closeGuard;
+    bool         m_modalActive = false;
 
     std::unique_ptr<ResponsiveManager> m_responsive;
     std::unique_ptr< ::air::ui::ToastManager> m_toastMgr;

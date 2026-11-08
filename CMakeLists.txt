@@ -75,6 +75,7 @@ set(AIRUI_SOURCES
     src/airui/platform/win32/Gfx.cpp
     src/airui/platform/win32/Page.cpp
     src/airui/platform/win32/Shell.cpp
+    src/airui/platform/win32/OverlayWindow.cpp
     src/airui/platform/win32/PaintProviders.cpp
     src/airui/platform/win32/PaintFrame.cpp
     src/airui/platform/win32/Widgets.cpp

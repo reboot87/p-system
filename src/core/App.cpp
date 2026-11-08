@@ -50,6 +50,7 @@ int App::Run(HINSTANCE hInstance)
                 status += backendOwnsText ? L" · 全 Skia" : L" · 文字 GDI";
             m_shell.SetStatusExtra(status);
             m_shell.Invalidate();
+            Toast(std::wstring(L"渲染后端 · ") + name, L"已切换绘制后端");
         });
 
     if (!m_shell.Create(hInstance, opt)) {
@@ -139,6 +140,29 @@ int App::Run(HINSTANCE hInstance)
                                              lParam, result);
         });
 
+    // 状态栏与侧栏一直标着 F3 / F4，但此前没有任何地方注册过它们。
+    // 关键是走消息循环而不是窗口过程：按键消息投给当前焦点窗口，
+    // 焦点通常在搜索框 / 录入框 / 列表里，主窗口根本收不到。
+    m_shell.SetAcceleratorHandler([this](const MSG& msg) -> bool {
+        // 系统组合键（Alt+F4 等）一律交给系统；模态对话框打开时不抢键；
+        // 窗口隐藏时交给全局 Ctrl+Shift+V 唤出。
+        if (msg.message == WM_SYSKEYDOWN ||
+            m_shell.IsModalActive() || !IsWindowVisible(m_shell.Hwnd()))
+            return false;
+        const HWND main = m_shell.Hwnd();
+        if (msg.hwnd != main && !IsChild(main, msg.hwnd)) return false;
+        // Alt+F4 / Ctrl+F4 是系统组合，不能吞。
+        if ((GetKeyState(VK_CONTROL) & 0x8000) ||
+            (GetKeyState(VK_MENU)    & 0x8000) ||
+            (GetKeyState(VK_SHIFT)   & 0x8000)) return false;
+
+        switch (msg.wParam) {
+        case VK_F3: FocusSearch();     return true;
+        case VK_F4: OpenManualEntry(); return true;
+        default:                       return false;
+        }
+    });
+
     // ---- 页面 ----
     auto overview = std::make_unique<OverviewPage>(*this);
     auto clips    = std::make_unique<ClipsPage>(*this);
@@ -188,17 +212,17 @@ int App::Run(HINSTANCE hInstance)
     m_shell.SetNavCommandHandler([this](int id) {
         switch (id) {
         case 100:   // 手动录入 → 切到剪贴板页并展开表单卡
-            m_shell.SwitchPage(1);
-            if (m_clips) m_clips->OpenForm();
+            OpenManualEntry();
             break;
         case 101:   // 清空全部记录
-            if (MessageBoxW(m_shell.Hwnd(),
+            if (m_shell.ShowMessageBox(
                     L"确定清空全部剪贴板记录吗？\n此操作不可恢复。",
                     L"清空记录", MB_OKCANCEL | MB_ICONWARNING) == IDOK) {
                 m_ipc.Request(L"CLEAR");
                 if (m_clips) m_clips->RefreshList(GetSearchText());
                 RefreshStats();
                 SyncServiceUi();
+                Toast(L"已清空", L"所有剪贴板记录已删除");
             }
             break;
         case -2:    // 服务管理 → 配置页
@@ -285,6 +309,29 @@ void App::CancelNoteEdit()
 void App::ToggleForm(bool open)
 {
     if (m_clips) m_clips->ToggleForm(open);
+}
+
+void App::Toast(const std::wstring& title, const std::wstring& message, bool ok)
+{
+    m_shell.ToastManager().Show(title, message,
+        ok ? air::ui::ToastKind::Success : air::ui::ToastKind::Error);
+}
+
+void App::FocusSearch()
+{
+    m_shell.SwitchPage(1);
+    if (!m_clips) return;
+    HWND edit = m_clips->SearchEdit().Native();
+    if (!edit) return;
+    SetFocus(edit);
+    // 已有关键字时全选，按一下 F3 就能直接改 / 直接输新的。
+    SendMessageW(edit, EM_SETSEL, 0, (LPARAM)-1);
+}
+
+void App::OpenManualEntry()
+{
+    m_shell.SwitchPage(1);
+    if (m_clips) m_clips->OpenForm();   // 内部会聚焦多行录入框
 }
 
 std::wstring App::GetWindowTextStr(HWND ctrl)

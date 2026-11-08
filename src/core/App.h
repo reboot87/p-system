@@ -114,12 +114,20 @@ public:
     void CancelNoteEdit();
     void ToggleForm(bool open);
 
+    // 非阻塞反馈：自绘 Toast（成功 / 失败两种语气）
+    void Toast(const std::wstring& title,
+               const std::wstring& message = L"", bool ok = true);
+
     static std::wstring GetWindowTextStr(HWND ctrl);
 
     // 应用版本（侧栏底部、配置页）
     static const wchar_t* Version() { return L"v1.3"; }
 
 private:
+    // 状态栏 / 侧栏上写着的两个功能键
+    void FocusSearch();       // F3：切到剪贴板页并聚焦搜索框
+    void OpenManualEntry();   // F4：切到剪贴板页并展开录入卡
+
     air::ui::Shell m_shell;
     PipeClient     m_ipc;
     PluginManager  m_plugins;

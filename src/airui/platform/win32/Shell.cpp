@@ -1,4 +1,5 @@
 #include "airui/Shell.h"
+#include "airui/OverlayWindow.h"
 #include "airui/GdiPainter.h"
 #include "airui/PaintProviders.h"
 #include "airui/PaintFrame.h"
@@ -294,6 +295,12 @@ int Shell::RunMessageLoop()
 
     MSG msg;
     while (GetMessage(&msg, nullptr, 0, 0) > 0) {
+        // 加速键必须在派发之前统一处理：按键消息会投给当前焦点窗口，
+        // 而焦点几乎总在页面的 EDIT / LISTBOX 上，主窗口 WndProc
+        // 根本收不到 F3/F4。交给应用层判断消息归属，库里不含业务语义。
+        if ((msg.message == WM_KEYDOWN || msg.message == WM_SYSKEYDOWN) &&
+            !m_modalActive && m_accel && m_accel(msg))
+            continue;
         TranslateMessage(&msg);
         DispatchMessage(&msg);
     }
@@ -555,7 +562,14 @@ void Shell::SetRedraw(bool on)
 int Shell::ShowMessageBox(const std::wstring& text, const std::wstring& caption,
                           UINT flags)
 {
-    return MessageBoxW(m_hwnd, text.c_str(), caption.c_str(), flags);
+    if (!m_hwnd) return 0;
+    // 应用内所有确认框都走自绘 Modal：风格跟设计系统一致，也避免
+    // 原生弹窗把无边框窗口的焦点/重绘节奏打乱。服务安装器是命令行
+    // 工具，没有 Shell，仍用系统弹窗。
+    m_modalActive = true;
+    const int rc = RunModalDialog(m_hwnd, m_fonts, caption, text, flags);
+    m_modalActive = false;
+    return rc;
 }
 
 int Shell::ShowPopupMenu(POINT screenPt, const std::vector<MenuItem>& items)
@@ -616,6 +630,11 @@ void Shell::SetMessageHook(
     std::function<bool(HWND, UINT, WPARAM, LPARAM, LRESULT&)> hook)
 {
     m_hook = std::move(hook);
+}
+
+void Shell::SetAcceleratorHandler(std::function<bool(const MSG&)> handler)
+{
+    m_accel = std::move(handler);
 }
 
 void Shell::SetCloseGuard(std::function<bool()> guard)
@@ -1488,9 +1507,15 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 ++m_eraseCount;
             }
         }
+        if (m_toastMgr) m_toastMgr->Reposition();
         ::InvalidateRect(hwnd, nullptr, FALSE);
         return 0;
     }
+
+    case WM_MOVE:
+        // Toast 浮层是 owned popup，不会自动跟着 owner 平移。
+        if (m_toastMgr) m_toastMgr->Reposition();
+        return 0;
 
     case WM_SHOWWINDOW:
         // Same exposure problem on the very first show / after a hide.
@@ -1611,61 +1636,18 @@ void Shell::OnSize(int width, int height)
 
 void Shell::Tick(uint64_t now)
 {
+    (void)now;
+    // 浮层自带 50ms 定时器；这里保留给外部驱动的调用方（幂等）。
     if (m_toastMgr) m_toastMgr->Tick();
 }
 
 ::air::ui::ToastManager& Shell::ToastManager()
 {
     if (!m_toastMgr) m_toastMgr.reset(new ::air::ui::ToastManager());
-    m_toastMgr->m_invalidateCb = [this] { Invalidate(); };
+    // 浮层绘制要用外壳当前的字体，位置要跟着外壳的客户区走。
+    m_toastMgr->m_owner = m_hwnd;
+    m_toastMgr->m_fonts = &m_fonts;
     return *m_toastMgr;
-}
-
-// ============================================================
-// ToastManager 实现
-// ============================================================
-void ToastManager::Show(const Toast& toast)
-{
-    InternalToast t;
-    t.text = toast.text;
-    t.ok = toast.ok;
-    t.durationMs = toast.durationMs;
-    t.onDismiss = toast.onDismiss;
-    t.startTime = GetTickCount64();
-    m_toasts.push_back(std::move(t));
-    InvalidateAll();
-}
-
-void ToastManager::Paint(Canvas& g, const RECT& viewport)
-{
-    const auto& p = Pal();
-    const auto& m = Mx();
-    int y = viewport.bottom - m.unit;
-    for (auto it = m_toasts.rbegin(); it != m_toasts.rend(); ++it) {
-        auto& t = *it;
-        int w = g.MeasureWidth(t.text, FontRole::Body) + 32;
-        RECT r = { viewport.right - w - m.unit, y - 48, viewport.right - m.unit, y };
-        COLORREF bg = t.ok ? p.okSoft : p.errorSoft;
-        COLORREF tx = t.ok ? p.okText : p.errorText;
-        g.FillRound(r, bg, m.radiusMd);
-        g.Stroke(r, t.ok ? p.okBorder : p.errorBorder, m.radiusMd);
-        g.TextRowCenter(r, t.text, FontRole::Body, tx);
-        y -= 56;
-    }
-}
-
-void ToastManager::Tick()
-{
-    auto now = GetTickCount64();
-    bool changed = false;
-    for (auto it = m_toasts.begin(); it != m_toasts.end(); ) {
-        if (now - it->startTime > (uint64_t)it->durationMs) {
-            if (it->onDismiss) it->onDismiss();
-            it = m_toasts.erase(it);
-            changed = true;
-        } else ++it;
-    }
-    if (changed) InvalidateAll();
 }
 
 } // namespace ui

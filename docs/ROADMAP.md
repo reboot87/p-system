@@ -365,3 +365,37 @@
     它可能把子控件的重绘请求一起吃掉。以后再往 `BatchDraw` 里塞 Move/Show，
     必须保证退出批处理时整窗 + 子树一起失效，否则屏幕上留下的是上一帧的像素，
     而且**父窗口永远补不上**（它压根画不到子控件那块）。
+
+- **2026-11-08 — 补齐状态栏上写着却没实现的 F3/F4、自绘 Toast、自绘对话框**
+  - **快捷键从来没注册过**：状态栏 / 侧栏 / 配置页都标着 `F3 搜索`、`F4 手动录入`，
+    但全仓库只有服务进程注册了 `Ctrl+Shift+V`。更关键的是**不能挂在主窗口的
+    WndProc**：按键消息投给当前焦点窗口，而焦点几乎总在 EDIT / LISTBOX 上，
+    主窗口收不到 `WM_KEYDOWN`。修法是 `Shell::SetAcceleratorHandler()` 在
+    `RunMessageLoop` 里、`TranslateMessage` 之前统一过一遍（库里不含业务语义），
+    应用层只认「消息属于主窗口或其子窗口、没有 Ctrl/Alt/Shift、模态未打开」。
+    F3 → 切剪贴板页 + 聚焦搜索框并全选；F4 → 切页 + 展开录入卡并聚焦；
+    Alt+F4 / Ctrl+F4 不吞。
+  - **ToastManager 以前是死代码**：`Paint(Canvas&)` 没有任何调用者，
+    `Tick()` 也只在没人调的 `Shell::Tick()` 里。而且就算接进 `Shell::Paint()`
+    也画不出来 —— 外壳带 `WS_CLIPCHILDREN`，右下角被列表 / 编辑框占着，
+    父窗口的绘制区排除子控件；Skia 路径还会整窗合成覆盖。
+    现改为独立 `WS_EX_LAYERED` 浮层：32bpp DIB 接收 core 的 `PaintToast`，
+    洋红底逐像素补 alpha 后 `UpdateLayeredWindow` 上屏，自带 50ms 定时器做
+    淡入淡出 / 自动消失 / 跟随主窗口平移，× 可点。位置特意抬高 52px，
+    不遮住详情面板底部三个操作按钮。注入点：保存成功 / 失败 / 空内容、
+    复制、删除、备注保存、清空、渲染后端切换。
+  - **确认框全部改自绘**：`Shell::ShowMessageBox` 由 `MessageBoxW` 换成
+    `RunModalDialog()`，复用 core 的 `PaintModal`（遮罩 + 卡片 + 主/次按钮 +
+    焦点环），禁用 owner + 局部消息循环，支持 hover / 按下 / Enter / Esc / Tab。
+    为单按钮场景给 `ModalState` 加了 `singleButton`（`MB_OK`），
+    并为 hover/pressed 加了 `hovered` / `pressed`，默认态输出不变，
+    原金样测试保持通过。`App.cpp` 里「清空记录」的直接 `MessageBoxW` 也收编。
+    服务安装器（`airecordd /install`）是命令行工具、没有 Shell，仍用系统弹窗。
+  - **实测**：F3 焦点落在 `Edit id=1001`、F4 落在 `Edit id=1003` 且表单卡展开
+    （真实键盘与消息投递两条路径都通过）；Toast 卡片显示「已复制 / 已删除」、
+    按钮区无遮挡、3.2s 后浮层自动隐藏；删除确认框的半透明遮罩让整窗变暗、
+    Esc 取消后恢复 `(162,163,164) → (251,252,253)`、Enter 确认后出 Toast。
+    `ctest -C Release` 22/22，`check-core-clean.sh` PASSED。
+  - **判据**：UI 上写了快捷键就必须有注册点，且注册点要在**消息循环**而不是
+    窗口过程；浮层提示 / 对话框不能画在带 `WS_CLIPCHILDREN` 的父窗口上，
+    要用独立窗口；`UpdateLayeredWindow` 前必须逐像素补 alpha（GDI 只写颜色通道）。
