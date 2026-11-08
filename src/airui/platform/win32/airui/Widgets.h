@@ -180,6 +180,10 @@ public:
     std::function<void(int index)>                    onDoubleClicked;
     // 行内点击：返回 true 表示已消费（不改变选中，如命中行内按钮 / 分组头）
     std::function<bool(int index, POINT ptInItem)>    onItemClicked;
+    // 指针在同一行内移动（ptInItem 相对该行左上角）。LISTBOX 只会在换行
+    // 时重画整行，行内那几个自绘图标按钮得靠这个回调知道自己被指着，
+    // 否则一行的 hover 只有"图标出现了"和"图标消失了"两种状态。
+    std::function<void(int index, POINT ptInItem)>    onHoverMove;
     // 右键菜单（screenPt 为屏幕坐标；index = -1 表示空白处）
     std::function<void(POINT screenPt, int index)>    onContextMenu;
 

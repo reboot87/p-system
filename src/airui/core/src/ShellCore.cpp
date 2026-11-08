@@ -201,11 +201,15 @@ void ShellCore::PaintNav(IPainter& painter, const Palette& pal, const Metrics& m
             if (irc.bottom < m_navRect.top || irc.top > m_navRect.bottom) continue;
 
             const bool active = (it.id == m_activeNav);
-            const bool hover  = (it.id == m_hoverNav && !active);
+            // 禁用项不给悬停高亮：规划中的模块点了没反应，高亮会骗人。
+            const bool hover  = (it.id == m_hoverNav && !active && !it.disabled);
             if (active || hover)
             {
-                Color bg = active ? pal.primarySoft : pal.hover;
-                painter.FillRect(irc, bg);
+                // pal.hover(#FAFAFA) 铺在侧栏(#FBFCFD)上等于没有：差 1~3 个
+                // 色阶，肉眼看不出来。用 pal.active(#F2F4F7) 才有"指到我了"
+                // 的反馈，圆角也和列表行、胶囊保持同一套语言。
+                Color bg = active ? pal.primarySoft : pal.active;
+                painter.FillRound(irc, 6, bg);
             }
             if (active)                       // 选中项左侧主色强调条
             {

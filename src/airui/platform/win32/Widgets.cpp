@@ -373,6 +373,18 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
                 InvalidateRect(hwnd, &rc, FALSE);
             }
         }
+        if (self->onHoverMove) {
+            POINT in = { pt.x, pt.y };
+            if (item >= 0) {
+                RECT irc = {};
+                if (SendMessageW(hwnd, LB_GETITEMRECT, item, (LPARAM)&irc)
+                        != LB_ERR) {
+                    in.x -= irc.left;
+                    in.y -= irc.top;
+                }
+            }
+            self->onHoverMove(item, in);
+        }
         TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hwnd, 0 };
         TrackMouseEvent(&tme);
         break;
@@ -385,6 +397,10 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
         if (old >= 0) {
             SendMessageW(hwnd, LB_GETITEMRECT, old, (LPARAM)&rc);
             InvalidateRect(hwnd, &rc, FALSE);
+        }
+        if (self->onHoverMove) {
+            POINT out = { -1, -1 };
+            self->onHoverMove(-1, out);
         }
         HoverLog(L"leave hover=%d invalidated=%ld,%ld-%ld,%ld", old,
                  (long)rc.left, (long)rc.top, (long)rc.right, (long)rc.bottom);

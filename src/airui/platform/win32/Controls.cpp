@@ -359,17 +359,25 @@ void DrawButton(HDC dc, const RECT& rc, const wchar_t* text, HFONT font,
         break;
     }
     case BtnStyle::Secondary: {
-        COLORREF fill = (pressed || hover) ? p.active : p.surface;
+        // 与 core 的 widgets::Button::Paint 保持一致：悬停同时改描边和
+        // 文字颜色，只换底色在浅色主题下几乎看不出来。
+        COLORREF fill = pressed ? p.selectFill : (hover ? p.active : p.surface);
+        COLORREF line = pressed ? p.primaryDown
+                                : (hover ? p.primary : p.border);
         gfx::FillRound(dc, r, fill, Mx().radiusMd);
-        gfx::Stroke(dc, r, hover ? p.hoverBorder : p.border, Mx().radiusMd);
-        gfx::Text(dc, font, disabled ? p.textDisabled : p.textSub, r, text,
+        gfx::Stroke(dc, r, disabled ? p.border : line, Mx().radiusMd);
+        gfx::Text(dc, font,
+                  disabled ? p.textDisabled
+                           : ((hover || pressed) ? p.primaryText : p.textSub),
+                  r, text,
                   DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
         break;
     }
     case BtnStyle::Danger: {
         COLORREF fill = pressed ? p.errorSoft : (hover ? p.errorSoft : p.surface);
+        COLORREF line = (hover || pressed) ? p.error : p.errorBorder;
         gfx::FillRound(dc, r, fill, Mx().radiusMd);
-        gfx::Stroke(dc, r, disabled ? p.border : p.errorBorder, Mx().radiusMd);
+        gfx::Stroke(dc, r, disabled ? p.border : line, Mx().radiusMd);
         gfx::Text(dc, font, disabled ? p.textDisabled : p.errorText, r, text,
                   DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
         break;

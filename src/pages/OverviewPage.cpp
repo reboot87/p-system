@@ -31,14 +31,21 @@ void OverviewPage::DrawModuleCard(Canvas& g, RECT r, int idx,
                                   COLORREF icBg, COLORREF icTx,
                                   const wchar_t* name, const wchar_t* desc,
                                   const std::wstring& number, const wchar_t* unit,
-                                  const wchar_t* badge, bool off, bool badgeOk)
+                                  const wchar_t* badge, bool off, bool badgeOk,
+                                  bool hover)
 {
     const Palette& p = Pal();
     const Metrics& m = Mx();
     m_rcModCard[idx] = r;
 
+    // 整张卡片就是按钮：悬停时描边提主色 + 一圈外环，比只换底色更容易
+    // 被认成"这里能点"。规划中的模块不给悬停反馈，避免误导。
     g.FillRound(r, p.surface, m.radiusCard);
-    g.Stroke(r, p.split, m.radiusCard);
+    g.Stroke(r, hover ? p.hoverBorder : p.split, m.radiusCard);
+    if (hover) {
+        RECT ring = { r.left - 1, r.top - 1, r.right + 1, r.bottom + 1 };
+        g.Stroke(ring, p.selectRing, m.radiusCard + 1);
+    }
 
     // 图标块 40px
     RECT ic = { r.left + 16, r.top + 16, r.left + 56, r.top + 56 };
@@ -74,7 +81,7 @@ void OverviewPage::DrawModuleCard(Canvas& g, RECT r, int idx,
     // 底部入口
     RECT rcLink = { r.left + 16, r.top + 154, r.right - 16, r.top + 176 };
     g.Text(rcLink, off ? L"敬请期待" : L"进入模块 →", FontRole::Button,
-           off ? RGB(169, 174, 184) : p.primaryText,
+           off ? RGB(169, 174, 184) : (hover ? p.primary : p.primaryText),
            DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
 }
 
@@ -107,17 +114,18 @@ void OverviewPage::OnPaint(Canvas& g, const RECT& content)
     DrawModuleCard(g, m_rcModCard[0], 0,
                    L"\xE8C8", p.primarySoft, p.primary,
                    L"剪贴板监控", L"自动记录剪贴板内容，支持搜索与备注",
-                   clipNum, clipUnit.c_str(), L"运行中", false, true);
+                   clipNum, clipUnit.c_str(), L"运行中", false, true,
+                   m_hoverCard == 0);
 
     DrawModuleCard(g, m_rcModCard[1], 1,
                    L"\xE8B7", RGB(230, 244, 241), RGB(15, 163, 127),
                    L"文件监控", L"监控指定目录的新增 / 修改 / 删除",
-                   L"—", L"未启用", L"规划中", true, false);
+                   L"—", L"未启用", L"规划中", true, false, false);
 
     DrawModuleCard(g, m_rcModCard[2], 2,
                    L"\xE749", RGB(243, 238, 255), RGB(123, 97, 255),
                    L"打印监控", L"记录本机打印任务与文档信息",
-                   L"—", L"未启用", L"规划中", true, false);
+                   L"—", L"未启用", L"规划中", true, false, false);
 
     // ---- 最近动态 ----
     int y2 = y + cardH + 16;
@@ -185,12 +193,17 @@ bool OverviewPage::OnMouseDown(POINT pt)
 bool OverviewPage::OnMouseMove(POINT pt)
 {
     POINT abs = { pt.x + m_content.left, pt.y + m_content.top };
-    int card = -1;
-    for (int i = 0; i < 3; ++i)
-        if (PtInRect(&m_rcModCard[i], abs)) { card = i; break; }
+    // 只有「剪贴板监控」是真能进的；另外两张是规划中，悬停高亮会骗人。
+    const int card = PtInRect(&m_rcModCard[0], abs) ? 0 : -1;
     if (card == m_hoverCard) return false;
     m_hoverCard = card;
     return true;
+}
+
+bool OverviewPage::HandCursorAt(POINT pt)
+{
+    POINT abs = { pt.x + m_content.left, pt.y + m_content.top };
+    return PtInRect(&m_rcModCard[0], abs) != FALSE;
 }
 
 bool OverviewPage::OnMouseLeave()

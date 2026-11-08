@@ -46,8 +46,14 @@ public:
 
     // ---- 输入（坐标相对内容区，即已减去 content.left/top） ----
     virtual bool OnMouseDown(POINT pt) { (void)pt; return false; }
+    // 自绘按钮没有 BN_CLICKED：按下只改视觉，动作由页面在抬起时决定
+    // （拖出热区再松手 = 取消）。返回 true 表示需要重绘。
+    virtual bool OnMouseUp(POINT pt) { (void)pt; return false; }
     virtual bool OnMouseMove(POINT pt) { (void)pt; return false; }
     virtual bool OnMouseLeave() { return false; }
+    // 指针落在可点击的自绘元素上时返回 true，Shell 把光标换成手型。
+    // 只对"链接 / 卡片 / 自绘按钮"生效，原生控件自己管光标。
+    virtual bool HandCursorAt(POINT pt) { (void)pt; return false; }
     virtual bool OnCommand(int ctrlId, int code) { (void)ctrlId; (void)code; return false; }
     virtual bool OnTimer(UINT_PTR id) { (void)id; return false; }
     virtual void OnSetFocus() {}
@@ -98,6 +104,10 @@ public:
     int  ShowPopupMenu(POINT screenPt, const std::vector<MenuItem>& items);
     void InvalidateRegion(const RECT& rcClient);   // 客户区局部重绘
     void BatchDraw(bool begin);                    // WM_SETREDRAW 批量绘制
+
+    // 自绘热区按住时的鼠标捕获：指针拖出窗口也要能收到抬起消息，
+    // 否则"拖出去松手"会变成一次点击。成对调用。
+    void SetCapture(bool on);
 
     const Fonts& Fonts() const;
 

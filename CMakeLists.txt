@@ -507,6 +507,19 @@ set_target_properties(test_controls_core PROPERTIES
     LINK_FLAGS "/SUBSYSTEM:CONSOLE"
 )
 
+# HotState test - 自绘热区的悬停/按下/拖出取消语义（平台无关）
+add_executable(test_hot_state
+    tests/test_hot_state.cpp
+)
+target_link_libraries(test_hot_state airui-core)
+set_target_properties(test_hot_state PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
+)
+if(MSVC)
+    set_target_properties(test_hot_state PROPERTIES LINK_FLAGS "/SUBSYSTEM:CONSOLE")
+endif()
+
 # ShellCore HAL test - platform-free state / layout / hit test / IPainter
 add_executable(test_shell_hal
     tests/test_shell_hal.cpp
@@ -708,7 +721,7 @@ endif()
 # test_ui is an end-to-end script that drives a *running* airecord.exe
 # (window lookup + IPC), so it is not registered as a ctest case.
 enable_testing()
-foreach(_t test_core_layout test_controls_core test_shell_hal test_paint_recorder test_paint_backend test_paint_runtime test_paint_frame test_paint_compare test_skia_types test_skia_backend test_skia_plugin test_data_controls test_overlay_core test_framework_extra test_advanced_controls test_enterprise_controls test_studio_controls test_control_classes test_theme_manager test_draw_calls test_locale test_component_gallery test_ipc_pipe)
+foreach(_t test_core_layout test_controls_core test_hot_state test_shell_hal test_paint_recorder test_paint_backend test_paint_runtime test_paint_frame test_paint_compare test_skia_types test_skia_backend test_skia_plugin test_data_controls test_overlay_core test_framework_extra test_advanced_controls test_enterprise_controls test_studio_controls test_control_classes test_theme_manager test_draw_calls test_locale test_component_gallery test_ipc_pipe)
     if(TARGET ${_t})
         add_test(NAME ${_t} COMMAND ${_t})
     endif()

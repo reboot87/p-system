@@ -8,6 +8,7 @@
 // 不接触 HDC / HWND / DRAWITEMSTRUCT。
 // ============================================================
 #include "airui/AirUi.h"
+#include "airui/Interaction.h"
 #include "../core/UiEntry.h"
 
 class App;
@@ -29,6 +30,10 @@ public:
     void OnLayout(const RECT& content) override;
     void OnPaint(air::ui::Canvas& g, const RECT& content) override;
     bool OnMouseDown(POINT pt) override;
+    bool OnMouseUp(POINT pt) override;
+    bool OnMouseMove(POINT pt) override;
+    bool OnMouseLeave() override;
+    bool HandCursorAt(POINT pt) override;
     bool OnCommand(int ctrlId, int code) override;
     bool OnTimer(UINT_PTR id) override;
     void OnSetFocus() override;
@@ -68,8 +73,26 @@ private:
 
     // 交互
     void OnListOp(int entryIdx, int op);          // 0复制 1备注 2删除
-    int  DetailButtonAt(POINT absPt) const;       // 0无 1复制 2备注 3删除
     void ShowItemMenu(POINT screenPt, int entryIdx);
+
+    // ---- 自绘热区 ----
+    // 工具条胶囊、＋按钮、详情面板三键、备注框都是 Canvas 画的，没有
+    // HWND，Windows 不会替我们记悬停/按下：状态在这里维护。
+    enum HotId : int
+    {
+        kHotNone      = 0,
+        kHotChip      = 100,   // +0..3
+        kHotAddBtn    = 110,
+        kHotFormClose = 111,
+        kHotDBtn      = 120,   // +0..2
+        kHotNoteBox   = 130,
+    };
+    air::ui::HotState m_hot;
+    int  m_hoverOp    = -1;   // 列表行内操作钮：0复制 1备注 2删除
+    int  m_hoverOpRow = -1;
+    int  HitHot(POINT absPt) const;
+    void ActivateHot(int hotId);
+    void SyncHoverOp(int row, POINT ptInItem);
 
     App& m_app;
 

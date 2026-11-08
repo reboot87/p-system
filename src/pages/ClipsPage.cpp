@@ -5,6 +5,27 @@
 
 using namespace air::ui;
 
+namespace {
+
+// 列表行内三个操作钮的几何，以「行的左上角」为原点。
+//
+// 绘制时整体平移到行矩形，命中时直接用行内坐标比较 —— 两边必须是同一
+// 个函数：LISTBOX 给页面的点击坐标是行内坐标，而 ItemRect() 是客户区
+// 坐标，直接拿客户区的矩形去比行内坐标，除了列表最顶上那一行（top=0），
+// 其余每一行的图标都是错位的（点不到，也悬停不上）。
+void OpRects(int itemW, RECT out[3])
+{
+    // 与卡片一致的左右内缩：左 2 / 右 6，顶 3，底 9
+    const int right = itemW - 6;
+    int bx = right - 12 - 3 * 26 - 2 * 6;
+    for (int i = 0; i < 3; ++i) {
+        out[i] = RECT{ bx, 3 + 15, bx + 26, 3 + 41 };
+        bx += 32;
+    }
+}
+
+} // namespace
+
 // ============================================================
 // 创建与显隐
 // ============================================================
@@ -61,15 +82,13 @@ void ClipsPage::CreateControls()
         if (m_rows[item].header) return true;   // 分组头不可选
 
         RECT rc = m_list->ItemRect(item);
-        RECT card = { rc.left + 2, rc.top + 3, rc.right - 6, rc.bottom - 9 };
-        int bx = card.right - 12 - 3 * 26 - 2 * 6;
+        RECT rb[3];
+        OpRects(rc.right - rc.left, rb);
         for (int op = 0; op < 3; ++op) {
-            RECT rb = { bx, card.top + 15, bx + 26, card.top + 41 };
-            if (PtInRect(&rb, ptInItem)) {
+            if (PtInRect(&rb[op], ptInItem)) {
                 OnListOp((int)m_rows[item].entry, op);
                 return true;
             }
-            bx += 32;
         }
         return false;
     };
@@ -81,6 +100,12 @@ void ClipsPage::CreateControls()
             InvalidateRegion(m_rcDetail);
         }
         ShowItemMenu(screenPt, entryIdx);
+    };
+    // 行内三个操作钮只在悬停时出现；指针在同一行里从一个钮移到另一个
+    // 钮，LISTBOX 不会重画（它只认"换行"），所以逐个钮的高亮必须靠这条
+    // 回调自己失效。
+    m_list->onHoverMove = [this](int row, POINT ptInItem) {
+        SyncHoverOp(row, ptInItem);
     };
 
     // ---- 备注（表单卡，单行） ----
@@ -351,6 +376,8 @@ void ClipsPage::RefreshList(const std::wstring& filter)
 
     // ---- 行模型：分组头 + 条目（类型筛选在客户端本地做） ----
     m_rows.clear();
+    m_hoverOp    = -1;    // 行下标即将全部作废
+    m_hoverOpRow = -1;
 
     SYSTEMTIME now = {}, yst = {};
     GetLocalTime(&now);
@@ -456,18 +483,39 @@ void ClipsPage::DrawToolbar(Canvas& g)
     const wchar_t* chips[4] = { L"全部", L"文本", L"链接", L"手动" };
     for (int i = 0; i < 4; ++i) {
         RECT r = m_rcChips[i];
-        bool on = (m_typeFilter == i);
-        g.FillRound(r, on ? p.primary : p.surface, m.radiusPill);
-        g.Stroke(r, on ? p.primary : p.border, m.radiusPill);
-        g.Text(r, chips[i], on ? FontRole::Button : FontRole::Meta,
-               on ? p.textInverse : RGB(78, 89, 105),
+        const bool on    = (m_typeFilter == i);
+        const bool hov   = m_hot.Hovered(kHotChip + i);
+        const bool press = m_hot.Pressed(kHotChip + i);
+
+        COLORREF fill, border, txt;
+        if (on) {
+            // 选中态：实心主色，悬停提亮、按下压深（与主按钮同一套）
+            fill   = press ? p.primaryDown : (hov ? p.primaryHover : p.primary);
+            border = fill;
+            txt    = p.textInverse;
+        } else {
+            // 未选中：白底 + 描边；悬停给一层主色浅底 + 主色描边，
+            // 这是"可点"的信号，同时不会与选中态混淆（选中是实心的）
+            fill   = press ? p.active : (hov ? p.primarySoft : p.surface);
+            border = press ? p.primary : (hov ? p.hoverBorder : p.border);
+            txt    = (hov || press) ? p.primaryText : RGB(78, 89, 105);
+        }
+        g.FillRound(r, fill, m.radiusPill);
+        g.Stroke(r, border, m.radiusPill);
+        // 字号必须与 Relayout 里量宽度用的角色一致（Meta）：换成 Button
+        // 会让 14px 的字挤进按 12px 量的盒子，选中/悬停时文字还会跳一下。
+        g.Text(r, chips[i], FontRole::Meta, txt,
                DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
     }
 
     // 主按钮：＋ 手动录入
     {
         RECT b = m_rcAddBtn;
-        g.FillRound(b, p.primary, m.radiusMd);
+        const bool hov   = m_hot.Hovered(kHotAddBtn);
+        const bool press = m_hot.Pressed(kHotAddBtn);
+        g.FillRound(b, press ? p.primaryDown
+                             : (hov ? p.primaryHover : p.primary),
+                    m.radiusMd);
         g.Text(b, L"＋ 手动录入", FontRole::Button, p.textInverse,
                DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
     }
@@ -490,8 +538,19 @@ void ClipsPage::DrawFormCard(Canvas& g)
     g.Text(rcFt, L"添加记录", FontRole::Section, p.text,
            DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
 
-    g.Text(m_rcFormClose, L"收起 ▴", FontRole::Meta, p.textFaint,
-           DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
+    // 收起：文字按钮没有边框，悬停靠一层浅底 + 文字提亮来表达"可点"
+    {
+        const bool hov   = m_hot.Hovered(kHotFormClose);
+        const bool press = m_hot.Pressed(kHotFormClose);
+        if (hov || press) {
+            RECT hb = m_rcFormClose;
+            InflateRect(&hb, 6, 1);
+            g.FillRound(hb, press ? p.chipBg : p.active, m.radiusSm);
+        }
+        g.Text(m_rcFormClose, L"收起 ▴", FontRole::Meta,
+               hov ? p.textSub : p.textFaint,
+               DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
+    }
 
     // 输入框边框（画在控件外框上）
     if (m_rcManualBox.right > m_rcManualBox.left) {
@@ -588,8 +647,10 @@ void ClipsPage::DrawDetailPanel(Canvas& g)
         g.FillRound(nb, p.surface, m.radiusMd);
         g.Stroke(nb, p.border, m.radiusMd);
     } else {
-        g.FillRound(nb, p.noteBg, m.radiusMd);
-        g.StrokeDashed(nb, p.noteBorder, m.radiusMd);
+        // 虚线框 = "点我就能写"，悬停时描边提亮，让它看起来确实可以点
+        const bool hov = m_hot.Hovered(kHotNoteBox);
+        g.FillRound(nb, hov ? p.surface : p.noteBg, m.radiusMd);
+        g.StrokeDashed(nb, hov ? p.hoverBorder : p.noteBorder, m.radiusMd);
         RECT rcNote = { nb.left + 10, nb.top + 8, nb.right - 10, nb.bottom - 8 };
         g.TextBlock(rcNote, e.note, FontRole::Meta, RGB(100, 106, 115));
     }
@@ -602,9 +663,13 @@ void ClipsPage::DrawDetailPanel(Canvas& g)
                     m_rcDBtn[0].right + 8 + bw, by + 32 };
     m_rcDBtn[2] = { m_rcDBtn[1].right + 8, by, d.right - 16, by + 32 };
 
-    g.Button(m_rcDBtn[0], L"复制内容", BtnStyle::Primary);
-    g.Button(m_rcDBtn[1], L"备注", BtnStyle::Secondary);
-    g.Button(m_rcDBtn[2], L"删除", BtnStyle::Danger);}
+    g.Button(m_rcDBtn[0], L"复制内容", BtnStyle::Primary,
+             m_hot.Hovered(kHotDBtn + 0), m_hot.Pressed(kHotDBtn + 0));
+    g.Button(m_rcDBtn[1], L"备注", BtnStyle::Secondary,
+             m_hot.Hovered(kHotDBtn + 1), m_hot.Pressed(kHotDBtn + 1));
+    g.Button(m_rcDBtn[2], L"删除", BtnStyle::Danger,
+             m_hot.Hovered(kHotDBtn + 2), m_hot.Pressed(kHotDBtn + 2));
+}
 
 void ClipsPage::DrawListRow(Canvas& g, const ListItemDraw& item)
 {
@@ -699,14 +764,22 @@ void ClipsPage::DrawListRow(Canvas& g, const ListItemDraw& item)
     // 悬停操作钮：复制 / 备注 / 删除
     if (hovered) {
         const wchar_t* ops[3] = { L"\xE8C8", L"\xE70F", L"\xE74D" };
-        int bx = card.right - 12 - 3 * 26 - 2 * 6;
+        RECT rb[3];
+        OpRects(rc.right - rc.left, rb);      // 行内坐标，与命中共用
         for (int i = 0; i < 3; ++i) {
-            RECT rb = { bx, card.top + 15, bx + 26, card.top + 41 };
-            g.FillRound(rb, p.iconTile, 6);
-            g.Text(rb, ops[i], FontRole::Icon,
-                   (i == 2) ? RGB(229, 72, 77) : RGB(90, 98, 112),
+            OffsetRect(&rb[i], rc.left, rc.top);   // 平移到客户区再画
+            const bool opHover =
+                (m_hoverOpRow == item.index && m_hoverOp == i);
+            COLORREF bg = p.iconTile;
+            COLORREF fg = (i == 2) ? RGB(229, 72, 77) : RGB(90, 98, 112);
+            if (opHover) {
+                // 删除单独给一层淡红：误点代价高，颜色先提醒
+                bg = (i == 2) ? p.errorSoft : p.selectFill;
+                fg = (i == 2) ? p.errorText : p.primary;
+            }
+            g.FillRound(rb[i], bg, 6);
+            g.Text(rb[i], ops[i], FontRole::Icon, fg,
                    DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
-            bx += 32;
         }
     }
 }
@@ -721,6 +794,15 @@ bool ClipsPage::OnMouseDown(POINT pt)
     // Shell 传相对内容区坐标；页面几何是客户区绝对坐标
     POINT abs = { pt.x + m_content.left, pt.y + m_content.top };
 
+    // 自绘热区：按下只记状态，动作留到抬起时执行。这样才画得出"按下去"
+    // 的那一帧，也才有桌面按钮的语义——按住拖出去松手 = 取消。
+    if (const int hot = HitHot(abs)) {
+        m_hot.Down(hot);
+        SetCapture(true);          // 拖出窗口也要收到抬起
+        m_shell->InvalidateContent();
+        return true;
+    }
+
     // 搜索框 / 备注框：视觉外框高于 EDIT 客户区，留白点击也要能进入输入状态
     if (m_rcSearchBox.right > m_rcSearchBox.left &&
         PtInRect(&m_rcSearchBox, abs)) {
@@ -731,41 +813,113 @@ bool ClipsPage::OnMouseDown(POINT pt)
         m_noteEdit->ClickAt(abs);
         return true;
     }
-
-    // 类型胶囊
-    for (int i = 0; i < 4; ++i) {
-        if (PtInRect(&m_rcChips[i], abs)) {
-            // 点的就是当前筛选项：行集合不会变，重建只会白闪一次。
-            if (i == m_typeFilter) return true;
-            m_typeFilter = i;
-            RefreshList(GetSearchText());
-            m_shell->InvalidateContent();
-            return true;
-        }
-    }
-
-    if (PtInRect(&m_rcAddBtn, abs)) { ToggleForm(true); return true; }
-
-    if (m_formOpen && PtInRect(&m_rcFormClose, abs)) {
-        ToggleForm(false);
-        return true;
-    }
-
-    int db = DetailButtonAt(abs);
-    if (db) {
-        if (m_selEntry >= 0) OnListOp(m_selEntry, db - 1);
-        return true;
-    }
-
-    // 备注框：点击就地编辑（编辑态下多行框已覆盖该区，由 EDIT 自身接收点击）
-    if (m_selEntry >= 0 && !m_editingId) {
-        RECT nb = DetailNoteBox(m_rcDetail);
-        if (PtInRect(&nb, abs)) {
-            OnListOp(m_selEntry, 1);
-            return true;
-        }
-    }
     return false;
+}
+
+bool ClipsPage::OnMouseUp(POINT pt)
+{
+    if (!m_hot.Pressing()) return false;
+
+    POINT abs = { pt.x + m_content.left, pt.y + m_content.top };
+    const int  hit     = HitHot(abs);
+    const bool clicked = m_hot.Release(hit);
+    SetCapture(false);
+
+    if (clicked) ActivateHot(hit);
+    else         m_shell->InvalidateContent();   // 拖走了：只把按下的样子收回来
+    return true;
+}
+
+bool ClipsPage::OnMouseMove(POINT pt)
+{
+    if (!m_visible) return false;
+
+    POINT abs = { pt.x + m_content.left, pt.y + m_content.top };
+    if (!m_hot.Move(HitHot(abs))) return false;
+    // 只失效内容区：悬停变化不该把标题栏和侧栏一起重画。
+    m_shell->InvalidateContent();
+    return false;    // 已经自己失效过了，不必让 Shell 再整窗失效
+}
+
+bool ClipsPage::OnMouseLeave()
+{
+    if (!m_hot.Leave()) return false;
+    m_shell->InvalidateContent();
+    return false;
+}
+
+bool ClipsPage::HandCursorAt(POINT pt)
+{
+    if (!m_visible) return false;
+    POINT abs = { pt.x + m_content.left, pt.y + m_content.top };
+    return HitHot(abs) != kHotNone;
+}
+
+// ============================================================
+// 自绘热区
+// ============================================================
+int ClipsPage::HitHot(POINT absPt) const
+{
+    for (int i = 0; i < 4; ++i)
+        if (PtInRect(&m_rcChips[i], absPt)) return kHotChip + i;
+
+    if (PtInRect(&m_rcAddBtn, absPt)) return kHotAddBtn;
+
+    if (m_formOpen && !m_editingId && PtInRect(&m_rcFormClose, absPt))
+        return kHotFormClose;
+
+    // 详情面板三键 + 备注框：只在有选中条目、且几何已经算出来时有效
+    if (m_selEntry >= 0 && !m_editingId && m_rcDetail.right > m_rcDetail.left &&
+        m_rcDBtn[0].right > m_rcDBtn[0].left) {
+        for (int i = 0; i < 3; ++i)
+            if (PtInRect(&m_rcDBtn[i], absPt)) return kHotDBtn + i;
+        const RECT nb = DetailNoteBox(m_rcDetail);
+        if (PtInRect(&nb, absPt)) return kHotNoteBox;
+    }
+    return kHotNone;
+}
+
+void ClipsPage::ActivateHot(int hotId)
+{
+    if (hotId >= kHotChip && hotId < kHotChip + 4) {
+        const int f = hotId - kHotChip;
+        // 点的就是当前筛选项：行集合不会变，重建只会白闪一次
+        if (f == m_typeFilter) return;
+        m_typeFilter = f;
+        RefreshList(GetSearchText());
+        m_shell->InvalidateContent();
+        return;
+    }
+    if (hotId == kHotAddBtn)    { ToggleForm(true);  return; }
+    if (hotId == kHotFormClose) { ToggleForm(false); return; }
+
+    if (hotId >= kHotDBtn && hotId < kHotDBtn + 3) {
+        if (m_selEntry >= 0) OnListOp(m_selEntry, hotId - kHotDBtn);
+        return;
+    }
+    if (hotId == kHotNoteBox) {
+        if (m_selEntry >= 0 && !m_editingId) OnListOp(m_selEntry, 1);
+    }
+}
+
+// 指针在列表行内的位置 → 哪个操作钮被指着（几何与 onItemClicked 一致）
+void ClipsPage::SyncHoverOp(int row, POINT ptInItem)
+{
+    int op = -1;
+    if (row >= 0 && row < (int)m_rows.size() && !m_rows[row].header) {
+        RECT rc = m_list->ItemRect(row);
+        RECT rb[3];
+        OpRects(rc.right - rc.left, rb);
+        for (int i = 0; i < 3; ++i)
+            if (PtInRect(&rb[i], ptInItem)) { op = i; break; }
+    }
+    if (op == m_hoverOp && row == m_hoverOpRow) return;
+
+    const int oldRow = m_hoverOpRow;
+    m_hoverOp    = op;
+    m_hoverOpRow = (op >= 0) ? row : -1;
+    if (oldRow >= 0 && oldRow != m_hoverOpRow) m_list->InvalidateItem(oldRow);
+    if (m_hoverOpRow >= 0) m_list->InvalidateItem(m_hoverOpRow);
 }
 
 void ClipsPage::OnSetFocus()
@@ -886,13 +1040,6 @@ void ClipsPage::SwitchNoteEditTarget(int newEntryIdx)
 // ============================================================
 // 条目操作
 // ============================================================
-int ClipsPage::DetailButtonAt(POINT absPt) const
-{
-    for (int i = 0; i < 3; ++i)
-        if (PtInRect(&m_rcDBtn[i], absPt)) return i + 1;
-    return 0;
-}
-
 void ClipsPage::OnListOp(int entryIdx, int op)
 {
     const std::vector<UiEntry>& entries = m_app.Entries();

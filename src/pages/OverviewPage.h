@@ -22,6 +22,7 @@ public:
     bool OnMouseDown(POINT pt) override;
     bool OnMouseMove(POINT pt) override;
     bool OnMouseLeave() override;
+    bool HandCursorAt(POINT pt) override;
 
 private:
     void DrawModuleCard(air::ui::Canvas& g, RECT r, int idx,
@@ -29,7 +30,8 @@ private:
                         COLORREF icBg, COLORREF icTx,
                         const wchar_t* name, const wchar_t* desc,
                         const std::wstring& number, const wchar_t* unit,
-                        const wchar_t* badge, bool off, bool badgeOk);
+                        const wchar_t* badge, bool off, bool badgeOk,
+                        bool hover);
 
     App&  m_app;
     RECT  m_content = {};

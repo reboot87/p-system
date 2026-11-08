@@ -87,6 +87,17 @@ void Page::BatchDraw(bool begin)
     if (m_shell) m_shell->SetRedraw(begin);
 }
 
+void Page::SetCapture(bool on)
+{
+    if (!m_shell || !m_shell->Hwnd()) return;
+    HWND hwnd = m_shell->Hwnd();
+    if (on) {
+        ::SetCapture(hwnd);
+    } else if (::GetCapture() == hwnd) {
+        ::ReleaseCapture();
+    }
+}
+
 const Fonts& Page::Fonts() const
 {
     return m_shell->UiFonts();

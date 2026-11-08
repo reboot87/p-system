@@ -726,10 +726,14 @@ void Shell::DrawPaintBackendButton(HDC dc)
     else if (cur == "gdi" || cur == "auto" || cur.empty()) label += L"GDI";
     else label += std::wstring(cur.begin(), cur.end());
 
+    // 悬停用 pal.active：pal.hover(#FAFAFA) 在白色标题栏上等于没变，
+    // 这个按钮之前"指上去毫无反应"就是这么来的。
     COLORREF bg = skiaOn ? p.primarySoft
-                : m_paintBtnHover ? p.hover : p.surface;
-    COLORREF border = skiaOn ? p.primary : p.border;
-    COLORREF fg = skiaOn ? p.primaryText : p.textSub;
+                : m_paintBtnHover ? p.active : p.surface;
+    COLORREF border = skiaOn ? p.primary
+                    : m_paintBtnHover ? p.hoverBorder : p.border;
+    COLORREF fg = skiaOn ? p.primaryText
+                : m_paintBtnHover ? p.primaryText : p.textSub;
     if (!hasSkia) {
         // 选了 Skia 却加载不到插件时注册表会静默回退 GDI —— 按钮必须
         // 把这件事说出来，否则「显示 Skia、实际 GDI」会误导。
@@ -1229,6 +1233,40 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         return HTCLIENT;
     }
 
+    case WM_SETCURSOR: {
+        // 指针进了子控件（列表 / 输入框 / 原生按钮）：这些窗口自己收
+        // WM_MOUSEMOVE，父窗口一条也收不到，页面里那些自绘热区会一直
+        // 停在"悬停"上（从胶囊直接移到列表时，胶囊就一直亮着）。子窗口
+        // 的 WM_SETCURSOR 会转给父窗口，这里统一清一次即可。
+        if ((HWND)wParam != hwnd && (HWND)wParam != nullptr) {
+            if (IPage* p = CurrentPage())
+                if (p->OnMouseLeave())
+                    ::InvalidateRect(hwnd, &m_content, FALSE);
+            break;
+        }
+
+        // 自绘按钮 / 卡片不是子窗口，光标只能由页面自己主张。只处理
+        // "光标就在本窗口上"的情形（wParam == hwnd）：DefWindowProc 会把
+        // 子窗口的 WM_SETCURSOR 转给父窗口，若不加这道判断，搜索框上的
+        // I-beam 会被换成手型。
+        if ((HWND)wParam == hwnd && LOWORD(lParam) == HTCLIENT) {
+            POINT pt = {};
+            if (::GetCursorPos(&pt) && ::ScreenToClient(hwnd, &pt)) {
+                POINT cp = { pt.x - m_content.left, pt.y - m_content.top };
+                IPage* p = CurrentPage();
+                if (p && p->HandCursorAt(cp)) {
+                    // IDC_HAND 是 MAKEINTRESOURCE(32649)，写死成宽字符版本
+                    // 才能直接喂给 LoadCursorW（IDC_HAND 本身是 ANSI 资源名）。
+                    static HCURSOR hand =
+                        ::LoadCursorW(nullptr, MAKEINTRESOURCEW(32649));
+                    ::SetCursor(hand);
+                    return TRUE;
+                }
+            }
+        }
+        break;
+    }
+
     case WM_MOUSEMOVE: {
         POINT pt = { (short)LOWORD(lParam), (short)HIWORD(lParam) };
         bool captionDirty = false;   // 标题栏三键 / 渲染后端按钮
@@ -1347,6 +1385,18 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
     case WM_LBUTTONDBLCLK:
         return 0;
+
+    case WM_LBUTTONUP: {
+        // 自绘按钮的动作落在抬起：按下只改视觉，指针拖出热区再松手
+        // 视为取消（与原生按钮一致）。页面自己决定要不要重绘。
+        POINT pt = { (short)LOWORD(lParam), (short)HIWORD(lParam) };
+        POINT cp = { pt.x - m_content.left, pt.y - m_content.top };
+        if (IPage* p = CurrentPage()) {
+            if (p->OnMouseUp(cp))
+                ::InvalidateRect(hwnd, &m_content, FALSE);
+        }
+        return 0;
+    }
 
     case WM_PAINT: {
         if (PaintTraceEnabled()) {

@@ -103,13 +103,20 @@ void Button::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         break;
     }
     case ButtonStyle::Secondary: {
-        const Color fill = (st.pressed || st.hover) ? pal.active : pal.surface;
+        // 默认按钮的悬停必须同时动描边和文字：只把底色从白改成 #F2F4F7
+        // 在浅色主题下几乎看不出来，看起来就像"这个按钮没反应"。
+        const Color fill = st.pressed ? pal.selectFill
+                                      : (st.hover ? pal.active : pal.surface);
+        const Color line = st.pressed ? pal.primaryDown
+                                      : (st.hover ? pal.primary : pal.border);
 
         g.FillRound(rc, mx.radiusMd, fill);
-        g.StrokeRound(rc, mx.radiusMd,
-                      st.hover ? pal.hoverBorder : pal.border, 1);
+        g.StrokeRound(rc, mx.radiusMd, st.disabled ? pal.border : line, 1);
         g.Text(rc, text, FontRole::Button,
-               st.disabled ? pal.textDisabled : pal.textSub, kButtonText);
+               st.disabled ? pal.textDisabled
+                           : ((st.hover || st.pressed) ? pal.primaryText
+                                                       : pal.textSub),
+               kButtonText);
         break;
     }
     case ButtonStyle::Danger: {
@@ -118,7 +125,10 @@ void Button::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 
         g.FillRound(rc, mx.radiusMd, fill);
         g.StrokeRound(rc, mx.radiusMd,
-                      st.disabled ? pal.border : pal.errorBorder, 1);
+                      st.disabled ? pal.border
+                                  : ((st.hover || st.pressed) ? pal.error
+                                                              : pal.errorBorder),
+                      1);
         g.Text(rc, text, FontRole::Button,
                st.disabled ? pal.textDisabled : pal.errorText, kButtonText);
         break;

@@ -91,7 +91,7 @@ public:
                   COLORREF bg, COLORREF tx, int radius = 8);
     // 列表空状态（三段式引导）
     void EmptyState(const RECT& rc, const air::ui::EmptyState& state);
-    // 按钮（纯视觉；点击由页面在 OnMouseDown 里命中）
+    // 按钮（纯视觉；命中与点击由页面用 HotState 自己管）
     void Button(const RECT& rc, const std::wstring& text, BtnStyle style,
                 bool hover = false, bool pressed = false, bool disabled = false);
     // 复选 / 单选（视觉与 Button 同属纯自绘控件；逻辑在页面）
