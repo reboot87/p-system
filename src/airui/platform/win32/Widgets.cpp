@@ -320,6 +320,12 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
         GetClientRect(hwnd, &rc);
         RECT band = rc;
         const int n = (int)SendMessageW(hwnd, LB_GETCOUNT, 0, 0);
+        // 重建期间一条也不擦：这时条目数还在往上涨，用「最后一行之后」
+        // 算出来的带就是整个客户区，屏幕会先退化成一张空白灰底。
+        if (self && self->m_updateLock > 0) {
+            HoverLog(L"erase held items=%d", n);
+            return 1;
+        }
         if (n > 0) {
             RECT last = {};
             if (SendMessageW(hwnd, LB_GETITEMRECT, n - 1, (LPARAM)&last) != LB_ERR)
@@ -439,6 +445,22 @@ void ListBox::Reset()
 {
     if (m_hwnd) SendMessageW(m_hwnd, LB_RESETCONTENT, 0, 0);
     m_hover = -1;
+}
+
+void ListBox::BeginUpdate()
+{
+    if (!m_hwnd) return;
+    if (m_updateLock++ == 0) SendMessageW(m_hwnd, WM_SETREDRAW, FALSE, 0);
+}
+
+void ListBox::EndUpdate()
+{
+    if (!m_hwnd || m_updateLock == 0) return;
+    if (--m_updateLock > 0) return;
+    SendMessageW(m_hwnd, WM_SETREDRAW, TRUE, 0);
+    // WM_SETREDRAW TRUE 只清冻结标志，不会自己重画；带擦除地失效一次，
+    // 让「最后一行之后」那条带（列表变短时多出来的下半截）也被清掉。
+    InvalidateRect(m_hwnd, nullptr, TRUE);
 }
 
 int ListBox::AddItem(int height, size_t data)

@@ -156,6 +156,14 @@ class ListBox : public Widget
 public:
     void Reset();
     int  AddItem(int height, size_t data = 0);   // 返回行下标
+
+    // 批量重建：把 Reset() + N × AddItem() + SetSelection() 夹在中间，
+    // 期间不做任何呈现，结束时只提交一帧。原生 LISTBOX 的 LB_RESETCONTENT
+    // / LB_ADDSTRING 各自会带一次同步刷新，不夹住的话重建过程中屏幕上会
+    // 出现「整块擦成底色 → 逐行画回来」的中间态（Skia 一帧 30~50ms，
+    // 这段中间态能被看到好几帧）。可嵌套，按引用计数逐个配对。
+    void BeginUpdate();
+    void EndUpdate();
     int  Count();
     int  Selection();
     void SetSelection(int index);
@@ -186,6 +194,7 @@ protected:
 
     ListBoxDesc m_desc;
     int m_hover = -1;
+    int m_updateLock = 0;      // BeginUpdate/EndUpdate 嵌套层数
     int m_fallbackH = 54;
 };
 

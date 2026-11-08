@@ -1057,12 +1057,12 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         GetClientRect(hwnd, &rcClient);
         RECT upd = {};
         GetUpdateRect(hwnd, &upd, FALSE);
-        uiDebugLog(L"[erase] page=%d %dx%d suppressed=%d allowed=%d "
+        uiDebugLog(L"[erase] page=%d %dx%d suppressed=%d strips=%d "
                    L"update=%ld,%ld-%ld,%ld",
                    m_pageId,
                    (int)(rcClient.right - rcClient.left),
                    (int)(rcClient.bottom - rcClient.top),
-                   m_eraseSuppressed ? 1 : 0, m_eraseAllowed ? 1 : 0,
+                   m_eraseSuppressed ? 1 : 0, m_eraseCount,
                    (long)upd.left, (long)upd.top,
                    (long)upd.right, (long)upd.bottom);
         // Paint() renders the WHOLE client (page, chrome, widgets) into a
@@ -1075,10 +1075,9 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         // chips were the loudest case). Erasing is still needed right after
         // a size/show change, where DWM presents the newly exposed area
         // before our first paint can land (a maximized window would flash
-        // black) -- that is what m_eraseAllowed marks, and it is consumed
-        // by the first erase that follows.
-        if (m_eraseSuppressed || !m_eraseAllowed) return 1;
-        m_eraseAllowed = false;
+        // black) -- and even then only the strips that are new get filled.
+        const bool allowed = m_eraseCount > 0;
+        if (m_eraseSuppressed || !allowed) return 1;
         // Cache the brush but re-create it when the palette changes:
         // a once-only static brush keeps erasing with the old theme's
         // colour after a light/dark switch, which reads as a flash of
@@ -1090,7 +1089,11 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             s_bgColor = Pal().bg;
             s_bg      = CreateSolidBrush(s_bgColor);
         }
-        FillRect(dc, &rcClient, s_bg);
+        for (int i = 0; i < m_eraseCount; ++i) {
+            RECT r = m_eraseRects[i];
+            if (r.right > r.left && r.bottom > r.top) FillRect(dc, &r, s_bg);
+        }
+        m_eraseCount = 0;
         return 1;
     }
 
@@ -1281,22 +1284,60 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         }
         // The exposed area is on screen now: stop allowing background
         // erases until the next size/show change asks for one.
-        m_eraseAllowed = false;
+        m_eraseCount = 0;
         return 0;
     }
 
-    case WM_SIZE:
+    case WM_SIZE: {
+        RECT nrc = {};
+        GetClientRect(hwnd, &nrc);
+        const int nw = nrc.right - nrc.left;
+        const int nh = nrc.bottom - nrc.top;
+        const int ow = m_lastClient.cx;
+        const int oh = m_lastClient.cy;
+        m_lastClient.cx = nw;
+        m_lastClient.cy = nh;
+
         LayoutAll();
-        // New pixels were just exposed: let the next erase fill them with
+
+        // New pixels were just exposed: let the next erase fill THEM with
         // the theme background instead of leaving them uninitialised until
-        // the (possibly slow) first frame lands.
-        m_eraseAllowed = true;
+        // the (possibly slow) first frame lands. Only the strips that are
+        // genuinely new are erased -- filling the whole client would wipe
+        // content that is still valid, and on maximize (one frame = 140 ms)
+        // that reads as the window blinking to a blank surface.
+        m_eraseCount = 0;
+        if (!m_paintedOnce || ow <= 0 || oh <= 0) {
+            m_eraseRects[m_eraseCount++] = nrc;                    // 从没画过
+        } else {
+            if (nw > ow) {                                        // 右边新露出一条
+                m_eraseRects[m_eraseCount].left   = ow;
+                m_eraseRects[m_eraseCount].top    = 0;
+                m_eraseRects[m_eraseCount].right  = nw;
+                m_eraseRects[m_eraseCount].bottom = nh;
+                ++m_eraseCount;
+            }
+            if (nh > oh) {                                        // 下边新露出一条
+                m_eraseRects[m_eraseCount].left   = 0;
+                m_eraseRects[m_eraseCount].top    = oh;
+                m_eraseRects[m_eraseCount].right  = nw;
+                m_eraseRects[m_eraseCount].bottom = nh;
+                ++m_eraseCount;
+            }
+        }
         ::InvalidateRect(hwnd, nullptr, FALSE);
         return 0;
+    }
 
     case WM_SHOWWINDOW:
         // Same exposure problem on the very first show / after a hide.
-        if (wParam) m_eraseAllowed = true;
+        if (wParam) {
+            RECT rcShow = {};
+            GetClientRect(hwnd, &rcShow);
+            m_eraseRects[0] = rcShow;
+            m_eraseCount    = 1;
+            if (rcShow.right <= rcShow.left) m_eraseCount = 0;
+        }
         break;
 
     case WM_GETMINMAXINFO: {

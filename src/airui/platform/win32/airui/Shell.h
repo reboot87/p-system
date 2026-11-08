@@ -260,7 +260,15 @@ private:
     // while the frame is being built -- 31-47 ms with the Skia backend,
     // which reads as the whole window blinking. Paint() always renders
     // every pixel from a back buffer, so the erase is dropped there.
-    bool          m_eraseAllowed = true;
+    //
+    // The erase is also limited to the strips that actually became new
+    // (right edge + bottom edge of a grown client). Filling the whole
+    // client instead threw a flat background over content that was still
+    // valid -- on maximize the WM_SIZE frame alone runs 140 ms, so the
+    // window visibly blinked to a blank surface.
+    RECT          m_eraseRects[2] = {};
+    int           m_eraseCount    = 0;
+    SIZE          m_lastClient    = { 0, 0 };
     // First paint of a window has nothing on screen yet; erasing then is
     // what keeps the exposed area from showing as uninitialised black.
     bool          m_paintedOnce = false;

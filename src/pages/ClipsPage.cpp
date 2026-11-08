@@ -392,6 +392,11 @@ void ClipsPage::RefreshList(const std::wstring& filter)
     }
 
     // ---- 填充列表（行高：分组头 / 条目卡） ----
+    // 整个重建夹在 Begin/EndUpdate 之间：LB_RESETCONTENT 与每次
+    // LB_ADDSTRING 都会各自触发一次同步刷新，不夹住的话屏幕上会先出现
+    // 「整块擦成底色」再逐行画回来，Skia 一帧 30~50ms 时这段中间态看得
+    // 清清楚楚（点筛选胶囊就是最典型的触发点）。
+    m_list->BeginUpdate();
     m_list->Reset();
     int selRow = -1, firstEntryRow = -1;
     for (size_t r = 0; r < m_rows.size(); ++r) {
@@ -410,6 +415,7 @@ void ClipsPage::RefreshList(const std::wstring& filter)
         m_list->SetSelection(firstEntryRow);
         selRow = firstEntryRow;
     }
+    m_list->EndUpdate();
     if (selRow >= 0 && selRow < (int)m_rows.size() && !m_rows[selRow].header)
         m_selEntry = (int)m_rows[selRow].entry;
     else if (firstEntryRow < 0)
@@ -729,6 +735,8 @@ bool ClipsPage::OnMouseDown(POINT pt)
     // 类型胶囊
     for (int i = 0; i < 4; ++i) {
         if (PtInRect(&m_rcChips[i], abs)) {
+            // 点的就是当前筛选项：行集合不会变，重建只会白闪一次。
+            if (i == m_typeFilter) return true;
             m_typeFilter = i;
             RefreshList(GetSearchText());
             m_shell->InvalidateContent();
