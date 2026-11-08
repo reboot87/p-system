@@ -704,7 +704,19 @@ void SkiaPainter::FillRound(const Rect& r, int radius, Color c)
 {
     if (!m->canvas || r.Empty()) return;
     const SkScalar rr = static_cast<SkScalar>(radius > 0 ? radius : 0);
-    m->canvas->drawRRect(SkRRect::MakeRectXY(ToSk(r), rr, rr), MakeFill(c));
+    // GDI's rounded fill covers one pixel less than its square fill:
+    // measured, RoundRect(l,t,r,b) paints the columns [l, r-1] while
+    // FillRect paints [l, r). Skia's drawRRect fills [l, r), so every
+    // rounded surface -- cards, chips, pills, the logo tile -- came out
+    // one pixel wider and one pixel taller than the GDI backend's.
+    // Shrinking the box by that pixel is what makes the two coincide;
+    // gfx::Stroke compensates on the border side by covering [l, r].
+    const SkScalar shrink = radius > 0 ? 1.f : 0.f;
+    const SkRect box = SkRect::MakeLTRB(
+        static_cast<SkScalar>(r.left), static_cast<SkScalar>(r.top),
+        static_cast<SkScalar>(r.right) - shrink,
+        static_cast<SkScalar>(r.bottom) - shrink);
+    m->canvas->drawRRect(SkRRect::MakeRectXY(box, rr, rr), MakeFill(c));
 }
 
 // GDI borders occupy whole pixels, and which pixels depends on the shape:
