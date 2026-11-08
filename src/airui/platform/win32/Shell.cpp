@@ -532,7 +532,24 @@ void Shell::InvalidateRegion(const RECT& rcClient)
 
 void Shell::SetRedraw(bool on)
 {
-    if (m_hwnd) SendMessageW(m_hwnd, WM_SETREDRAW, on ? TRUE : FALSE, 0);
+    if (!m_hwnd) return;
+
+    SendMessageW(m_hwnd, WM_SETREDRAW, on ? TRUE : FALSE, 0);
+    if (!on) return;
+
+    // 重新打开重绘时要**连子控件一起**失效。
+    //
+    // 批处理期间（WM_SETREDRAW FALSE）被 Move/Show 的子控件，它们挂起的
+    // 那次重绘会丢：父窗口重绘标志为假时子窗口的 WM_PAINT 不会落地，等到
+    // 标志恢复，WM_SETREDRAW TRUE 也只让外壳自己重新变脏 —— 而外壳带
+    // WS_CLIPCHILDREN，子控件占的矩形本来就排除在它的绘制区之外。
+    // 结果就是子控件位置上留着**搬家之前**的旧像素：剪贴板页点「＋ 手动
+    // 录入」展开表单卡时，多行录入框里显示的还是上方的列表行，要点一下
+    // 输入框或最小化还原才恢复。
+    //
+    // RDW_ALLCHILDREN 把所有后代一起标脏，把批处理吞掉的那次重绘补回来。
+    // 代价是一次整窗失效（本来就是这一帧要做的事），不能省。
+    RedrawWindow(m_hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN);
 }
 
 int Shell::ShowMessageBox(const std::wstring& text, const std::wstring& caption,
