@@ -254,6 +254,33 @@ canvas  = surface->getCanvas();
 
 排查用：`set AIRUI_PAINT_TRACE=1` 后运行，Skia 侧标定写到 `%LOCALAPPDATA%\AireRecord\skia_font.log`（每个 role 的 `cell/em/ascent/descent` 只写一次，之后追加每条文本的 role、size、宽度、坐标）；GDI 侧同一开关会把每次 `gfx::Text` 的 `lfHeight`、rect、实测宽度追加到同目录 `gdi_font.log`。**两个日志逐行对比**是判断"某一行字为什么不一样"最快的手段：同一段文字在两边的 `w=` 应该相等，`h=`（GDI）与 `cell`（Skia 标定）应该对得上。
 
+### 4.2 几何：GDI 的像素覆盖约定
+
+文字对齐之后剩下的差异基本都在"几何落在哪几个像素上"。GDI 的覆盖区间是**逐个函数不同**的，用 96 DPI 裸探针（`build/pstroke.exe`、`build/pfill.exe` 这类一次性程序）量出来的事实：
+
+| GDI 调用 | 实际覆盖 |
+|---|---|
+| `FillRect(dc, {l,t,r,b})` | `[l, r) × [t, b)` |
+| `Rectangle(l,t,r,b)`（1px 笔） | 边框覆盖 `[l, r) × [t, b)`，右/下为排他 |
+| `RoundRect(l,t,r,b)` 填充 | **`[l, r-1] × [t, b-1]`**——比 `FillRect` 再少 1 像素 |
+| `RoundRect(l,t,r,b)` 描边 | 覆盖 `[l, r-1]`，所以 `gfx::Stroke` 传 `r+1, b+1` 让边框落到 `[l, r]` |
+| `DrawText` 的 `DT_CENTER` | `x = left + (width - textWidth) / 2`，**int 除算向零截断** |
+| `DrawText` 的 `DT_VCENTER` | `y = top + (height - tmHeight) / 2 + tmAscent`，同样截断 |
+| `DrawText` | 默认**裁剪到 rect**（`DT_NOCLIP` 除外） |
+| `DrawText` 的字形覆盖率 | 与 Skia 一样是线性混合，但 GDI 的覆盖率本身被 ClearType 的对比度曲线抬高过 |
+
+Skia 侧对应做法（都在 `SkiaPainter.cpp`）：
+
+- `StrokePath()`：按"覆盖区间"反推路径——内缩半个笔宽，圆角情形把右/下补回 GDI 的 `+1`。直接在原 rect 上 `drawRect` 会让 1px 边框摊到两个半覆盖像素上（实测卡片左边框 GDI 单像素 240 vs Skia 247+240，胶囊左边框 183 vs 226+208），所有卡片/胶囊/分隔线都偏浅偏糊。
+- `FillRound()`：`radius > 0` 时把 box 收到 `(l, t, r-1, b-1)`。不这么做，每个圆角面都比 GDI 大 1 像素（标题栏 Logo 蓝色底板 GDI 25 行、Skia 26 行）。
+- `AlignX()` / `Baseline()`：用 int 除算复刻 `DrawText` 的截断。写成 `(width - totalW) / 2.f` 会得到 `x.5` 这种半个像素的原点，Skia 按四舍五入落位 —— 所有**居中**的字（尤其是图标）整体右移 1px（trace 对照：标题栏图标 GDI `x=999` / Skia `at=999.5`）。
+- `Text()`：除 `dt::NoClipping` 外，绘制前 `clipRect(r)`。
+
+**仍对不齐的两类（属于栅格化差异，不是语义差异）**：
+
+1. **圆角曲线**没有抗锯齿的 GDI（方块状边缘）vs 有 AA 的 Skia。这是 Skia 更好看的地方，不打算"修"。
+2. **字形边缘覆盖率**：同一个笔画像素，GDI 覆盖率约 0.41、Skia 约 0.31（GDI 的 ClearType 对覆盖率做了对比度提升）。表现为 Skia 深色文字略淡、浅色文字略重，约 9% 墨量差。Skia 没有暴露覆盖率 gamma，这一项只能接受；判断"是不是这类差异"的方法见 §5.3。
+
 ---
 
 ## 5. 验证矩阵
