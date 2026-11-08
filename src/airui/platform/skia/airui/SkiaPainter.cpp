@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cmath>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #if defined(_WIN32) && !defined(AIRUI_SKIA_MOCK)
@@ -559,6 +560,27 @@ struct SkiaPainter::Impl
     sk_sp<SkTypeface>      defaultFace = nullptr;
     bool                   facesReady = false;
 
+    // ---- per-frame reuse of the text machinery -------------------
+    //
+    // Everything below exists because a frame draws ~70 short labels and
+    // the naive path re-did the same work for every one of them:
+    // unicharToGlyph() walks the face's cmap, and copying an SkFont or
+    // calling setTypeface() drops its cached strike spec, so the next
+    // measure/draw rebuilds a descriptor and looks the strike up again.
+    // Measured (AIRUI_FRAME_PROFILE=1): 285 us per label, 58.9 us per
+    // character, i.e. 20.4 ms of a 34.9 ms frame -- 89 % of the drawing
+    // cost -- while GDI drew the same frame in 4.5 ms.
+    //
+    // Same few hundred characters repeat every frame, so cache which
+    // face covers each codepoint per role, and keep one prebuilt SkFont
+    // per (role, face kind) instead of re-shaping a copy per text run.
+    std::unordered_map<uint32_t, sk_sp<SkTypeface>>
+        cpFace[static_cast<int>(FontRole::Count)];
+    SkFont fontCjk[static_cast<int>(FontRole::Count)];
+    bool   cjkFontReady[static_cast<int>(FontRole::Count)] = {};
+    SkFont scratchFont;             // system-default fallback, rare
+    sk_sp<SkTypeface> scratchFace;
+
     void EnsureFaces()
     {
         if (facesReady) return;
@@ -582,19 +604,67 @@ struct SkiaPainter::Impl
     // mirrors GDI: role family -> font-linked CJK family -> system
     // default. Falling back to the generic system font first would give
     // Chinese a different family from GDI's and change its shapes.
+    // Which face covers `cp` for this role. Cached per role because the
+    // answer only depends on the (fixed) face set, while unicharToGlyph
+    // itself is a cmap walk that used to run twice per character per
+    // frame -- once measuring, once drawing.
     sk_sp<SkTypeface> FaceFor(FontRole role, SkUnichar cp)
     {
         EnsureFaces();
         const int i = static_cast<int>(role) < 0 ||
                       static_cast<int>(role) >= static_cast<int>(FontRole::Count)
                           ? 0 : static_cast<int>(role);
+        auto& cache = cpFace[i];
+        const uint32_t key = static_cast<uint32_t>(cp);
+        auto it = cache.find(key);
+        if (it != cache.end()) return it->second;
+
         sk_sp<SkTypeface>& base = roleFace[i];
-        if (base && base->unicharToGlyph(cp)) return base;
-        if (IsCjk(static_cast<uint32_t>(cp)) &&
-            roleCjk[i] && roleCjk[i]->unicharToGlyph(cp))
-            return roleCjk[i];
-        if (defaultFace && defaultFace->unicharToGlyph(cp)) return defaultFace;
-        return base;
+        sk_sp<SkTypeface> picked = base;
+        if (!(base && base->unicharToGlyph(cp))) {
+            if (IsCjk(key) && roleCjk[i] && roleCjk[i]->unicharToGlyph(cp))
+                picked = roleCjk[i];
+            else if (defaultFace && defaultFace->unicharToGlyph(cp))
+                picked = defaultFace;
+        }
+        // Bounded: a UI shows a few hundred distinct characters, but the
+        // map must not grow without limit in a long-lived process.
+        if (cache.size() > 4096) cache.clear();
+        cache.emplace(key, picked);
+        return picked;
+    }
+
+    // The prebuilt font for a run: the role's Latin face, its CJK face
+    // (sized by its own em -- the linked family has a different
+    // win-metric ratio), or a scratch font for the system-default
+    // fallback. Returning a reference is the point: copying an SkFont or
+    // calling setTypeface() throws away the strike spec, and the next
+    // measureText()/drawSimpleText() has to rebuild it.
+    const SkFont& FontForFace(FontRole role, const sk_sp<SkTypeface>& face)
+    {
+        Font(role);                     // ensures fonts[i] / roleFace[i]
+        const int i = Index(role);
+        if (!face || face.get() == roleFace[i].get()) return fonts[i];
+        if (face.get() == roleCjk[i].get()) {
+            if (!cjkFontReady[i]) {
+                SkFont f = fonts[i];
+                f.setTypeface(roleCjk[i]);
+                const SkScalar em = roleM[i].emCjk > 0 ? roleM[i].emCjk
+                                                       : fonts[i].getSize();
+                f.setSize(em);
+                fontCjk[i] = f;
+                cjkFontReady[i] = true;
+            }
+            return fontCjk[i];
+        }
+        // Rare: a character only the system default can draw. Shape it
+        // once per distinct face rather than per draw.
+        if (scratchFace.get() != face.get()) {
+            scratchFont = fonts[i];
+            scratchFont.setTypeface(face);
+            scratchFace = face;
+        }
+        return scratchFont;
     }
 
     SkFont& Font(FontRole role)
@@ -628,7 +698,7 @@ struct SkiaPainter::Impl
 
     // Draw UTF-8 text already positioned at baseline origin (x, y), with
     // per-codepoint font fallback so mixed Latin/CJK/icon runs all paint.
-    void DrawRuns(SkFont& primary, FontRole role, const std::string& utf8,
+    void DrawRuns(FontRole role, const std::string& utf8,
                   float x, float y, Color c)
     {
         if (utf8.empty()) return;
@@ -646,14 +716,9 @@ struct SkiaPainter::Impl
                 ++j;
 
             const std::string run = EncodeUtf8(&cps[i], j - i);
-            SkFont f = primary;
-            if (face) {
-                f.setTypeface(face);
-                // Chinese is sized separately: its linked family has a
-                // different win-metric ratio than the Latin face.
-                if (roleCjk[Index(role)].get() == face.get())
-                    f.setSize(roleM[Index(role)].emCjk);
-            }
+            // Shared, prebuilt: never a per-run SkFont copy, which would
+            // drop the strike spec and force a rebuild on the next call.
+            const SkFont& f = FontForFace(role, face);
             const float w =
                 f.measureText(run.data(), run.size(), SkTextEncoding::kUTF8);
             canvas->drawSimpleText(run.data(), run.size(),
@@ -665,24 +730,18 @@ struct SkiaPainter::Impl
 
     // Width of a codepoint sequence using the same per-codepoint font
     // fallback as DrawRuns (used for ellipsis trimming and alignment).
-    float MeasureRuns(FontRole role, const std::vector<uint32_t>& cps,
-                      SkFont& primary)
+    float MeasureRuns(FontRole role, const std::vector<uint32_t>& cps)
     {
         float w = 0.f;
         size_t i = 0;
         while (i < cps.size()) {
-            sk_sp<SkTypeface> face = FaceFor(role, cps[i]);
+            const sk_sp<SkTypeface> face = FaceFor(role, cps[i]);
             size_t j = i + 1;
             while (j < cps.size() &&
                    FaceFor(role, cps[j]).get() == face.get())
                 ++j;
             const std::string run = EncodeUtf8(&cps[i], j - i);
-            SkFont f = primary;
-            if (face) {
-                f.setTypeface(face);
-                if (roleCjk[Index(role)].get() == face.get())
-                    f.setSize(roleM[Index(role)].emCjk);
-            }
+            const SkFont& f = FontForFace(role, face);
             w += f.measureText(run.data(), run.size(), SkTextEncoding::kUTF8);
             i = j;
         }
@@ -836,13 +895,13 @@ void SkiaPainter::Text(const Rect& r, const std::wstring& s,
         // nav labels sit exactly on this boundary at the Title role.
         const float avail = static_cast<float>(r.Width()) + 1.f;
         const float dotsW = primary.measureText("...", 3, SkTextEncoding::kUTF8);
-        const float textW = m->MeasureRuns(role, cps, primary);
+        const float textW = m->MeasureRuns(role, cps);
         // DT_END_ELLIPSIS only decorates text that does not fit. Adding
         // the dots unconditionally (as this used to) put "..." on every
         // ellipsis-capable label, even short ones with room to spare.
         if (textW + dotsW > avail) {
             while (cps.size() > 1 &&
-                   m->MeasureRuns(role, cps, primary) + dotsW > avail)
+                   m->MeasureRuns(role, cps) + dotsW > avail)
                 cps.pop_back();
             cps.push_back(static_cast<uint32_t>('.'));
             cps.push_back(static_cast<uint32_t>('.'));
@@ -852,7 +911,7 @@ void SkiaPainter::Text(const Rect& r, const std::wstring& s,
         }
     }
 
-    const float totalW = m->MeasureRuns(role, cps, primary);
+    const float totalW = m->MeasureRuns(role, cps);
     const float x = AlignX(r, totalW, skia::Horizontal(fmt));
     const float y = m->Baseline(r, m->Index(role), skia::Vertical(fmt));
     // DrawText clips to its rect -- that clipping is the reason
@@ -863,7 +922,7 @@ void SkiaPainter::Text(const Rect& r, const std::wstring& s,
         m->canvas->save();
         m->canvas->clipRect(ToSk(r));
     }
-    m->DrawRuns(primary, role, utf8, x, y, c);
+    m->DrawRuns(role, utf8, x, y, c);
     if (clip) m->canvas->restore();
     DiagText(static_cast<int>(role), primary.getSize(), totalW, x, y,
              static_cast<float>(r.Width()), m->canvas->getTotalMatrix().getScaleX(),
@@ -910,7 +969,7 @@ void SkiaPainter::TextBlock(const Rect& r, const std::wstring& s,
     for (const std::string& ln : lines) {
         if (y - rm.ascent > static_cast<float>(r.bottom)) break;
         if (!ln.empty())
-            m->DrawRuns(primary, role, ln, static_cast<float>(r.left), y, c);
+            m->DrawRuns(role, ln, static_cast<float>(r.left), y, c);
         y += lineH;
     }
 }
@@ -921,10 +980,10 @@ int SkiaPainter::MeasureText(const std::wstring& s, FontRole role)
     const std::string utf8 = skia::WideToUtf8(s);
     std::vector<uint32_t> cps;
     DecodeUtf8(utf8, cps);
-    SkFont& primary = m->Font(role);
+    m->Font(role);              // ensures fonts[i] / roleFace[i] are ready
     // Same per-codepoint fallback (and per-family size) as drawing, so
     // layout decisions match what actually gets painted.
-    const float w = m->MeasureRuns(role, cps, primary);
+    const float w = m->MeasureRuns(role, cps);
     return static_cast<int>(w + 0.5f);
 }
 

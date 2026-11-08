@@ -104,6 +104,9 @@ struct SkiaFrame::Impl
     void*    bits   = nullptr;
     Rect     bounds{};
 #endif
+    // Pixels the surface draws into, when it does not own them (the
+    // windowed case: the DIB). null for an off-screen frame.
+    void* directPixels = nullptr;
 
     Impl(int width, int height, void* nativeDc = nullptr) : w(width), h(height)
     {
@@ -121,17 +124,34 @@ struct SkiaFrame::Impl
                                                  : kPremul_SkAlphaType;
         const SkImageInfo info = SkImageInfo::Make(
             w, h, kBGRA_8888_SkColorType, alpha);
-        // allocPixels returns void in current Skia; a null pixel buffer
-        // is the failure signal (the old bool-returning overload is gone).
-        bitmap.allocPixels(info);
-        if (!bitmap.getPixels()) return;
+
+#ifdef _WIN32
+        // Create the target DIB first, so the surface can draw straight
+        // into the pixels that will be handed to the window. The old
+        // order allocated a Skia-owned bitmap, drew into it, then copied
+        // the whole frame into the DIB on present -- 8 MB of memcpy per
+        // frame at 1920x1040, measured at ~1.5 ms.
+        if (nativeDc) PrepareDib(static_cast<HDC>(nativeDc));
+#endif
+
+        void*  pixels   = directPixels;
+        size_t rowBytes = directPixels ? static_cast<size_t>(w) * 4u : 0u;
+        if (!pixels) {
+            // Off-screen frame, or the DIB could not be created.
+            // allocPixels returns void in current Skia; a null pixel
+            // buffer is the failure signal (the old bool-returning
+            // overload is gone).
+            bitmap.allocPixels(info);
+            pixels   = bitmap.getPixels();
+            rowBytes = bitmap.rowBytes();
+            if (!pixels) return;
+        }
 
         const SkSurfaceProps props(0, LcdPixelGeometry());
         // Skia m130 moved the raster surface factories out of SkSurface
         // into the SkSurfaces namespace; WrapPixels draws straight into
-        // our bitmap's pixels, so there is no extra copy on present.
-        surface = SkSurfaces::WrapPixels(info, bitmap.getPixels(),
-                                         bitmap.rowBytes(), &props);
+        // the buffer we hand it, so there is no extra copy on present.
+        surface = SkSurfaces::WrapPixels(info, pixels, rowBytes, &props);
         if (!surface) return;
         canvas = surface->getCanvas();
         if (!canvas) return;
@@ -147,11 +167,12 @@ struct SkiaFrame::Impl
     }
 
 #ifdef _WIN32
-    bool Attach(HDC target, const Rect& area)
+    // Memory DC + top-down 32bpp DIB the frame composites onto. Called
+    // from the constructor, before the surface is created, so the surface
+    // can wrap these pixels instead of its own allocation.
+    bool PrepareDib(HDC target)
     {
-        dc = target;
-        bounds = area;
-        if (!dc || !canvas) return false;
+        if (!target || w <= 0 || h <= 0) return false;
 
         BITMAPINFO bmi{};
         BITMAPINFOHEADER& bh = bmi.bmiHeader;
@@ -162,11 +183,26 @@ struct SkiaFrame::Impl
         bh.biBitCount    = 32;
         bh.biCompression = BI_RGB;
 
-        mem = CreateCompatibleDC(dc);
-        dib = CreateDIBSection(dc, &bmi, DIB_RGB_COLORS, &bits, nullptr, 0);
-        if (!mem || !dib || !bits) return false;
+        mem = CreateCompatibleDC(target);
+        dib = CreateDIBSection(target, &bmi, DIB_RGB_COLORS, &bits, nullptr, 0);
+        if (!mem || !dib || !bits) {
+            // Leave the members clean so Present falls back to copying
+            // the Skia-owned bitmap instead of dereferencing a null DIB.
+            if (dib) { DeleteObject(dib); dib = nullptr; }
+            if (mem) { DeleteDC(mem);       mem = nullptr; }
+            bits = nullptr;
+            return false;
+        }
         oldBmp = SelectObject(mem, dib);
+        directPixels = bits;
         return true;
+    }
+
+    bool Attach(HDC target, const Rect& area)
+    {
+        dc = target;
+        bounds = area;
+        return dc != nullptr && canvas != nullptr;
     }
 
     ~Impl()
@@ -183,26 +219,39 @@ struct SkiaFrame::Impl
     {
         if (presented || !canvas || !painter) return;
 #ifdef _WIN32
-        if (!dc || !bits) { presented = true; return; }
+        if (!dc || !bits || !mem) { presented = true; return; }
 
-        const unsigned char* src =
-            static_cast<const unsigned char*>(bitmap.getPixels());
-        if (!src) { presented = true; return; }
-        const size_t srcStride = bitmap.rowBytes();
-        const size_t dstStride = static_cast<size_t>(w) * 4u;
-        unsigned char* dst = static_cast<unsigned char*>(bits);
-        for (int y = 0; y < h; ++y)
-            std::memcpy(dst + static_cast<size_t>(y) * dstStride,
-                        src + static_cast<size_t>(y) * srcStride,
-                        dstStride);
+        if (!directPixels) {
+            // The surface owns its pixels (DIB creation failed): copy the
+            // frame into the DIB before handing it to the window.
+            const unsigned char* src =
+                static_cast<const unsigned char*>(bitmap.getPixels());
+            if (!src) { presented = true; return; }
+            const size_t srcStride = bitmap.rowBytes();
+            const size_t dstStride = static_cast<size_t>(w) * 4u;
+            unsigned char* dst = static_cast<unsigned char*>(bits);
+            for (int y = 0; y < h; ++y)
+                std::memcpy(dst + static_cast<size_t>(y) * dstStride,
+                            src + static_cast<size_t>(y) * srcStride,
+                            dstStride);
+        }
 
-        BLENDFUNCTION bf{};
-        bf.BlendOp             = AC_SRC_OVER;
-        bf.BlendFlags          = 0;
-        bf.SourceConstantAlpha = 255;
-        bf.AlphaFormat         = AC_SRC_ALPHA;   // Skia is premultiplied
-        AlphaBlend(dc, bounds.left, bounds.top, w, h,
-                   mem, 0, 0, w, h, bf);
+        // The frame is opaque, so every source alpha is 255 and blending
+        // cannot change a pixel: AlphaBlend with AC_SRC_ALPHA would still
+        // run a per-pixel blend over the whole 8 MB surface. A plain
+        // BitBlt is the same result for a straight copy. The premultiplied
+        // comparison build (AIRUI_SKIA_ALPHA=premul) keeps blending.
+        if (OpaqueTarget()) {
+            BitBlt(dc, bounds.left, bounds.top, w, h, mem, 0, 0, SRCCOPY);
+        } else {
+            BLENDFUNCTION bf{};
+            bf.BlendOp             = AC_SRC_OVER;
+            bf.BlendFlags          = 0;
+            bf.SourceConstantAlpha = 255;
+            bf.AlphaFormat         = AC_SRC_ALPHA;   // Skia is premultiplied
+            AlphaBlend(dc, bounds.left, bounds.top, w, h,
+                       mem, 0, 0, w, h, bf);
+        }
 #endif
         presented = true;
     }
@@ -233,8 +282,17 @@ SkiaFrame::~SkiaFrame()
 bool      SkiaFrame::Valid() const    { return m && m->painter != nullptr; }
 void      SkiaFrame::Present()        { if (m) m->Present(); }
 SkCanvas* SkiaFrame::Canvas() const   { return m ? m->canvas : nullptr; }
-const void* SkiaFrame::Pixels() const { return m ? m->bitmap.getPixels() : nullptr; }
-size_t    SkiaFrame::RowBytes() const { return m ? m->bitmap.rowBytes() : 0u; }
+const void* SkiaFrame::Pixels() const
+{
+    if (!m) return nullptr;
+    return m->directPixels ? m->directPixels : m->bitmap.getPixels();
+}
+size_t    SkiaFrame::RowBytes() const
+{
+    if (!m) return 0u;
+    return m->directPixels ? static_cast<size_t>(m->w) * 4u
+                           : m->bitmap.rowBytes();
+}
 int       SkiaFrame::Width()  const   { return m ? m->w : 0; }
 int       SkiaFrame::Height() const   { return m ? m->h : 0; }
 
