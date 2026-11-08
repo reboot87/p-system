@@ -27,6 +27,72 @@ static bool PaintTraceEnabled()
     return on != 0;
 }
 
+// Microsecond clock for frame timing. GetTickCount64 only steps at the
+// system timer tick (15.6 ms by default), so every value it reports here
+// was really "somewhere in a 15.6 ms bucket" -- 31 vs 35 ms were the same
+// measurement twice. QPC resolves to the TSC and costs ~20 ns.
+static long long QpcUs()
+{
+    static const double freq = [] {
+        LARGE_INTEGER f{};
+        QueryPerformanceFrequency(&f);
+        return f.QuadPart > 0 ? (double)f.QuadPart : 1.0;
+    }();
+    LARGE_INTEGER c{};
+    QueryPerformanceCounter(&c);
+    return static_cast<long long>(c.QuadPart * 1000000.0 / freq);
+}
+
+// Rolling frame-cost summary (AIRUI_FRAME_PROFILE=1). Values are
+// microseconds; keep the switch separate from AIRUI_PAINT_TRACE so a
+// profiling run never pays for per-frame log writes.
+static bool FrameProfileEnabled()
+{
+    static int on = -1;
+    if (on < 0) {
+        wchar_t v[8] = {};
+        const DWORD n = GetEnvironmentVariableW(L"AIRUI_FRAME_PROFILE", v, 8);
+        on = (n > 0 && n < 8 && v[0] != L'0') ? 1 : 0;
+    }
+    return on != 0;
+}
+
+struct FrameCost
+{
+    long long n = 0;
+    long long dcBuild = 0;    // PaintDC: 32-bit DDB + background fill
+    long long frameBegin = 0; // PainterRegistry::Begin (SkiaFrame construct)
+    long long draw = 0;       // every gfx::*/IPainter call of the frame
+    long long present = 0;    // SkiaFrame::Impl::Present (copy + composite)
+    long long flush = 0;      // BitBlt of the back buffer to the screen
+
+    void Dump(const wchar_t* why)
+    {
+        if (n <= 0) return;
+        wchar_t path[MAX_PATH] = {};
+        if (GetEnvironmentVariableW(L"LOCALAPPDATA", path, MAX_PATH) == 0) return;
+        wcscat_s(path, L"\\AireRecord\\frame_cost.log");
+        FILE* f = _wfsopen(path, L"a", _SH_DENYWR);
+        if (!f) return;
+        fwprintf_s(f, L"%s n=%lld dc=%.2f begin=%.2f draw=%.2f present=%.2f flush=%.2f total=%.2f ms\n",
+                   why, n,
+                   (double)dcBuild / n / 1000.0,
+                   (double)frameBegin / n / 1000.0,
+                   (double)draw / n / 1000.0,
+                   (double)present / n / 1000.0,
+                   (double)flush / n / 1000.0,
+                   (double)(dcBuild + frameBegin + draw + present + flush) / n / 1000.0);
+        fclose(f);
+        n = dcBuild = frameBegin = draw = present = flush = 0;
+    }
+};
+
+static FrameCost& Cost()
+{
+    static FrameCost c;
+    return c;
+}
+
 static void uiDebugLog(const wchar_t* fmt, ...)
 {
     if (!PaintTraceEnabled()) return;
@@ -711,7 +777,7 @@ void Shell::SetPaintBackendChangedHandler(
 // ============================================================
 void Shell::Paint(HDC dc)
 {
-    const ULONGLONG tPaint0 = GetTickCount64();
+    const long long tPaint0 = QpcUs();
     RECT rc;
     GetClientRect(m_hwnd, &rc);
 
@@ -742,7 +808,7 @@ void Shell::Paint(HDC dc)
         }
     }
 
-    const ULONGLONG tBegan = GetTickCount64();
+    const long long tBegan = QpcUs();
     gfx::Fill(dc, rc, Pal().bg);
 
 
@@ -774,7 +840,7 @@ void Shell::Paint(HDC dc)
     if (m_opt.coreShell) DrawCaptionButtons(dc, rc);
     DrawPaintBackendButton(dc);
 
-    const ULONGLONG tDrawn = GetTickCount64();
+    const long long tDrawn = QpcUs();
 
     // ---- Close the frame -------------------------------------------
     // Order matters: the backend's destructor composites its raster
@@ -788,12 +854,24 @@ void Shell::Paint(HDC dc)
         frame.Clear();
     }
 
-    uiDebugLog(L"[paint] page=%d active=%d ms=%llu (begin=%llu draw=%llu present=%llu)",
-               m_pageId, frameActive ? 1 : 0,
-               (unsigned long long)(GetTickCount64() - tPaint0),
-               (unsigned long long)(tBegan - tPaint0),
-               (unsigned long long)(tDrawn - tBegan),
-               (unsigned long long)(GetTickCount64() - tDrawn));
+    const long long tPresented = QpcUs();
+
+    if (PaintTraceEnabled()) {
+        uiDebugLog(L"[paint] page=%d active=%d ms=%.2f (begin=%.2f draw=%.2f present=%.2f)",
+                   m_pageId, frameActive ? 1 : 0,
+                   (double)(tPresented - tPaint0) / 1000.0,
+                   (double)(tBegan - tPaint0) / 1000.0,
+                   (double)(tDrawn - tBegan) / 1000.0,
+                   (double)(tPresented - tDrawn) / 1000.0);
+    }
+    if (FrameProfileEnabled()) {
+        PaintFrameReportPrimCost();
+        FrameCost& c = Cost();
+        c.frameBegin += tBegan - tPaint0;
+        c.draw       += tDrawn - tBegan;
+        c.present    += tPresented - tDrawn;
+        if (++c.n >= 30) c.Dump(L"[cost]");
+    }
     m_paintedOnce = true;
 }
 
@@ -1277,10 +1355,19 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                        (long)upd.left, (long)upd.top,
                        (long)upd.right, (long)upd.bottom);
         }
+        const long long tDc0 = QpcUs();
         PaintDC pdc(hwnd);
+        const long long tDc1 = QpcUs();
         if (pdc.dc()) {
             Paint(pdc.dc());
+            const long long tDc2 = QpcUs();
             pdc.Flush();
+            const long long tDc3 = QpcUs();
+            if (FrameProfileEnabled()) {
+                FrameCost& c = Cost();
+                c.dcBuild += tDc1 - tDc0;
+                c.flush   += tDc3 - tDc2;
+            }
         }
         // The exposed area is on screen now: stop allowing background
         // erases until the next size/show change asks for one.

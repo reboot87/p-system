@@ -42,7 +42,134 @@ const Fonts& AnyFonts(const Fonts* preferred)
     return preferred ? *preferred : Fonts::Default();
 }
 
+// ------------------------------------------------------------
+// Per-primitive cost (AIRUI_FRAME_PROFILE=1)
+//
+// The frame timer in Shell only says "draw = 24 ms". That number is the
+// sum of every routed call, and the split between cheap fills and
+// expensive text is what decides where to optimise, so measure the
+// backend call itself, per primitive kind. QPC costs ~20 ns per pair,
+// which is noise against calls that run tens of microseconds.
+// ------------------------------------------------------------
+struct PrimCost
+{
+    long long n  = 0;
+    long long us = 0;
+};
+
+struct PrimStats
+{
+    PrimCost fill;
+    PrimCost fillAlpha;
+    PrimCost fillRound;
+    PrimCost stroke;
+    PrimCost strokeDashed;
+    PrimCost text;
+    PrimCost textEll;      // Text() calls that carry DT_END_ELLIPSIS
+    PrimCost textPlain;    // ... and the ones that do not
+    PrimCost textBlock;
+    PrimCost measure;
+    PrimCost clip;
+    long long textChars = 0;
+    long long frames = 0;
+
+    void Reset()
+    {
+        fill = fillAlpha = fillRound = stroke = strokeDashed = PrimCost();
+        text = textEll = textPlain = textBlock = measure = clip = PrimCost();
+        textChars = 0;
+        frames = 0;
+    }
+
+    void Dump()
+    {
+        if (frames <= 0) return;
+        wchar_t path[MAX_PATH] = {};
+        if (GetEnvironmentVariableW(L"LOCALAPPDATA", path, MAX_PATH) == 0) return;
+        wcscat_s(path, L"\\AireRecord\\prim_cost.log");
+        FILE* f = _wfsopen(path, L"a", _SH_DENYWR);
+        if (!f) return;
+        fwprintf_s(f, L"[prim] frames=%lld\n", frames);
+        auto row = [&](const wchar_t* name, const PrimCost& c) {
+            fwprintf_s(f, L"  %-12s calls/frame=%7.1f us/call=%7.2f total/frame=%7.2f ms\n",
+                       name,
+                       (double)c.n / frames,
+                       c.n ? (double)c.us / c.n : 0.0,
+                       (double)c.us / frames / 1000.0);
+        };
+        row(L"fill",         fill);
+        row(L"fillAlpha",    fillAlpha);
+        row(L"fillRound",    fillRound);
+        row(L"stroke",       stroke);
+        row(L"strokeDashed", strokeDashed);
+        PrimCost textAll;
+        textAll.n  = textEll.n + textPlain.n;
+        textAll.us = textEll.us + textPlain.us;
+        row(L"text",         textAll);
+        row(L"  ellipsis",   textEll);
+        row(L"  plain",      textPlain);
+        fwprintf_s(f, L"  chars/frame=%7.1f  us/char=%7.3f\n",
+                   (double)textChars / frames,
+                   textChars ? (double)textAll.us / textChars : 0.0);
+        row(L"textBlock",    textBlock);
+        row(L"measure",      measure);
+        row(L"clip",         clip);
+        fclose(f);
+        Reset();
+    }
+};
+
+bool PrimProfileEnabled()
+{
+    static int on = -1;
+    if (on < 0) {
+        wchar_t v[8] = {};
+        const DWORD n = GetEnvironmentVariableW(L"AIRUI_FRAME_PROFILE", v, 8);
+        on = (n > 0 && n < 8 && v[0] != L'0') ? 1 : 0;
+    }
+    return on != 0;
+}
+
+inline long long PrimQpcUs()
+{
+    static const double freq = [] {
+        LARGE_INTEGER f{};
+        QueryPerformanceFrequency(&f);
+        return f.QuadPart > 0 ? (double)f.QuadPart : 1.0;
+    }();
+    LARGE_INTEGER c{};
+    QueryPerformanceCounter(&c);
+    return static_cast<long long>(c.QuadPart * 1000000.0 / freq);
+}
+
+PrimStats& Stats()
+{
+    static PrimStats s;
+    return s;
+}
+
+// Times one backend call. Zero cost when profiling is off.
+struct PrimScope
+{
+    PrimCost& c;
+    long long t0;
+    explicit PrimScope(PrimCost& pc) : c(pc), t0(PrimProfileEnabled() ? PrimQpcUs() : 0) {}
+    ~PrimScope()
+    {
+        if (!t0) return;
+        c.us += PrimQpcUs() - t0;
+        ++c.n;
+    }
+};
+
 } // namespace
+
+void PaintFrameReportPrimCost()
+{
+    if (!PrimProfileEnabled()) return;
+    PrimStats& s = Stats();
+    if (++s.frames >= 30) s.Dump();
+}
 
 PaintFrame& PaintFrame::Instance()
 {
@@ -164,11 +291,13 @@ void PaintFrame::RecordText(HFONT font, COLORREF color, const RECT& rc,
 // ------------------------------------------------------------
 void PaintFrame::GfxFill(const RECT& rc, COLORREF color)
 {
+    PrimScope _ps(Stats().fill);
     m_backend->FillRect(Shift(ToUi(rc)), ToUi(color));
 }
 
 void PaintFrame::GfxFillRound(const RECT& rc, COLORREF color, int radius)
 {
+    PrimScope _ps(Stats().fillRound);
     if (rc.right <= rc.left || rc.bottom <= rc.top) return;
     m_backend->FillRound(Shift(ToUi(rc)), radius, ToUi(color));
 }
@@ -176,6 +305,7 @@ void PaintFrame::GfxFillRound(const RECT& rc, COLORREF color, int radius)
 void PaintFrame::GfxStroke(const RECT& rc, COLORREF color,
                            int radius, int width)
 {
+    PrimScope _ps(Stats().stroke);
     if (rc.right <= rc.left || rc.bottom <= rc.top) return;
     const Rect r = Shift(ToUi(rc));
     const int w = width > 0 ? width : 1;
@@ -185,6 +315,7 @@ void PaintFrame::GfxStroke(const RECT& rc, COLORREF color,
 
 void PaintFrame::GfxStrokeDashed(const RECT& rc, COLORREF color, int radius)
 {
+    PrimScope _ps(Stats().strokeDashed);
     if (rc.right <= rc.left || rc.bottom <= rc.top) return;
     (void)radius;   // IPainter has no rounded dashed variant
     m_backend->StrokeDashed(Shift(ToUi(rc)), ToUi(color), 1, 4);
@@ -192,11 +323,13 @@ void PaintFrame::GfxStrokeDashed(const RECT& rc, COLORREF color, int radius)
 
 void PaintFrame::GfxHLine(int x1, int x2, int y, COLORREF color)
 {
+    PrimScope _ps(Stats().fill);
     m_backend->FillRect(Shift(Rect(x1, y, x2, y + 1)), ToUi(color));
 }
 
 void PaintFrame::GfxHLineDashed(int x1, int x2, int y, COLORREF color)
 {
+    PrimScope _ps(Stats().fill);
     // PS_DASH is roughly 4px on / 3px off; paint the same rhythm so the
     // backend receives ordinary rects (no path API needed).
     const Color c = ToUi(color);
@@ -206,11 +339,13 @@ void PaintFrame::GfxHLineDashed(int x1, int x2, int y, COLORREF color)
 
 void PaintFrame::GfxVLine(int x, int y1, int y2, COLORREF color)
 {
+    PrimScope _ps(Stats().fill);
     m_backend->FillRect(Shift(Rect(x, y1, x + 1, y2)), ToUi(color));
 }
 
 void PaintFrame::GfxDot(int cx, int cy, int diameter, COLORREF color)
 {
+    PrimScope _ps(Stats().fillRound);
     const int r = diameter / 2;
     m_backend->FillRound(Shift(Rect(cx - r, cy - r,
                                     cx - r + diameter, cy - r + diameter)),
@@ -220,6 +355,9 @@ void PaintFrame::GfxDot(int cx, int cy, int diameter, COLORREF color)
 void PaintFrame::GfxText(HFONT font, COLORREF color, const RECT& rc,
                          const wchar_t* s, UINT format)
 {
+    const bool ell = (format & DT_END_ELLIPSIS) != 0;
+    PrimScope _ps(ell ? Stats().textEll : Stats().textPlain);
+    if (PrimProfileEnabled() && s) Stats().textChars += (long long)wcslen(s);
     if (!s) return;
     if (m_backendOwnsText) {
         m_backend->Text(Shift(ToUi(rc)), s, FontRoleOf(font),
@@ -234,37 +372,46 @@ void PaintFrame::GfxText(HFONT font, COLORREF color, const RECT& rc,
 // ------------------------------------------------------------
 void PaintFrame::FillRect(const Rect& r, Color c)
 {
+    PrimScope _ps(Stats().fill);
     m_backend->FillRect(Shift(r), c);
 }
 
 void PaintFrame::FillRectAlpha(const Rect& r, Color c, uint8_t alpha)
 {
+    PrimScope _ps(Stats().fillAlpha);
     m_backend->FillRectAlpha(Shift(r), c, alpha);
 }
 
 void PaintFrame::FillRound(const Rect& r, int radius, Color c)
 {
+    PrimScope _ps(Stats().fillRound);
     m_backend->FillRound(Shift(r), radius, c);
 }
 
 void PaintFrame::StrokeRect(const Rect& r, Color c, int width)
 {
+    PrimScope _ps(Stats().stroke);
     m_backend->StrokeRect(Shift(r), c, width);
 }
 
 void PaintFrame::StrokeRound(const Rect& r, int radius, Color c, int width)
 {
+    PrimScope _ps(Stats().stroke);
     m_backend->StrokeRound(Shift(r), radius, c, width);
 }
 
 void PaintFrame::StrokeDashed(const Rect& r, Color c, int width, int dash)
 {
+    PrimScope _ps(Stats().strokeDashed);
     m_backend->StrokeDashed(Shift(r), c, width, dash);
 }
 
 void PaintFrame::Text(const Rect& r, const std::wstring& s,
                       FontRole role, Color c, TextFormat fmt)
 {
+    const bool ell = (static_cast<UINT>(fmt) & DT_END_ELLIPSIS) != 0;
+    PrimScope _ps(ell ? Stats().textEll : Stats().textPlain);
+    if (PrimProfileEnabled()) Stats().textChars += (long long)s.size();
     if (m_backendOwnsText) {
         m_backend->Text(Shift(r), s, role, c, fmt);
     } else {
@@ -276,6 +423,7 @@ void PaintFrame::Text(const Rect& r, const std::wstring& s,
 void PaintFrame::TextBlock(const Rect& r, const std::wstring& s,
                            FontRole role, Color c, int maxLines)
 {
+    PrimScope _ps(Stats().textBlock);
     if (m_backendOwnsText) {
         m_backend->TextBlock(Shift(r), s, role, c, maxLines);
     } else {
@@ -288,6 +436,7 @@ void PaintFrame::TextBlock(const Rect& r, const std::wstring& s,
 
 int PaintFrame::MeasureText(const std::wstring& s, FontRole role)
 {
+    PrimScope _ps(Stats().measure);
     // Layout must agree with the glyphs that actually appear on screen.
     // In host-text mode those glyphs are GDI's, so measure with GDI too.
     if (s.empty() || !m_dc) return 0;
@@ -300,6 +449,7 @@ int PaintFrame::MeasureText(const std::wstring& s, FontRole role)
 
 void PaintFrame::PushClip(const Rect& r)
 {
+    PrimScope _ps(Stats().clip);
     const Rect rr = Shift(r);
     m_backend->PushClip(rr);
     m_clips.push_back(rr);
@@ -307,6 +457,7 @@ void PaintFrame::PushClip(const Rect& r)
 
 void PaintFrame::PopClip()
 {
+    PrimScope _ps(Stats().clip);
     m_backend->PopClip();
     if (!m_clips.empty()) m_clips.pop_back();
 }

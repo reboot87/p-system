@@ -123,5 +123,9 @@ private:
 // nullptr when the current frame is a plain GDI frame.
 PaintFrame* CurrentPaintFrame();
 
+// Accumulates one frame into the per-primitive cost table and dumps it
+// every 30 frames (AIRUI_FRAME_PROFILE=1). No-op otherwise.
+void PaintFrameReportPrimCost();
+
 } // namespace ui
 } // namespace air
