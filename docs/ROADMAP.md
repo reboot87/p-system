@@ -249,3 +249,44 @@
     `ctest -C Release` 21/21。
   - **判据**：Skia 文字慢先看"每段测了几遍"，再看 `SkFont` 有没有被每次拷贝/改 typeface；
     一帧 `present` 接近 `draw` 的一半时，看是不是拷贝 + 混合各走了一遍全屏。
+
+- **2026-11-08 — Skia 一帧 21.3 ms → 6.0 ms：文字只排版一次，帧缓冲不再每帧新建（提交 0397f59 / f320afc / 83d5083）**
+  - 上一轮把一帧从 34.9 ms 压到 21.3 ms 后，剩下的钱花在三处，全部是"重复准备"而不是"画"。
+  - **文字（draw 的 75%：9.05 ms / 69 段 / 313 字）**：一段标签每帧要测 2~4 遍
+    （ellipsis 判断、ellipsis 逐字符回退、totalW、DrawRuns 内各一次），每遍历码点都走
+    `unicharToGlyph` 的 cmap，且每段都要 UTF-16→UTF-8→码点→逐 run 再编码回去。
+    改成按 `(role, 文本)` 缓存一份 `SkTextBlob` + 逐码点累计宽度表 `cum`：
+    测量退化为读字段，ellipsis 退化为扫 `cum`（原来 O(n²)），绘制退化为一次
+    `drawTextBlob`（字形蒙版在 Skia 的 strike cache 里跨帧有效）。缓存是**进程级**的，
+    因为 `SkiaFrame` 每帧重建，放成员里等于没有。DPI 变化会让校准 em 变，所以缓存
+    带 `dpi` 版本号。
+  - **帧缓冲（dc 3.2 ms + begin 2.2 ms = 25%）**：每帧新建内存 DC + 8 MB DIB
+    （GDI 会清零）+ 全屏 `clear`，而这些像素随后被 `Shell::Paint` 的整窗填充全部覆盖。
+    改成按尺寸保留 3 个热帧（DIB / surface / painter 都在），复用帧只
+    `restoreToCount(1)` 重置 clip、跳过清屏。插件 C ABI 的 `create/destroy` 语义不变
+    （destroy = 合成 + 归档），静态 provider 用一个转发包装把帧还给池。
+  - **后备位图（dc 的另一半 + flush 1.0 ms）**：`PaintDC` 自己还有一张 1920×1040 的
+    DDB——构造时分配并填满 8 MB，出帧时 BitBlt 8 MB 进来，`Flush()` 再 BitBlt 8 MB
+    上屏。而 `frameActive` 之后所有 `gfx::*` 都被路由到 Skia，这张位图的像素**从来没被
+    读过**。给 `PaintDC` 加 `useBackBuffer`，Skia 路径直接用 `BeginPaint` 的 DC，
+    GDI 路径保持原样（GDI 是直接往 DC 上画，去掉会闪）。
+  - **实测（1920×1040 / Skia / CI 的 VS2022 x64 产物）**：一帧 **21.3 → 6.0 ms**
+    （`dc 3.24→0.03`、`begin 2.20→0.00`、`draw 12.16→4.84`、`present 2.12→0.83`、
+    `flush 1.05→0.00`）；还原态（938×598）**2.0~2.7 ms**。
+    文字 **145 → 5.3 us/段**、**31.7 → 0.87 us/字符**（27×/36×），`text` 9.05 → 0.39 ms。
+  - **剩下的 4.8 ms draw 去了哪**：`fill` 2.34（其中整窗 8 MB 填充约 1.2~1.5）、
+    `fillRound` 1.68（25 个圆角卡片的解析抗锯齿，换成 kAlias 会退回 GDI 的方块边，
+    不换）、`text` 0.39、`stroke` 0.12。再加 `present` 的 8 MB BitBlt 约 1 ms，
+    这是"整窗重绘 + 整窗上屏"这套架构下的下限。
+  - **验证**：强制整窗重绘 40 帧逐帧采屏，亮度恒 247.6、墨量恒 0.0243（无空白帧、无中间态）；
+    还原↔最大化各两次，同尺寸的亮度/墨量完全一致（无残影，说明跳过清屏是安全的）；
+    CI 5 作业全绿（含 G5 双后端断言 + 全套 ctest）。
+  - **踩到的坑**：① m148 的 `SkFont::getWidths` 只接受
+    `(SkSpan<const SkGlyphID>, SkSpan<SkScalar>)`，没有 `(ptr, count, ptr)` 重载——
+    mock 之前写的是旧形状，门禁放过了假契约，已同步改成 span；②
+    `SkTextBlobBuilder::allocRunPosH` 返回的是指向 builder 内部的**引用**，
+    要在下次 `alloc*` 之前把 glyph 和位置填完；③ `RunBuffer::pos` 是 `SkScalar*`
+    （`allocRunPos` 时才当 `SkPoint*` 用）；④ `PrintWindow` 对"直接画到 BeginPaint DC"
+    的窗口会返回上一帧，核对视觉必须用桌面 BitBlt（新增 `scripts/screen_shot.py`）。
+  - **判据**：一帧里出现"每帧重建的固定大小缓冲"，先算它占多少 —— 8 MB DIB 建一次
+    就是 3 ms 量级；一段文字每帧测好几遍，缓存布局比优化光栅划算得多。
