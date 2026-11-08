@@ -15,14 +15,20 @@
 #include <vector>
 
 #if defined(_WIN32) && !defined(AIRUI_SKIA_MOCK)
-// Skia's Windows ports let us turn the exact GDI LOGFONT the UI already
-// uses (Microsoft YaHei UI / Segoe MDL2 Assets) into a Skia typeface.
-// This sidesteps the Skia default-font-manager factory, which differs
-// between Skia versions and is not exposed in a stable way. Under the
-// syntax gate (AIRUI_SKIA_MOCK) SkiaApiMock.h provides the equivalent
-// declarations without the real <windows.h> / SkTypeface_win.h.
+// Skia's Windows ports. The GDI one (SkFontMgr_New_GDI) hands out faces
+// whose outlines GDI itself grid-fits -- that is the one that matches
+// the Win32 backend; the LOGFONT/DirectWrite factory next to it is the
+// fallback. Under the syntax gate (AIRUI_SKIA_MOCK) SkiaApiMock.h
+// provides the equivalent declarations without the real <windows.h>.
 #  include <windows.h>
 #  include "include/ports/SkTypeface_win.h"
+
+// Pinned declaration: the factory is still exported by the Skia build
+// (verified with `dumpbin /exports skia.dll`, symbol
+// ?SkFontMgr_New_GDI@@YA?AV?$sk_sp@VSkFontMgr@@@@XZ) but the header
+// that declares it has moved between Skia releases. Identical signature
+// is a harmless redeclaration where the header does declare it.
+sk_sp<SkFontMgr> SkFontMgr_New_GDI();
 #endif
 
 namespace air {
@@ -205,8 +211,49 @@ struct SharedFaces
 };
 
 #if defined(_WIN32)
+// Which font manager hands out the faces decides how the glyph OUTLINES
+// are produced, and that turned out to matter more than any of the
+// sizing work below.
+//
+// SkCreateTypefaceFromLOGFONT() goes through DirectWrite, which has no
+// grid-fitting: it rasterises the outline as-is ("natural" rendering).
+// GDI grids the same outline against the pixel raster -- at cell 14 it
+// snaps a hanzi vertical stroke to exactly one pixel, while DWrite
+// keeps its geometric ~1.6 px. Measured with tests/test_font_lab: same
+// advance grid, same bounding box, but 22-32 % more ink in Skia, and
+// every stem one pixel wider -- the "Skia text looks bolder/fuzzier"
+// report is that, not the size and not the anti-aliasing mode.
+//
+// Skia's GDI port (SkFontMgr_New_GDI, include/ports/SkTypeface_win.h)
+// rasterises through GDI itself, so the grid-fitting is the same one
+// the Win32 backend gets. The LOGFONT path stays as the fallback for a
+// build without that port or a family GDI cannot match.
+sk_sp<SkFontMgr> GdiFontMgr()
+{
+    static const sk_sp<SkFontMgr> mgr = SkFontMgr_New_GDI();
+    return mgr;
+}
+
+// Families in UiText.h are ASCII, so the UTF-8 name SkFontMgr expects
+// is a plain narrowing.
+void NarrowAscii(const wchar_t* src, char (&dst)[64])
+{
+    int i = 0;
+    for (; i < 63 && src[i]; ++i) dst[i] = static_cast<char>(src[i]);
+    dst[i] = 0;
+}
+
 sk_sp<SkTypeface> MakeFace(const wchar_t* family, int weight, int cell)
 {
+    if (sk_sp<SkFontMgr> mgr = GdiFontMgr()) {
+        char name[64] = {};
+        NarrowAscii(family, name);
+        if (sk_sp<SkTypeface> face = mgr->matchFamilyStyle(
+                name, SkFontStyle(weight, SkFontStyle::kNormal_Width,
+                                  SkFontStyle::kUpright_Slant)))
+            return face;
+    }
+
     LOGFONT lf{};
     lf.lfHeight         = -cell;
     lf.lfWeight         = weight;

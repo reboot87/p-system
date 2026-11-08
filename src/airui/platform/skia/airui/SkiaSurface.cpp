@@ -63,6 +63,24 @@ SkPixelGeometry LcdPixelGeometry()
     }();
     return cached;
 }
+
+// Whether the frame declares itself opaque. Default yes (see Impl);
+// AIRUI_SKIA_ALPHA=premul restores the old premultiplied frame so the
+// two can be compared on one build (tests/test_font_lab measures the
+// colour fringe either way).
+bool OpaqueTarget()
+{
+#if defined(_WIN32) && !defined(AIRUI_SKIA_MOCK)
+    static const bool opaque = [] {
+        wchar_t v[16] = {};
+        if (GetEnvironmentVariableW(L"AIRUI_SKIA_ALPHA", v, 16) == 0) return true;
+        return v[0] == L'o' || v[0] == L'O';
+    }();
+    return opaque;
+#else
+    return true;
+#endif
+}
 } // namespace
 
 struct SkiaFrame::Impl
@@ -90,18 +108,24 @@ struct SkiaFrame::Impl
     Impl(int width, int height, void* nativeDc = nullptr) : w(width), h(height)
     {
         if (w <= 0 || h <= 0) return;
+        // Opaque on purpose. Skia's raster device only considers LCD
+        // (subpixel) text for an OPAQUE target -- a premultiplied frame
+        // silently drops back to greyscale AA for every draw, however
+        // the font is configured. Measured (tests/test_font_lab): with
+        // kPremul the text raster had exactly zero colour fringe while
+        // GDI's ClearType text had 60-107 per pixel, i.e. Skia was not
+        // doing subpixel at all. The shell fills the whole client area
+        // before drawing (Shell::Paint -> gfx::Fill), so declaring the
+        // frame opaque states what is already true.
+        const SkAlphaType alpha = OpaqueTarget() ? kOpaque_SkAlphaType
+                                                 : kPremul_SkAlphaType;
         const SkImageInfo info = SkImageInfo::Make(
-            w, h, kBGRA_8888_SkColorType, kPremul_SkAlphaType);
+            w, h, kBGRA_8888_SkColorType, alpha);
         // allocPixels returns void in current Skia; a null pixel buffer
         // is the failure signal (the old bool-returning overload is gone).
         bitmap.allocPixels(info);
         if (!bitmap.getPixels()) return;
 
-        // The whole client area is filled by the shell before anything is
-        // drawn, so the device is opaque by the time text lands on it --
-        // the precondition for subpixel coverage. Where a draw does hit
-        // transparent pixels Skia falls back to greyscale for that draw,
-        // so mixing stays correct.
         const SkSurfaceProps props(0, LcdPixelGeometry());
         // Skia m130 moved the raster surface factories out of SkSurface
         // into the SkSurfaces namespace; WrapPixels draws straight into
@@ -111,7 +135,11 @@ struct SkiaFrame::Impl
         if (!surface) return;
         canvas = surface->getCanvas();
         if (!canvas) return;
-        canvas->clear(SK_ColorTRANSPARENT);
+        // An opaque frame cannot hold transparent pixels: 0x00000000
+        // would be premultiplied black. Start from opaque black so an
+        // unpainted gap composites as background rather than as
+        // "leave the target untouched".
+        canvas->clear(OpaqueTarget() ? SK_ColorBLACK : SK_ColorTRANSPARENT);
         // The target HDC (when there is one) is handed to the painter so
         // text can be calibrated against GDI's own metrics once. An
         // off-screen frame falls back to the screen DC.

@@ -36,9 +36,10 @@ private:
 };
 
 constexpr SkColor SK_ColorTRANSPARENT = 0u;
+constexpr SkColor SK_ColorBLACK       = 0xFF000000u;
 
 enum SkColorType { kBGRA_8888_SkColorType = 0 };
-enum SkAlphaType { kPremul_SkAlphaType = 0 };
+enum SkAlphaType { kPremul_SkAlphaType = 0, kOpaque_SkAlphaType = 1 };
 enum class SkTextEncoding { kUTF8, kUTF16, kUTF32, kGlyphID };
 
 class SkPaint;
@@ -78,7 +79,15 @@ struct SkFontMetrics
 
 struct SkFontStyle
 {
+    enum Width { kUltraCondensed_Width = 1, kNormal_Width = 5 };
+    enum Slant { kUpright_Slant, kItalic_Slant, kOblique_Slant };
+    SkFontStyle() = default;
+    SkFontStyle(int weight, int width, Slant slant)
+        : weight(weight), width(width), slant(slant) {}
     static SkFontStyle Normal() { return SkFontStyle(); }
+    int   weight = 400;
+    int   width  = kNormal_Width;
+    Slant slant  = kUpright_Slant;
 };
 
 using SkUnichar = int32_t;
@@ -93,6 +102,16 @@ class SkTypeface
 {
 public:
     SkUnichar unicharToGlyph(SkUnichar) const { return 0; }
+};
+
+// Family lookup. The backend asks Skia's GDI port for the faces so the
+// glyph outlines are grid-fitted the way GDI does it; under the gate we
+// only need the shape of the call.
+class SkFontMgr
+{
+public:
+    sk_sp<SkTypeface> matchFamilyStyle(const char*, const SkFontStyle&) const
+    { return sk_sp<SkTypeface>(nullptr); }
 };
 
 // ---- Windows font loading (mocked) ----
@@ -132,6 +151,10 @@ struct LOGFONT {
 #define FF_DONTCARE         0
 #endif
 sk_sp<SkTypeface> SkCreateTypefaceFromLOGFONT(const LOGFONT&);
+// Win32-only port factory: glyph outlines rasterised by GDI itself, so
+// stems grid-fit exactly like the Win32 backend's. Null when the port is
+// not compiled into the Skia build, in which case the LOGFONT path runs.
+sk_sp<SkFontMgr> SkFontMgr_New_GDI();
 
 enum class SkFontHinting { kNone, kSlight, kNormal, kFull };
 

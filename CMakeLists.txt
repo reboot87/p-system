@@ -575,6 +575,20 @@ if(WIN32)
         set_target_properties(test_paint_compare PROPERTIES LINK_FLAGS "/SUBSYSTEM:CONSOLE")
     endif()
 
+    # Typography lab: renders one string per role through both painters
+    # and prints the raster as ASCII plus coverage statistics, so a
+    # "these two fonts look different" report can be turned into named
+    # causes (weight, subpixel phase, baseline, advance grid).
+    add_executable(test_font_lab tests/test_font_lab.cpp)
+    target_link_libraries(test_font_lab PRIVATE airui-win32 airui-core)
+    set_target_properties(test_font_lab PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+        RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
+    )
+    if(MSVC)
+        set_target_properties(test_font_lab PROPERTIES LINK_FLAGS "/SUBSYSTEM:CONSOLE")
+    endif()
+
     # Whole-window frame routing: every gfx primitive must reach the
     # selected backend, and a closed frame must restore GDI untouched.
     add_executable(test_paint_frame tests/test_paint_frame.cpp)
