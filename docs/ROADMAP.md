@@ -70,6 +70,23 @@
 3. 实现跨后端 DrawCall 一致性断言（复用 core 的 `PaintRecorder` 金样 + `Diff()`，不再用 Win32 专属的 `TestShell`）。
 4. p-system 业务层 Win32 部分（托盘、注册表、性能计数器）保持 Windows 专属，不跨平台。
 
+### 后续产品形态 —— 工具箱化 / DLL 可插拔插件（2026-11-09 新增规划）
+
+本节上面的 Phase 1/2 是 **UI 框架层**路线；产品形态另有独立规划：**把单体剪贴板工具演进为工具箱宿主 + DLL 工具插件**，
+分 `v0.9 地基 → v1.0 工具箱 MVP → v1.1 可插拔 → v1.2 自定义绘制与服务侧采集插件 → v2.0 稳定化`。
+完整设计（ABI 契约、两类插件的进程边界、清单驱动导航、卸载深度、版本验收判据、现有代码迁移映射、风险登记）见
+**`docs/toolbox-plugin-plan.md`**。要点：
+
+- 现有 `src/plugins/`（`IFeaturePlugin`）是**静态编译**模块，不是可插拔插件；真正可插拔的范本是 `airui-skia.dll`
+  （`PainterRegistry` + `PaintProviders.cpp` + `SkiaPluginAbi.h` + `test_skia_plugin.cpp`），新机制照它的结构推广。
+- **前台 / 后台加载由插件自己声明，不是宿主分类**：manifest 的 `contexts[]`（`ui` / `service` / 两者）
+  与 `load.mode`（`eager` / `lazy` / `background`）是两个正交维度。两个宿主扫描同一份 `plugins/`，
+  只加载声明包含自己上下文的插件；同一 DLL 可被前后台各加载一次，经 `notify_peer()` 联动。
+  需要常驻采集的插件若只做在 UI 侧，关闭主窗口就停止记录，破坏 C/S 架构；纯前台工具也不该白占服务进程。
+- §1 B 的 `FileWatchPlugin` / `PrintWatchPlugin` 仍遵守「业务模块最后做」，排在 **v1.2**，以
+  `contexts: ["ui","service"]` 双上下文插件形式交付。
+- 规划基线 `47b33b3`；本轮只出规划，未改任何产品代码。
+
 ---
 
 ## 3. 非目标（明确不做）
