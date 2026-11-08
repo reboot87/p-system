@@ -38,6 +38,25 @@ SkRect ToSk(const Rect& r)
                             static_cast<SkScalar>(r.bottom));
 }
 
+// GDI's DrawText works in whole device pixels: it computes the leftover
+// gap as an int, so (width - textWidth) / 2 truncates instead of
+// rounding. A fractional origin is rounded to nearest by Skia, which put
+// every centred glyph half a pixel off -- all caption icons and nav
+// icons landed one pixel to the right of where GDI draws them.
+float AlignX(const Rect& r, float totalW, skia::HAlign a)
+{
+    const int tw = static_cast<int>(totalW + 0.5f);
+    switch (a) {
+    case skia::HAlign::Center:
+        return static_cast<float>(r.left + (r.Width() - tw) / 2);
+    case skia::HAlign::Right:
+        return static_cast<float>(r.right - tw);
+    case skia::HAlign::Left:
+    default:
+        return static_cast<float>(r.left);
+    }
+}
+
 SkPaint MakeFill(Color c, uint8_t alpha = 255)
 {
     SkPaint p;
@@ -634,25 +653,25 @@ struct SkiaPainter::Impl
     // same numbers is what makes DT_TOP / DT_VCENTER / DT_BOTTOM land on
     // the same pixels as the Win32 backend; Skia's own ascent/descent are
     // typographic metrics and sit a couple of pixels elsewhere.
+    //
+    // Everything is integer arithmetic on purpose: DrawText divides the
+    // leftover space with ints, and truncation (not rounding) is what
+    // decides the row a label lands on when the slack is odd.
     float Baseline(const Rect& r, int i, skia::VAlign v) const
     {
         const RoleMetrics& m = roleM[i];
-        const float cell = static_cast<float>(m.cell);
-        float y = 0.f;
+        const int cell    = m.cell;
+        const int ascent  = static_cast<int>(m.ascent + 0.5f);
+        const int descent = static_cast<int>(m.descent + 0.5f);
         switch (v) {
         case skia::VAlign::Middle:
-            y = static_cast<float>(r.top)
-              + std::floor((static_cast<float>(r.Height()) - cell) / 2.f) + m.ascent;
-            break;
+            return static_cast<float>(r.top + (r.Height() - cell) / 2 + ascent);
         case skia::VAlign::Bottom:
-            y = static_cast<float>(r.bottom) - m.descent;
-            break;
+            return static_cast<float>(r.bottom - descent);
         case skia::VAlign::Top:
         default:
-            y = static_cast<float>(r.top) + m.ascent;
-            break;
+            return static_cast<float>(r.top + ascent);
         }
-        return std::floor(y);
     }
 
     int Index(FontRole role) const
@@ -688,17 +707,38 @@ void SkiaPainter::FillRound(const Rect& r, int radius, Color c)
     m->canvas->drawRRect(SkRRect::MakeRectXY(ToSk(r), rr, rr), MakeFill(c));
 }
 
+// GDI borders occupy whole pixels, and which pixels depends on the shape:
+//   * Rectangle(l,t,r,b) covers the columns [l, r) -- right/bottom are
+//     exclusive, measured on a 1px pen;
+//   * RoundRect(l,t,r+1,b+1) covers [l, r] -- gfx::Stroke widens the
+//     rounded case by one pixel for exactly that reason.
+// A Skia stroke is centred on its path, so drawing at the raw rect splits
+// a 1px border across two half-covered pixels: every card, chip and
+// separator came out lighter and blurrier than the GDI backend's. Insets
+// by half the pen width turn the covered box back into a stroke path.
+SkRect StrokePath(const Rect& r, int width, bool rounded)
+{
+    const SkScalar w = static_cast<SkScalar>(width > 0 ? width : 1);
+    const SkScalar extra = rounded ? 1.f : 0.f;
+    return SkRect::MakeLTRB(
+        static_cast<SkScalar>(r.left) + w / 2.f,
+        static_cast<SkScalar>(r.top) + w / 2.f,
+        static_cast<SkScalar>(r.right) + extra - w / 2.f,
+        static_cast<SkScalar>(r.bottom) + extra - w / 2.f);
+}
+
 void SkiaPainter::StrokeRect(const Rect& r, Color c, int width)
 {
     if (!m->canvas || r.Empty()) return;
-    m->canvas->drawRect(ToSk(r), MakeStroke(c, width));
+    m->canvas->drawRect(StrokePath(r, width, false), MakeStroke(c, width));
 }
 
 void SkiaPainter::StrokeRound(const Rect& r, int radius, Color c, int width)
 {
     if (!m->canvas || r.Empty()) return;
     const SkScalar rr = static_cast<SkScalar>(radius > 0 ? radius : 0);
-    m->canvas->drawRRect(SkRRect::MakeRectXY(ToSk(r), rr, rr), MakeStroke(c, width));
+    m->canvas->drawRRect(SkRRect::MakeRectXY(StrokePath(r, width, true), rr, rr),
+                         MakeStroke(c, width));
 }
 
 void SkiaPainter::StrokeDashed(const Rect& r, Color c, int width, int dash)
@@ -754,14 +794,18 @@ void SkiaPainter::Text(const Rect& r, const std::wstring& s,
     }
 
     const float totalW = m->MeasureRuns(role, cps, primary);
-    float x = static_cast<float>(r.left);
-    switch (skia::Horizontal(fmt)) {
-    case skia::HAlign::Center: x += (static_cast<float>(r.Width()) - totalW) / 2.f; break;
-    case skia::HAlign::Right:  x += static_cast<float>(r.Width()) - totalW;         break;
-    default: break;
-    }
+    const float x = AlignX(r, totalW, skia::Horizontal(fmt));
     const float y = m->Baseline(r, m->Index(role), skia::Vertical(fmt));
+    // DrawText clips to its rect -- that clipping is the reason
+    // DT_END_ELLIPSIS has to exist at all. Without it an over-long label
+    // spills past its cell in Skia while GDI cuts it at the boundary.
+    const bool clip = !(fmt & dt::NoClipping);
+    if (clip) {
+        m->canvas->save();
+        m->canvas->clipRect(ToSk(r));
+    }
     m->DrawRuns(primary, role, utf8, x, y, c);
+    if (clip) m->canvas->restore();
     DiagText(static_cast<int>(role), primary.getSize(), totalW, x, y,
              static_cast<float>(r.Width()), m->canvas->getTotalMatrix().getScaleX(),
              utf8);

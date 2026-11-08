@@ -204,11 +204,18 @@ private:
             // renders the exact same box (it converts `cell` to an em
             // size). Do not inline numbers here again.
             const FontSpec spec = RoleFontSpec(role);
+            // Icon roles are glyphs from the icon family, not from the UI
+            // family: creating them with kFamilyUi (as this used to) drew
+            // tofu for every icon on the HAL shell path. The legacy
+            // Win32 path already selects Fonts::IconFamily here.
+            const bool isIcon = (role == FontRole::Icon ||
+                                 role == FontRole::IconLarge);
             m_fonts[i] = CreateFontW(-spec.cell, 0, 0, 0, spec.weight,
                                      FALSE, FALSE, FALSE,
                                      DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
                                      CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-                                     DEFAULT_PITCH, kFamilyUi);
+                                     DEFAULT_PITCH,
+                                     isIcon ? kFamilyIcon : kFamilyUi);
         }
         return m_fonts[i];
     }
