@@ -46,22 +46,38 @@ AIRUI_PLUGIN_EXPORT void* AIRUI_SKIA_CALL airui_skia_create(
     SkiaFrame* frame = nullptr;
 #ifdef _WIN32
     if (surface)
-        frame = new SkiaFrame(static_cast<HDC>(surface), Rect(l, t, r, b));
+        // A windowed frame comes from the warm pool: the DIB, surface
+        // and painter of the previous paint are reused, since opening a
+        // new one cost a quarter of the frame.
+        frame = air::ui::AcquireSkiaFrame(static_cast<HDC>(surface),
+                                          Rect(l, t, r, b));
     else
 #endif
         frame = new SkiaFrame(r - l, b - t);
 
-    IPainter* painter = static_cast<IPainter*>(frame);
-    if (!frame->Valid()) {
-        delete painter;      // virtual destructor, safe
+    if (!frame || !frame->Valid()) {
+#ifdef _WIN32
+        air::ui::ReleaseSkiaFrame(frame);   // null-safe, drops a broken frame
+#else
+        delete frame;
+#endif
         return nullptr;
     }
-    return painter;
+    return static_cast<IPainter*>(frame);
 }
 
 AIRUI_PLUGIN_EXPORT void AIRUI_SKIA_CALL airui_skia_destroy(void* handle)
 {
-    if (handle) delete reinterpret_cast<air::ui::IPainter*>(handle);
+    if (!handle) return;
+    air::ui::SkiaFrame* frame = FrameFrom(handle);
+    // Destruction is the end of the frame: composite it to the target,
+    // then keep it warm for the next paint instead of freeing 8 MB.
+    frame->Present();
+#ifdef _WIN32
+    air::ui::ReleaseSkiaFrame(frame);
+#else
+    delete frame;
+#endif
 }
 
 AIRUI_PLUGIN_EXPORT const void* AIRUI_SKIA_CALL airui_skia_pixels(void* handle)

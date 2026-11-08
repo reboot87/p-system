@@ -38,6 +38,15 @@ public:
     void      Present();
     SkCanvas* Canvas() const;
 
+    // Re-arms a pooled frame for the next paint on `dc`: resets the
+    // canvas to its root state and re-binds the target. `clearScreen`
+    // is false for a reused frame -- the previous frame's pixels are
+    // about to be fully repainted, and clearing 8 MB costs 2 ms.
+    // Not part of IPainter: only the frame pool calls it.
+#ifdef _WIN32
+    void BeginFrame(HDC dc, const Rect& bounds, bool clearScreen);
+#endif
+
     // Raw BGRA premultiplied pixels (off-screen frames / golden tests).
     const void* Pixels() const;
     size_t      RowBytes() const;
@@ -68,6 +77,16 @@ private:
 // Backend factory (docs/cross-platform.md section 3.1). On Windows it
 // returns a frame bound to an HDC; elsewhere an off-screen frame.
 #ifdef _WIN32
+// Pooled frame lifecycle (see SkiaSurface.cpp). Opening a frame costs a
+// fresh 8 MB DIB plus a full-surface clear -- measured at 5.4 ms of a
+// 21 ms frame, i.e. a quarter of the frame for pixels that are then
+// completely overwritten. The pool keeps the previous frame's DIB,
+// surface and painter warm between paints of the same size.
+SkiaFrame* AcquireSkiaFrame(HDC dc, const Rect& bounds);
+// Composites the frame to its target, then parks it for the next paint.
+// Frames that were never pooled (off-screen) are destroyed.
+void       ReleaseSkiaFrame(SkiaFrame* frame);
+
 std::unique_ptr<IPainter> CreateSkiaBackend(HDC dc, const Rect& bounds);
 #else
 std::unique_ptr<IPainter> CreateSkiaBackend(int width, int height);

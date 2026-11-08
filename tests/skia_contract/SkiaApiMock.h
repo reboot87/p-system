@@ -158,6 +158,13 @@ sk_sp<SkFontMgr> SkFontMgr_New_GDI();
 
 enum class SkFontHinting { kNone, kSlight, kNormal, kFull };
 
+using SkGlyphID = uint16_t;
+
+struct SkPoint
+{
+    SkScalar fX = 0, fY = 0;
+};
+
 class SkFont
 {
 public:
@@ -172,6 +179,16 @@ public:
     SkScalar measureText(const void*, size_t, SkTextEncoding,
                          SkRect* = nullptr, const SkPaint* = nullptr) const
     { return 0.0f; }
+    // Glyph-level API the text-blob builder uses: the run is mapped to
+    // glyph ids once and its advances are read back as a table, which is
+    // what turns measurement into an array scan instead of repeated
+    // UTF-8 decoding.
+    SkGlyphID unicharToGlyph(SkUnichar) const { return 0; }
+    int textToGlyphs(const void*, size_t, SkTextEncoding,
+                     SkGlyphID[], int) const
+    { return 0; }
+    void getWidths(const SkGlyphID[], int, SkScalar[],
+                   SkRect* = nullptr) const {}
 };
 
 // Only used by the opt-in text tracer, which is compiled out under the
@@ -227,6 +244,26 @@ public:
     size_t      rowBytes() const { return 0; }
 };
 
+// SkTextBlob is an immutable, pre-positioned glyph run. The backend
+// caches one per (role, string) because building it is the expensive
+// part while rasterising it is a mask blit from Skia's strike cache.
+class SkTextBlob {};
+
+class SkTextBlobBuilder
+{
+public:
+    // allocRunPosH lays a run out along x at a constant baseline offset;
+    // `pos` is then a SkScalar[] of x positions, one per glyph.
+    struct RunBuffer
+    {
+        SkGlyphID* glyphs = nullptr;
+        SkScalar*  pos    = nullptr;
+    };
+    RunBuffer allocRunPosH(const SkFont&, int, SkScalar, const SkRect* = nullptr)
+    { return RunBuffer{}; }
+    sk_sp<SkTextBlob> make() { return sk_sp<SkTextBlob>(nullptr); }
+};
+
 class SkCanvas
 {
 public:
@@ -234,6 +271,8 @@ public:
     void clear(SkColor) {}
     void save() {}
     void restore() {}
+    int  saveCount() const { return 1; }
+    void restoreToCount(int) {}
     void clipRect(const SkRect&) {}
     void translate(SkScalar, SkScalar) {}
     void drawRect(const SkRect&, const SkPaint&) {}
@@ -241,6 +280,7 @@ public:
     void drawPath(const SkPath&, const SkPaint&) {}
     void drawSimpleText(const void*, size_t, SkTextEncoding,
                         SkScalar, SkScalar, const SkFont&, const SkPaint&) {}
+    void drawTextBlob(const SkTextBlob*, SkScalar, SkScalar, const SkPaint&) {}
     const SkMatrix& getTotalMatrix() const { return m_matrix; }
 
 private:

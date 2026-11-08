@@ -540,15 +540,68 @@ bool IsCjk(uint32_t cp)
 
 } // namespace
 
+// ------------------------------------------------------------
+// Text layout cache
+// ------------------------------------------------------------
+//
+// A frame draws ~70 short labels out of a vocabulary of a few hundred
+// strings, and the same strings come back every frame. Two things are
+// expensive and neither is the rasterisation:
+//
+//   * building the run -- decode UTF-16 to UTF-8, decode that back to
+//     codepoints, resolve a face per codepoint (a cmap walk), re-encode
+//     each face run to UTF-8, then measure it (another cmap walk);
+//   * deciding whether to ellipsise, which used to re-measure the whole
+//     string once per dropped character (quadratic) and then measure it
+//     again for the draw.
+//
+// So each distinct (role, string) is laid out exactly once: a
+// pre-positioned SkTextBlob plus the advance at every codepoint
+// boundary. Measuring becomes a field read, an ellipsis decision
+// becomes a linear scan of `cum`, and drawing becomes one
+// drawTextBlob() whose glyph masks Skia's strike cache already holds.
+//
+// Process-wide on purpose: a SkiaFrame may be rebuilt between frames,
+// while the vocabulary a window uses is a property of the UI, not of
+// the frame. Keyed by role only, so the DPI is part of the validity
+// check -- the calibration em depends on it.
+struct TextLayout
+{
+    sk_sp<SkTextBlob>     blob;      // glyphs positioned from x = 0
+    float                 width = 0.f;
+    std::vector<float>    cum;       // cum[i] = advance of cps[0..i)
+    std::vector<uint32_t> cps;
+};
+
+struct TextCache
+{
+    int dpi = -1;
+    std::unordered_map<std::string, TextLayout>
+        map[static_cast<int>(FontRole::Count)];
+};
+
+// Deliberately leaked, like GetSharedFaces(): a static destructor would
+// run while the plugin DLL unloads, when Skia's own code may be gone.
+TextCache& GetTextCache()
+{
+    static TextCache* cache = new TextCache();
+    return *cache;
+}
+
 struct SkiaPainter::Impl
 {
-    Impl(SkCanvas* canvas, void* nativeDc) : canvas(canvas), dc(nativeDc) {}
+    Impl(SkCanvas* canvas, void* nativeDc) : canvas(canvas), dc(nativeDc)
+    {
+        for (float& w : dotsW) w = -1.f;
+    }
 
     SkCanvas* canvas = nullptr;
     void*     dc = nullptr;        // HDC used once for GDI calibration
     SkFont    fonts[static_cast<int>(FontRole::Count)];
     bool      ready[static_cast<int>(FontRole::Count)] = {};
     int       clipDepth = 0;
+    // Width of "..." per role; -1 = not measured yet (see DotsWidth).
+    float     dotsW[static_cast<int>(FontRole::Count)] = {};
 
     // Faces and metrics per role: Segoe UI for UI text, Segoe MDL2
     // Assets for icons -- exactly what the GDI backend selects -- plus a
@@ -559,6 +612,7 @@ struct SkiaPainter::Impl
     sk_sp<SkTypeface>      cjkFace = nullptr;
     sk_sp<SkTypeface>      defaultFace = nullptr;
     bool                   facesReady = false;
+    int                    calDpi = -1;    // DPI the role metrics were solved at
 
     // ---- per-frame reuse of the text machinery -------------------
     //
@@ -597,6 +651,7 @@ struct SkiaPainter::Impl
         }
         cjkFace = shared.cjk;
         defaultFace = shared.fallback;
+        calDpi = cal.dpi;
         DiagCalibration(cal.m);
     }
 
@@ -696,62 +751,112 @@ struct SkiaPainter::Impl
         return fonts[i];
     }
 
-    // Draw UTF-8 text already positioned at baseline origin (x, y), with
-    // per-codepoint font fallback so mixed Latin/CJK/icon runs all paint.
+    // ---- laid-out text, built once per (role, string) --------------
+    //
+    // See the TextLayout comment above the class: this is where a string
+    // stops being "bytes to re-shape on every call" and becomes "a blob
+    // plus a width table".
+    TextLayout BuildLayout(FontRole role, const std::string& utf8)
+    {
+        TextLayout lay;
+        DecodeUtf8(utf8, lay.cps);
+        lay.cum.reserve(lay.cps.size() + 1);
+        lay.cum.push_back(0.f);
+        if (lay.cps.empty()) return lay;
+
+        SkTextBlobBuilder       builder;
+        std::vector<SkScalar>   widths;
+        float                   x = 0.f;
+        size_t                  i = 0;
+        while (i < lay.cps.size()) {
+            // One face per run, exactly like GDI's font linking: the
+            // role's own family first, then the linked CJK family.
+            const sk_sp<SkTypeface> face = FaceFor(role, lay.cps[i]);
+            size_t j = i + 1;
+            while (j < lay.cps.size() &&
+                   FaceFor(role, lay.cps[j]).get() == face.get())
+                ++j;
+
+            const SkFont& f  = FontForFace(role, face);
+            const int     n  = static_cast<int>(j - i);
+            // allocRunPosH returns a reference into the builder; the
+            // buffer is valid until the next alloc*, which is why the
+            // glyphs and positions are filled before looping.
+            const SkTextBlobBuilder::RunBuffer& run =
+                builder.allocRunPosH(f, n, 0.f);
+            if (!run.glyphs || !run.pos) { i = j; continue; }
+
+            // Codepoints -> glyph ids. This is the cmap walk, and it now
+            // happens once per distinct string instead of once per
+            // measure and once per draw, every frame.
+            for (int k = 0; k < n; ++k)
+                run.glyphs[k] = f.unicharToGlyph(lay.cps[i + static_cast<size_t>(k)]);
+
+            widths.resize(static_cast<size_t>(n));
+            f.getWidths(run.glyphs, n, widths.data());
+            for (int k = 0; k < n; ++k) {
+                run.pos[k] = x;
+                x += widths[static_cast<size_t>(k)];
+                lay.cum.push_back(x);
+            }
+            i = j;
+        }
+        lay.width = x;
+        lay.blob  = builder.make();
+        return lay;
+    }
+
+    // Cached layout for a UTF-8 string. The returned pointer is stable
+    // until the next cache flush (only on a DPI change or overflow).
+    const TextLayout* LayoutFor(FontRole role, const std::string& utf8)
+    {
+        EnsureFaces();
+        TextCache& cache = GetTextCache();
+        if (cache.dpi != calDpi) {
+            for (auto& m : cache.map) m.clear();
+            cache.dpi = calDpi;
+        }
+        auto& map = cache.map[Index(role)];
+        auto it = map.find(utf8);
+        if (it != map.end()) return &it->second;
+
+        // Bounded: a UI shows a few hundred distinct strings. Clearing
+        // wholesale keeps the cache flat without an LRU's bookkeeping.
+        if (map.size() >= 4096) map.clear();
+        return &map.emplace(utf8, BuildLayout(role, utf8)).first->second;
+    }
+
+    // Width of "...", per role. Constant for the lifetime of the cache.
+    float DotsWidth(FontRole role)
+    {
+        const int i = Index(role);
+        if (dotsW[i] < 0.f)
+            dotsW[i] = Font(role).measureText("...", 3, SkTextEncoding::kUTF8);
+        return dotsW[i];
+    }
+
+    // DT_END_ELLIPSIS: drop codepoints from the end until the remainder
+    // plus "..." fits. `cum` turns this into a table scan -- the old code
+    // re-measured the whole string once per dropped character.
+    const TextLayout* Ellipsized(FontRole role, const TextLayout& lay,
+                                 float avail, float dotsW)
+    {
+        size_t k = lay.cps.size();
+        while (k > 1 && lay.cum[k] + dotsW > avail) --k;
+        std::string key = EncodeUtf8(lay.cps.data(), k);
+        key += "...";
+        return LayoutFor(role, key);
+    }
+
+    // Draw UTF-8 text already positioned at baseline origin (x, y). One
+    // call for the whole string: the blob carries the per-run fonts.
     void DrawRuns(FontRole role, const std::string& utf8,
                   float x, float y, Color c)
     {
         if (utf8.empty()) return;
-        std::vector<uint32_t> cps;
-        DecodeUtf8(utf8, cps);
-        if (cps.empty()) return;
-
-        const SkPaint fill = MakeFill(c);
-        size_t i = 0;
-        while (i < cps.size()) {
-            sk_sp<SkTypeface> face = FaceFor(role, cps[i]);
-            size_t j = i + 1;
-            while (j < cps.size() &&
-                   FaceFor(role, cps[j]).get() == face.get())
-                ++j;
-
-            const std::string run = EncodeUtf8(&cps[i], j - i);
-            // Shared, prebuilt: never a per-run SkFont copy, which would
-            // drop the strike spec and force a rebuild on the next call.
-            const SkFont& f = FontForFace(role, face);
-            const float w =
-                f.measureText(run.data(), run.size(), SkTextEncoding::kUTF8);
-            canvas->drawSimpleText(run.data(), run.size(),
-                                   SkTextEncoding::kUTF8, x, y, f, fill);
-            x += w;
-            i = j;
-        }
-    }
-
-    // Width of a codepoint sequence using the same per-codepoint font
-    // fallback as DrawRuns (used for ellipsis trimming and alignment).
-    float MeasureRuns(FontRole role, const std::vector<uint32_t>& cps)
-    {
-        float w = 0.f;
-        size_t i = 0;
-        while (i < cps.size()) {
-            const sk_sp<SkTypeface> face = FaceFor(role, cps[i]);
-            size_t j = i + 1;
-            while (j < cps.size() &&
-                   FaceFor(role, cps[j]).get() == face.get())
-                ++j;
-            const std::string run = EncodeUtf8(&cps[i], j - i);
-            const SkFont& f = FontForFace(role, face);
-            w += f.measureText(run.data(), run.size(), SkTextEncoding::kUTF8);
-            i = j;
-        }
-        return w;
-    }
-
-    float Width(const std::string& utf8, SkFont& f) const
-    {
-        if (utf8.empty()) return 0.f;
-        return f.measureText(utf8.data(), utf8.size(), SkTextEncoding::kUTF8);
+        const TextLayout* lay = LayoutFor(role, utf8);
+        if (!lay || !lay->blob) return;
+        canvas->drawTextBlob(lay->blob.get(), x, y, MakeFill(c));
     }
 
     // GDI's DrawText lays text out inside a cell of `tmHeight` pixels and
@@ -793,6 +898,8 @@ SkiaPainter::SkiaPainter(SkCanvas* canvas, void* nativeDc)
 SkiaPainter::~SkiaPainter() = default;
 
 SkCanvas* SkiaPainter::Canvas() const { return m->canvas; }
+
+void SkiaPainter::BeginFrame() { m->clipDepth = 0; }
 
 void SkiaPainter::FillRect(const Rect& r, Color c)
 {
@@ -859,6 +966,31 @@ void SkiaPainter::StrokeRound(const Rect& r, int radius, Color c, int width)
                          MakeStroke(c, width));
 }
 
+namespace {
+
+// Dash geometry is a constant of the design system, and building the
+// effect allocates an interval table that Skia then walks per segment.
+// The dashed focus ring is drawn once per frame, so this is only worth
+// one warm slot -- but that slot was 539 us per frame before.
+const sk_sp<SkPathEffect>& DashEffectFor(int dash)
+{
+    static int                  cachedDash = -1;
+    static sk_sp<SkPathEffect>* cached = new sk_sp<SkPathEffect>();  // process lifetime
+    if (cachedDash != dash || !*cached) {
+        const SkScalar d   = static_cast<SkScalar>(dash > 0 ? dash : 6);
+        const SkScalar gap = static_cast<SkScalar>(dash > 0 ? dash : 4);
+        const SkScalar intervals[2] = { d, gap };
+        // Make() now takes (SkSpan<const SkScalar> intervals, SkScalar phase);
+        // the old (pointer, count, phase) overload is gone.
+        *cached = SkDashPathEffect::Make(
+            SkSpan<const SkScalar>(intervals, 2), 0);
+        cachedDash = dash;
+    }
+    return *cached;
+}
+
+} // namespace
+
 void SkiaPainter::StrokeDashed(const Rect& r, Color c, int width, int dash)
 {
     if (!m->canvas || r.Empty()) return;
@@ -867,14 +999,8 @@ void SkiaPainter::StrokeDashed(const Rect& r, Color c, int width, int dash)
     SkPathBuilder builder;
     builder.addRect(ToSk(r));
     const SkPath path = builder.detach();
-    const SkScalar d = static_cast<SkScalar>(dash > 0 ? dash : 6);
-    const SkScalar gap = static_cast<SkScalar>(dash > 0 ? dash : 4);
-    const SkScalar intervals[2] = { d, gap };
     SkPaint p = MakeStroke(c, width);
-    // Make() now takes (SkSpan<const SkScalar> intervals, SkScalar phase);
-    // the old (pointer, count, phase) overload is gone.
-    p.setPathEffect(SkDashPathEffect::Make(
-        SkSpan<const SkScalar>(intervals, 2), 0));
+    p.setPathEffect(DashEffectFor(dash));
     m->canvas->drawPath(path, p);
 }
 
@@ -882,36 +1008,28 @@ void SkiaPainter::Text(const Rect& r, const std::wstring& s,
                        FontRole role, Color c, TextFormat fmt)
 {
     if (!m->canvas || s.empty() || r.Empty()) return;
-    SkFont& primary = m->Font(role);
-    std::string utf8 = skia::WideToUtf8(s);
 
-    std::vector<uint32_t> cps;
-    DecodeUtf8(utf8, cps);
+    const std::string utf8 = skia::WideToUtf8(s);
+    const TextLayout* lay = m->LayoutFor(role, utf8);
+    if (!lay) return;
 
-    if ((fmt & dt::EndEllipsis) && !cps.empty()) {
+    if (fmt & dt::EndEllipsis) {
         // GDI's DrawText decides in integer device pixels, so a
         // sub-pixel difference must not flip a label from "fits" to
         // "ellipsised". One pixel of slack reproduces that rounding; the
         // nav labels sit exactly on this boundary at the Title role.
+        // The decision is now a scan of the precomputed advance table
+        // instead of a re-measurement per dropped character.
         const float avail = static_cast<float>(r.Width()) + 1.f;
-        const float dotsW = primary.measureText("...", 3, SkTextEncoding::kUTF8);
-        const float textW = m->MeasureRuns(role, cps);
+        const float dotsW = m->DotsWidth(role);
         // DT_END_ELLIPSIS only decorates text that does not fit. Adding
-        // the dots unconditionally (as this used to) put "..." on every
+        // the dots unconditionally would put "..." on every
         // ellipsis-capable label, even short ones with room to spare.
-        if (textW + dotsW > avail) {
-            while (cps.size() > 1 &&
-                   m->MeasureRuns(role, cps) + dotsW > avail)
-                cps.pop_back();
-            cps.push_back(static_cast<uint32_t>('.'));
-            cps.push_back(static_cast<uint32_t>('.'));
-            cps.push_back(static_cast<uint32_t>('.'));
-            utf8 = EncodeUtf8(cps.data(), cps.size());
-            DecodeUtf8(utf8, cps);
-        }
+        if (lay->width + dotsW > avail)
+            lay = m->Ellipsized(role, *lay, avail, dotsW);
     }
 
-    const float totalW = m->MeasureRuns(role, cps);
+    const float totalW = lay->width;
     const float x = AlignX(r, totalW, skia::Horizontal(fmt));
     const float y = m->Baseline(r, m->Index(role), skia::Vertical(fmt));
     // DrawText clips to its rect -- that clipping is the reason
@@ -922,9 +1040,9 @@ void SkiaPainter::Text(const Rect& r, const std::wstring& s,
         m->canvas->save();
         m->canvas->clipRect(ToSk(r));
     }
-    m->DrawRuns(role, utf8, x, y, c);
+    if (lay->blob) m->canvas->drawTextBlob(lay->blob.get(), x, y, MakeFill(c));
     if (clip) m->canvas->restore();
-    DiagText(static_cast<int>(role), primary.getSize(), totalW, x, y,
+    DiagText(static_cast<int>(role), m->Font(role).getSize(), totalW, x, y,
              static_cast<float>(r.Width()), m->canvas->getTotalMatrix().getScaleX(),
              utf8);
 }
@@ -978,13 +1096,10 @@ int SkiaPainter::MeasureText(const std::wstring& s, FontRole role)
 {
     if (s.empty()) return 0;
     const std::string utf8 = skia::WideToUtf8(s);
-    std::vector<uint32_t> cps;
-    DecodeUtf8(utf8, cps);
-    m->Font(role);              // ensures fonts[i] / roleFace[i] are ready
     // Same per-codepoint fallback (and per-family size) as drawing, so
     // layout decisions match what actually gets painted.
-    const float w = m->MeasureRuns(role, cps);
-    return static_cast<int>(w + 0.5f);
+    const TextLayout* lay = m->LayoutFor(role, utf8);
+    return lay ? static_cast<int>(lay->width + 0.5f) : 0;
 }
 
 void SkiaPainter::PushClip(const Rect& r)

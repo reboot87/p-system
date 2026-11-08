@@ -266,6 +266,157 @@ SkiaFrame::SkiaFrame(HDC dc, const Rect& bounds)
 {
     if (m->canvas) m->Attach(dc, bounds);
 }
+
+void SkiaFrame::BeginFrame(HDC dc, const Rect& bounds, bool clearScreen)
+{
+    if (!m || !m->canvas) return;
+    // A frame may have ended with an unbalanced save()/clip() (an early
+    // return between PushClip and PopClip); reset to the root state so a
+    // clip can never leak from one paint into the next.
+    m->canvas->restoreToCount(1);
+    if (m->painter) m->painter->BeginFrame();
+    m->presented = false;
+    m->Attach(dc, bounds);
+    if (clearScreen)
+        m->canvas->clear(OpaqueTarget() ? SK_ColorBLACK : SK_ColorTRANSPARENT);
+}
+
+// ------------------------------------------------------------
+// Frame reuse
+// ------------------------------------------------------------
+//
+// A window paint used to open a brand-new frame every time: memory DC,
+// an 8 MB zero-filled DIB, a wrapped SkSurface and a full-surface
+// clear. Measured on a 1920x1040 Skia frame, that was `dc` 3.2 ms plus
+// `begin` 2.2 ms of a 21 ms frame -- a quarter of the budget spent
+// allocating a buffer that is then completely overwritten, because
+// Shell::Paint fills the whole client area as its first primitive.
+//
+// So frames are kept warm: the DIB, surface and painter survive between
+// paints, and a reused frame only resets its canvas state. It is safe
+// to skip the clear because the pool hands a frame back exclusively to
+// the same size of target, and the very next call repaints every pixel.
+//
+// Three slots cover the real cases: maximised, restored, and one
+// transient (a page transition that resizes the window).
+namespace {
+
+struct FrameSlot
+{
+    SkiaFrame* frame = nullptr;
+    bool       busy  = false;
+};
+
+constexpr int kFramePoolSize = 3;
+FrameSlot g_frames[kFramePoolSize];
+
+} // namespace
+
+SkiaFrame* AcquireSkiaFrame(HDC dc, const Rect& bounds)
+{
+    if (!dc || bounds.Width() <= 0 || bounds.Height() <= 0) return nullptr;
+
+    for (FrameSlot& slot : g_frames) {
+        if (slot.frame && !slot.busy &&
+            slot.frame->Width()  == bounds.Width() &&
+            slot.frame->Height() == bounds.Height()) {
+            slot.busy = true;
+            slot.frame->BeginFrame(dc, bounds, false);
+            return slot.frame;
+        }
+    }
+
+    SkiaFrame* fresh = new SkiaFrame(dc, bounds);   // clears on creation
+    if (!fresh->Valid()) {
+        delete fresh;
+        return nullptr;
+    }
+    for (FrameSlot& slot : g_frames) {
+        if (!slot.frame) {
+            slot.frame = fresh;
+            slot.busy  = true;
+            return fresh;
+        }
+    }
+    // Pool full: an idle frame only holds stale pixels.
+    for (FrameSlot& slot : g_frames) {
+        if (!slot.busy) {
+            delete slot.frame;
+            slot.frame = fresh;
+            slot.busy  = true;
+            return fresh;
+        }
+    }
+    delete fresh;
+    return nullptr;
+}
+
+void ReleaseSkiaFrame(SkiaFrame* frame)
+{
+    if (!frame) return;
+    // A frame whose surface failed to open must not go back into the
+    // pool: every later Acquire would hand out a painter that cannot
+    // draw. Drop it instead.
+    const bool usable = frame->Valid();
+    for (FrameSlot& slot : g_frames) {
+        if (slot.frame == frame) {
+            if (usable) {
+                slot.busy = false;
+            } else {
+                slot.frame = nullptr;
+                delete frame;
+            }
+            return;
+        }
+    }
+    delete frame;        // never pooled: an off-screen frame
+}
+
+// Forwards to a pooled frame so it can be handed out as a plain
+// IPainter (whose deleter is fixed to `delete`). Destruction is the
+// end of the frame: composite, then park the frame for the next paint.
+namespace {
+
+class PooledFrame : public IPainter
+{
+public:
+    explicit PooledFrame(SkiaFrame* frame) : m_frame(frame) {}
+
+    ~PooledFrame() override
+    {
+        m_frame->Present();
+        ReleaseSkiaFrame(m_frame);
+    }
+
+    void FillRect(const Rect& r, Color c) override
+    { m_frame->FillRect(r, c); }
+    void FillRectAlpha(const Rect& r, Color c, uint8_t a) override
+    { m_frame->FillRectAlpha(r, c, a); }
+    void FillRound(const Rect& r, int radius, Color c) override
+    { m_frame->FillRound(r, radius, c); }
+    void StrokeRect(const Rect& r, Color c, int width) override
+    { m_frame->StrokeRect(r, c, width); }
+    void StrokeRound(const Rect& r, int radius, Color c, int width) override
+    { m_frame->StrokeRound(r, radius, c, width); }
+    void StrokeDashed(const Rect& r, Color c, int width, int dash) override
+    { m_frame->StrokeDashed(r, c, width, dash); }
+    void Text(const Rect& r, const std::wstring& s,
+              FontRole role, Color c, TextFormat fmt) override
+    { m_frame->Text(r, s, role, c, fmt); }
+    void TextBlock(const Rect& r, const std::wstring& s,
+                   FontRole role, Color c, int maxLines) override
+    { m_frame->TextBlock(r, s, role, c, maxLines); }
+    int  MeasureText(const std::wstring& s, FontRole role) override
+    { return m_frame->MeasureText(s, role); }
+    void PushClip(const Rect& r) override { m_frame->PushClip(r); }
+    void PopClip() override               { m_frame->PopClip(); }
+    void Translate(Point offset) override { m_frame->Translate(offset); }
+
+private:
+    SkiaFrame* m_frame = nullptr;
+};
+
+} // namespace
 #endif
 
 SkiaFrame::SkiaFrame(int width, int height)
@@ -344,7 +495,9 @@ void SkiaFrame::Translate(Point offset)   { AIRUI_SKIA_FORWARD(Translate(offset)
 #ifdef _WIN32
 std::unique_ptr<IPainter> CreateSkiaBackend(HDC dc, const Rect& bounds)
 {
-    return std::unique_ptr<IPainter>(new SkiaFrame(dc, bounds));
+    SkiaFrame* frame = AcquireSkiaFrame(dc, bounds);
+    if (!frame) return nullptr;
+    return std::unique_ptr<IPainter>(new PooledFrame(frame));
 }
 #else
 std::unique_ptr<IPainter> CreateSkiaBackend(int width, int height)

@@ -30,6 +30,10 @@ public:
 
     SkCanvas* Canvas() const;
 
+    // Resets the per-frame state when the owning frame is reused for a
+    // new paint (the canvas itself is reset by SkiaFrame::BeginFrame).
+    void BeginFrame();
+
     void FillRect(const Rect& r, Color c) override;
     void FillRectAlpha(const Rect& r, Color c, uint8_t alpha) override;
     void FillRound(const Rect& r, int radius, Color c) override;
