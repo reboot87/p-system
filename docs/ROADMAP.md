@@ -189,3 +189,12 @@
   - **根因**：`Paint()` 本来就把整个客户区画进后备缓冲再 BitBlt，擦底永远不修正任何东西，只是把纯背景推上屏幕。此外 `Shell::SetStatus` 每次列表刷新都整窗失效（文案没变也一样）。
   - **修复**：`WM_ERASEBKGND` 只在尺寸/显隐变化后真的擦（`m_eraseAllowed`，WM_SIZE / WM_SHOWWINDOW 置位，擦一次或出帧一次即清）；`SetStatus` 文案未变直接返回；`uiDebugLog` 改为逐条开关文件以便运行中实时读日志，`[erase]` 增记 `allowed` 与失效矩形，新增 `[paint-req]`。
   - **验证**：`ctest -C Release` 21/21；窗口态与最大化态点四个胶囊都是「内容区失效 + allowed=0 + 单帧 31ms」；最大化仍保留一次 `allowed=1` 的背景擦除（DWM 黑帧保护）。
+
+- **2026-11-08 — 修掉「点筛选胶囊时文本框和列表一起闪」**
+  - 现象：上一版把整窗擦底关掉后，点「全部」仍然能看到**搜索框和列表同时闪**，且只在 Skia 后端显眼。
+  - **关键实验**：从外部对主窗口做一次 `InvalidateRect + UpdateWindow`（不碰任何业务代码），子控件追踪日志里 LISTBOX 和 4 个 EDIT 全部跟着 `WM_PAINT / WM_NCPAINT / WM_ERASEBKGND` —— 说明父窗口每出一帧，就把所有子控件重画一遍。
+  - **根因（坑）**：`CreateWindowExW(WS_CLIPCHILDREN, ...)` 把 `WS_CLIPCHILDREN` 传成了 **dwExStyle**。它与 `WS_EX_COMPOSITED` 同为 `0x02000000`，只是分属 style / ex-style 两个字段，所以窗口实际拿到的是「合成窗口」，**从来没有裁剪过子窗口**。Skia 一帧 30~47ms，父窗口每帧都连子控件一起重画 → 文本框 + 列表一起闪。
+  - **次因**：LISTBOX 自己的 `WM_ERASEBKGND` 擦整片客户区再逐行回调 `WM_DRAWITEM`（16 行 ≈ 20ms 空白底）；它身上的 `WS_EX_COMPOSITED` 对叶子窗口无效（那是「本窗口的下级子树双缓冲」）。
+  - **附带发现**：父窗口不再合成后，LISTBOX 带 `WS_EX_COMPOSITED` 创建会直接失败（`CreateWindowEx` 返回 NULL、`GetLastError=0`），整块列表消失 —— 这个扩展样式必须去掉。
+  - **修复**：① `WS_CLIPCHILDREN` 放进 `dwStyle`（ex-style 传 0）；② LISTBOX 只擦「最后一行之后」那条带（条目卡片自己铺满自己的 rect），去掉 `WS_EX_COMPOSITED`；③ `Widget::Move` 几何未变时 no-op（reLayout 不再让所有子控件失效）；④ 保留上一轮的 `m_eraseAllowed` 擦底门控。
+  - **验证**：强制父窗口重绘 → 子控件消息 **0** 条；点「文本」→「全部」，列表 `erase skipped items=20`（无整片擦除）、搜索框 **0** 条消息（不再重绘）；`ctest -C Release` **21/21**；截图核对列表/搜索框/详情面板渲染正常。

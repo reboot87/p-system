@@ -185,10 +185,17 @@ bool Shell::Create(HINSTANCE hInstance, const ShellOptions& options)
 
     // WS_CLIPCHILDREN：父窗口自绘（双缓冲 BitBlt 覆盖全客户区）时避开子窗口
     // 区域，否则父/子的 WM_PAINT 派发顺序不定，后画者覆盖先画者——
-    // 实测会随机吞掉输入框首次显示时的占位提示
-    m_hwnd = CreateWindowExW(WS_CLIPCHILDREN,
+    // 实测会随机吞掉输入框首次显示时的占位提示。
+    //
+    // 它必须放在 *dwStyle* 里。WS_CLIPCHILDREN 和 WS_EX_COMPOSITED 都是
+    // 0x02000000，但分属 style 与 ex-style 两个字段：这里曾经把
+    // WS_CLIPCHILDREN 传成第一个参数（dwExStyle），于是窗口实际拿到的是
+    // 「合成窗口」而不是「裁剪子窗口」——父窗口每次自绘都会把 LISTBOX 和
+    // 各个 EDIT 一起拖下水重画一遍。Skia 一帧 30~47ms，用户看到的就是
+    // 「点一下筛选胶囊，文本框和列表一起闪」。
+    m_hwnd = CreateWindowExW(0,
                              m_opt.className.c_str(), m_opt.appName.c_str(),
-                             WS_OVERLAPPEDWINDOW,
+                             WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
                              CW_USEDEFAULT, CW_USEDEFAULT,
                              m_opt.width, m_opt.height,
                              nullptr, nullptr, hInstance, this);

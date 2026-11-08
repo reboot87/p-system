@@ -234,7 +234,59 @@ def cross():
     return 0
 
 
+def wipe():
+    """Click a filter chip that really changes the row set and record how
+    much of the list still holds card pixels, frame by frame.
+
+    Reads the share of "card white" pixels in the list region: a full erase
+    drops it to ~0, a row-by-row redraw shows it climbing back, an in-place
+    repaint keeps it near the baseline the whole time.
+    """
+    import numpy as np
+    from PIL import Image
+
+    hwnd = find_window()
+    if not hwnd:
+        print("no airecord window")
+        return 1
+    wr = window_rect(hwnd)
+    list_rc = (226, 108, 1586, 998)
+    chip = (int(sys.argv[2]) if len(sys.argv) > 2 else 586,
+            int(sys.argv[3]) if len(sys.argv) > 3 else 79)
+
+    def snap():
+        x0, y0, x1, y1 = list_rc
+        return np.frombuffer(grab_screen(wr.left + x0, wr.top + y0,
+                                         x1 - x0, y1 - y0),
+                             dtype=np.uint8).reshape(y1 - y0, x1 - x0, 4)[:, :, :3]
+
+    ref = snap().astype(np.int16)
+
+    def changed(a):
+        d = np.abs(a.astype(np.int16) - ref).max(axis=2)
+        return float((d > 8).mean())
+
+    print("reference captured; per-frame changed share follows")
+
+    lp = (chip[1] << 16) | chip[0]
+    user32.PostMessageW(hwnd, 0x0201, 1, lp)
+    user32.PostMessageW(hwnd, 0x0202, 0, lp)
+
+    outdir = os.path.join(os.environ.get("TEMP", "."), "chipflash")
+    os.makedirs(outdir, exist_ok=True)
+    t0 = time.perf_counter()
+    for i in range(50):
+        a = snap()
+        f = changed(a)
+        print(f"{i:02d} {1000*(time.perf_counter()-t0):6.1f}ms changed={f:.3f}")
+        if i < 24:
+            Image.fromarray(a).save(os.path.join(outdir, f"w{i:02d}.png"))
+    return 0
+
+
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "cross":
         sys.exit(cross())
+    if len(sys.argv) > 1 and sys.argv[1] == "wipe":
+        sys.exit(wipe())
     sys.exit(main())

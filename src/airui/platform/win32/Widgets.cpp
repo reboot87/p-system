@@ -81,7 +81,21 @@ bool Widget::Visible() const
 
 void Widget::Move(int x, int y, int w, int h)
 {
-    if (m_hwnd) MoveWindow(m_hwnd, x, y, w, h, TRUE);
+    if (!m_hwnd) return;
+    // Layout re-runs on every page relayout and on every refresh that
+    // touches geometry; handing MoveWindow the rect a control already
+    // occupies still invalidates it (MoveWindow repaints unconditionally).
+    // For EDIT/LISTBOX children that repaint is a visible white flash --
+    // an unchanged layout must therefore be a no-op.
+    RECT cur = {};
+    if (GetWindowRect(m_hwnd, &cur)) {
+        HWND parent = GetParent(m_hwnd);
+        if (parent) MapWindowPoints(HWND_DESKTOP, parent, (LPPOINT)&cur, 2);
+        if (cur.left == x && cur.top == y &&
+            cur.right == x + w && cur.bottom == y + h)
+            return;
+    }
+    MoveWindow(m_hwnd, x, y, w, h, TRUE);
 }
 
 void Widget::Move(const RECT& rc)
@@ -265,11 +279,18 @@ void ListBox::CreateNative()
     HWND parent = m_shell->Hwnd();
     m_fallbackH = m_desc.fallbackItemHeight;
 
-    m_hwnd = CreateWindowExW(WS_EX_COMPOSITED, L"LISTBOX", L"",
+    // 不要 WS_EX_COMPOSITED：它给的是「本窗口的下级子树双缓冲」，LISTBOX
+    // 没有子窗口，等于完全没用；更糟的是父窗口一旦不再合成（见 Shell 的
+    // WS_CLIPCHILDREN 修正），带这个扩展样式创建 LISTBOX 会直接失败
+    // （CreateWindowEx 返回 NULL 且 GetLastError=0），整块列表就消失了。
+    m_hwnd = CreateWindowExW(0, L"LISTBOX", L"",
         WS_CHILD | WS_VSCROLL | WS_TABSTOP |
         LBS_NOTIFY | LBS_NOINTEGRALHEIGHT | LBS_OWNERDRAWVARIABLE,
         0, 0, 0, 0, parent, (HMENU)(INT_PTR)m_id, nullptr, nullptr);
-    if (!m_hwnd) return;
+    if (!m_hwnd) {
+        HoverLog(L"listbox create FAILED gle=%lu", GetLastError());
+        return;
+    }
 
     SendMessageW(m_hwnd, WM_SETFONT,
                  (WPARAM)m_shell->UiFonts().Body(), TRUE);
@@ -284,14 +305,34 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
 
     switch (msg) {
     case WM_ERASEBKGND: {
-        HoverLog(L"erase");
-        // LISTBOX 标准类背景刷是白色：滚动/失效时系统先白擦再画条目，
-        // 造成滚动闪烁。改为填一层与条目打底一致的页面灰（WS_EX_COMPOSITED
-        // 下此填充与条目绘制合成在同一缓冲帧，不产生中间态）。
+        // LISTBOX 画的是原生窗口，不在任何双缓冲里：先擦整片客户区、再
+        // 逐行回调 WM_DRAWITEM，中间那段（16 行 × 1~2ms ≈ 20ms）屏幕上
+        // 就是一张空白底。点筛选胶囊重建列表时整块卡片区就是这么"闪"
+        // 一下的。WS_EX_COMPOSITED 帮不上忙——它给的是"窗口的下级子树
+        // 双缓冲"，而 LISTBOX 没有子窗口，等于没过缓冲。
+        //
+        // 所以只擦「最后一行之后」的那条带：条目区不擦，由每行的卡片自
+        // 己覆盖（卡片绘制时已铺满自己的 item rect），于是重建时屏幕上
+        // 的像素只会被"就地覆盖"，不会先退化成底色。列表变短时多出来的
+        // 下半截仍由这条带清掉。
         HDC dc = (HDC)wParam;
         RECT rc;
         GetClientRect(hwnd, &rc);
-        gfx::Fill(dc, rc, Pal().bg);
+        RECT band = rc;
+        const int n = (int)SendMessageW(hwnd, LB_GETCOUNT, 0, 0);
+        if (n > 0) {
+            RECT last = {};
+            if (SendMessageW(hwnd, LB_GETITEMRECT, n - 1, (LPARAM)&last) != LB_ERR)
+                band.top = last.bottom;
+        }
+        if (band.top < band.bottom) {
+            HoverLog(L"erase band %ld,%ld-%ld,%ld items=%d",
+                     (long)band.left, (long)band.top,
+                     (long)band.right, (long)band.bottom, n);
+            gfx::Fill(dc, band, Pal().bg);
+        } else {
+            HoverLog(L"erase skipped items=%d", n);
+        }
         return 1;
     }
     case WM_LBUTTONDOWN: {
