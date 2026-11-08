@@ -793,7 +793,9 @@ struct SkiaPainter::Impl
                 run.glyphs[k] = f.unicharToGlyph(lay.cps[i + static_cast<size_t>(k)]);
 
             widths.resize(static_cast<size_t>(n));
-            f.getWidths(run.glyphs, n, widths.data());
+            // Modern Skia takes spans here, not (pointer, count).
+            f.getWidths(SkSpan<const SkGlyphID>(run.glyphs, static_cast<size_t>(n)),
+                        SkSpan<SkScalar>(widths.data(), static_cast<size_t>(n)));
             for (int k = 0; k < n; ++k) {
                 run.pos[k] = x;
                 x += widths[static_cast<size_t>(k)];

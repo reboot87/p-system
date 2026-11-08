@@ -184,11 +184,11 @@ public:
     // what turns measurement into an array scan instead of repeated
     // UTF-8 decoding.
     SkGlyphID unicharToGlyph(SkUnichar) const { return 0; }
-    int textToGlyphs(const void*, size_t, SkTextEncoding,
-                     SkGlyphID[], int) const
+    size_t textToGlyphs(const void*, size_t, SkTextEncoding,
+                        SkSpan<SkGlyphID>) const
     { return 0; }
-    void getWidths(const SkGlyphID[], int, SkScalar[],
-                   SkRect* = nullptr) const {}
+    // Modern Skia takes spans, not (pointer, count, ...).
+    void getWidths(SkSpan<const SkGlyphID>, SkSpan<SkScalar>) const {}
 };
 
 // Only used by the opt-in text tracer, which is compiled out under the
@@ -271,7 +271,7 @@ public:
     void clear(SkColor) {}
     void save() {}
     void restore() {}
-    int  saveCount() const { return 1; }
+    int  getSaveCount() const { return 1; }
     void restoreToCount(int) {}
     void clipRect(const SkRect&) {}
     void translate(SkScalar, SkScalar) {}
