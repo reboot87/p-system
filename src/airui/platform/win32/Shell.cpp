@@ -1445,7 +1445,27 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         PaintDC pdc(hwnd, !skiaDirect);
         const long long tDc1 = QpcUs();
         if (pdc.dc()) {
+            // Report the dirty rect for pages that want to skip clipped work.
+            m_paintClip = pdc.update();
+            // Honour the update region. BeginPaint's rcPaint is exactly
+            // what changed; for a one-row hover that is a fraction of the
+            // client, yet Paint() used to fill and draw all of it (about
+            // 15 ms at 1920x1040). Clipping the mem DC makes the draw cost
+            // proportional to the dirty area; the blit in Flush() is
+            // likewise bounded, and the Skia path (no back buffer) is left
+            // completely untouched.
+            const RECT& upd = pdc.update();
+            const RECT& cli = pdc.client();
+            const bool partial = pdc.backBuffer() &&
+                (upd.left > cli.left || upd.top > cli.top ||
+                 upd.right < cli.right || upd.bottom < cli.bottom);
+            int saved = 0;
+            if (partial) {
+                saved = SaveDC(pdc.dc());
+                IntersectClipRect(pdc.dc(), upd.left, upd.top, upd.right, upd.bottom);
+            }
             Paint(pdc.dc());
+            if (partial) RestoreDC(pdc.dc(), saved);
             const long long tDc2 = QpcUs();
             pdc.Flush();
             const long long tDc3 = QpcUs();

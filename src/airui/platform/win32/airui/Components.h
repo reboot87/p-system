@@ -70,8 +70,13 @@ public:
     void SetRect(const RECT& r) { m_cfg.rect = r; }
     void SetNumber(const std::wstring& n) { m_cfg.number = n; }
     void SetBadge(const Badge& b) { m_cfg.badge = b; }
-    // Interaction methods for GUI
-    void SetHover(bool hover) { m_hover = hover; }
+    // Interaction methods for GUI. SetHover reports whether the state
+    // actually changed, so a caller can invalidate just this card.
+    bool SetHover(bool hover) {
+        if (m_hover == hover) return false;
+        m_hover = hover;
+        return true;
+    }
     const Config& GetConfig() const { return m_cfg; }
 
 private:

@@ -177,6 +177,12 @@ public:
     void InvalidateRegion(const RECT& rcClient);
     void SetRedraw(bool on);
 
+    // Region the current WM_PAINT is repainting, in client coordinates.
+    // Equals the whole client for a full repaint and for any backend that
+    // composites the full client (Skia); narrower for a partial GDI
+    // repaint. A page may use it to skip work that would only be clipped.
+    const RECT& PaintClip() const { return m_paintClip; }
+
     int ShowMessageBox(const std::wstring& text, const std::wstring& caption,
                        UINT flags = MB_OK);
     int ShowPopupMenu(POINT screenPt, const std::vector<MenuItem>& items);
@@ -289,6 +295,12 @@ private:
     RECT          m_side    = {};
     RECT          m_status  = {};
     RECT          m_caption = {};
+
+    // Repaint region of the WM_PAINT currently being assembled, client
+    // coordinates. Full client for a whole-window invalidate / full-client
+    // compositing (Skia); narrower for partial GDI repaints. Pages may use
+    // PaintClip() to skip work that will only be clipped away.
+    RECT          m_paintClip = {};
 
     int           m_dpi     = 96;
     int           m_capHover = 0;

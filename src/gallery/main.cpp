@@ -246,8 +246,30 @@ public:
                 // 1) ShellCore 导航栏：悬停高亮 + 点击跳转
                 const int navId = m_shellCore.HitTestNav(Point{pt.x, pt.y});
                 if (msg == WM_MOUSEMOVE && navId != m_shellCore.NavHover()) {
+                    // Only the two affected rows change, so invalidate those
+                    // rows instead of the whole window.
+                    RECT dirty{}; bool any = false;
+                    auto addNav = [&](int id) {
+                        if (id < 0) return;
+                        const auto& rects = m_shellCore.NavItemRects();
+                        const auto& ids   = m_shellCore.NavItemIds();
+                        for (size_t i = 0; i < ids.size() && i < rects.size(); ++i) {
+                            if (ids[i] != id) continue;
+                            RECT r{rects[i].left, rects[i].top,
+                                   rects[i].right, rects[i].bottom};
+                            if (r.right <= r.left || r.bottom <= r.top) return;
+                            if (!any) { dirty = r; any = true; }
+                            else { RECT u; UnionRect(&u, &dirty, &r); dirty = u; }
+                            return;
+                        }
+                    };
+                    addNav(m_shellCore.NavHover());
                     m_shellCore.SetNavHover(navId);
-                    if (m_shell) m_shell->Invalidate();
+                    addNav(navId);
+                    if (m_shell) {
+                        if (any) m_shell->InvalidateRegion(dirty);
+                        else     m_shell->Invalidate();
+                    }
                 }
                 if (msg == WM_LBUTTONDOWN && navId >= 0) {
                     GotoSection(navId);
@@ -334,6 +356,9 @@ public:
             return;
         }
         if (dc) IntersectClipRect(dc,region.left,region.top,region.right,region.bottom);
+
+        // 本次 WM_PAINT 真正脏的客户区（整窗失效时 == client；一次 hover 失效时
+        // 只包含命中的条目/行）。窗口帧位图只 blit 这块（见 PaintDC::Flush）。
 
         // 内容区整块白底，与灰底页面、侧边导航形成三层结构
         g.Fill(region, p.surface);
@@ -679,6 +704,13 @@ private:
 
     void SetStatusText(const std::wstring& s) {
         m_shellCore.SetStatus({s, true, L""});
+        // The status bar is drawn by the page itself, so a text change has
+        // to invalidate just that strip instead of the whole window.
+        if (m_shell) {
+            Rect sr = m_shellCore.StatusRect();
+            RECT r{sr.left, sr.top, sr.right, sr.bottom};
+            if (r.right > r.left && r.bottom > r.top) m_shell->InvalidateRegion(r);
+        }
     }
 
     // --------------------------------------------------------
@@ -872,27 +904,35 @@ private:
         if (e) SetStatusText(L"焦点：" + e->name);
     }
 
-    bool UpdateOverlayHover(const POINT& p) {
+    // Returns true when the hovered dropdown option changed, and writes the
+    // affected layer rect (content-local) to outLocal so only that repaints.
+    bool UpdateOverlayHover(const POINT& p, RECT& outLocal) {
         int hov = -1;
+        Rect content{};
         for (const auto& layer : m_overlayCtl.Stack().Layers()) {
             if (layer.kind != OverlayKind::Dropdown) continue;
+            content = OverlayContentRect(layer, Mx());
             const LayerItemRects lr = LayerRectsFor(layer);
             for (int i = 0; i < lr.rowCount; ++i)
                 if (lr.rows[i].Contains(Point{p.x, p.y})) hov = i;
         }
         if (hov == m_overlayHoverOption) return false;
         m_overlayHoverOption = hov;
+        outLocal = RECT{content.left, content.top, content.right, content.bottom};
         return true;
     }
 
-    // 计算数据控件的 hover；返回是否有变化（需要重绘）。
-    bool UpdateDataHover(const POINT& p) {
+    // 计算数据控件的 hover；changed 为 true 时把命中的条目矩形（内容区
+    // 局部坐标）写到 outLocal，供调用方只失效那一块。
+    bool UpdateDataHover(const POINT& p, RECT& outLocal) {
         int tableHover = -1, listHover = -1, treeHover = -1, crumbHover = -1;
         int pagerHover = 0, toastHover = -1;
         bool toastClose = false;
+        RECT hitRect{};
 
         for (const auto& it : m_items) {
             if (PtInRect(&it.rect, p) == FALSE) continue;
+            hitRect = it.rect;
             Rect rc{it.rect.left, it.rect.top, it.rect.right, it.rect.bottom};
             Point hit{p.x, p.y};
             switch (it.kind) {
@@ -934,6 +974,7 @@ private:
         if (m_pager.hovered  != pagerHover)  { m_pager.hovered = pagerHover;   changed = true; }
         if (m_toastHoverIndex != toastHover) { m_toastHoverIndex = toastHover; changed = true; }
         if (m_toastHoverClose != toastClose) { m_toastHoverClose = toastClose; changed = true; }
+        if (changed) outLocal = hitRect;
         return changed;
     }
 
@@ -1341,13 +1382,35 @@ private:
         // 与 OnPaint 相同的坐标映射：内容区原点 - 滚动量
         POINT p = { pt.x - m_content.left, pt.y - (m_content.top - m_scroll) };
 
+        // 累积本次改动涉及的客户区矩形。一次 hover 通常只改一两个控件，
+        // 不该让整窗重绘 —— Shell 现在会按 update region 裁剪绘制，
+        // 所以这里失效得越精确，帧成本就越低。
+        RECT dirty{}; bool any = false;
+        auto markLocal = [&](const RECT& local) {
+            RECT r = local;
+            OffsetRect(&r, m_content.left, m_content.top - m_scroll);
+            if (r.left   < m_content.left)   r.left   = m_content.left;
+            if (r.top    < m_content.top)    r.top    = m_content.top;
+            if (r.right  > m_content.right)  r.right  = m_content.right;
+            if (r.bottom > m_content.bottom) r.bottom = m_content.bottom;
+            if (r.right <= r.left || r.bottom <= r.top) return;
+            if (!any) { dirty = r; any = true; }
+            else { RECT u; UnionRect(&u, &dirty, &r); dirty = u; }
+        };
+
         // 数据/导航控件的 hover 保存在成员里（而非 Item），这样
         // 窗口 resize 重建布局后状态不会丢。先算出目标值再比较标脏。
-        bool d = UpdateDataHover(p);
-        if (msg == WM_MOUSEMOVE) d = UpdateOverlayHover(p) || d;
+        RECT dataRect{};
+        if (UpdateDataHover(p, dataRect)) markLocal(dataRect);
+        if (msg == WM_MOUSEMOVE) {
+            RECT ovlRect{};
+            if (UpdateOverlayHover(p, ovlRect)) markLocal(ovlRect);
+        }
 
+        bool d = false;
         for (auto& it : m_items) {
             bool h = PtInRect(&it.rect,p)!=FALSE;
+            d = false;                           // 本轮该控件是否有改动
             // hover for all interactive items
             if (msg==WM_MOUSEMOVE) {
                 if (it.hover!=h){it.hover=h;d=true;}
@@ -1358,7 +1421,7 @@ private:
                     Rect{it.rect.left,it.rect.top,it.rect.right,it.rect.bottom},
                     m_x, Mx(), status);
                 if (!status.empty()) SetStatusText(status);
-                d=true;
+                markLocal(it.rect);
                 continue;
             }
             if (it.kind==Item::Button) {
@@ -1570,17 +1633,22 @@ private:
                     }
                 }
             }
+            if (d) markLocal(it.rect);
         }
-        for (auto& c : m_cards) { c->SetHover(PtInRect(&c->GetRect(),p)!=FALSE); d=true; }
+        for (auto& c : m_cards) {
+            const bool h = PtInRect(&c->GetRect(),p)!=FALSE;
+            if (c->SetHover(h)) markLocal(c->GetRect());
+        }
         // Build() 会清空 m_items，不能在上面的遍历过程中调用
         if (m_needRebuild) {
             m_needRebuild = false;
             Build();
             ClampScroll();
             UpdateActiveNav();
-            d=true;
+            if (m_shell) m_shell->Invalidate();   // 可见行数变了：整块内容重画
+            return;
         }
-        if (d && m_shell) m_shell->Invalidate();
+        if (any && m_shell) m_shell->InvalidateRegion(dirty);
     }
 
     Shell* m_shell=nullptr;

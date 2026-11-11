@@ -165,6 +165,14 @@ public:
     int         width()  const { return m_client.right; }
     int         height() const { return m_client.bottom; }
 
+    // The rectangle Windows actually asked to repaint (BeginPaint's
+    // rcPaint, clamped to the client). Equals client() after a whole-window
+    // invalidate. The GDI back-buffer path clips its drawing to this and
+    // only blits this, so a hover that dirties one row no longer pays for
+    // a full-window frame.
+    const RECT& update() const { return m_update; }
+    bool        backBuffer() const { return m_mem != nullptr; }
+
     // 把内存位图整体上屏（只能调用一次；析构时若未调用会自动补一次空 EndPaint）
     void Flush();
 
@@ -176,6 +184,7 @@ private:
     HBITMAP     m_bmp  = nullptr;
     HGDIOBJ     m_old  = nullptr;
     RECT        m_client = {};
+    RECT        m_update = {};
     bool        m_began = false;
     bool        m_flushed = false;
 };

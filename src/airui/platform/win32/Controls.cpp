@@ -585,6 +585,21 @@ PaintDC::PaintDC(HWND hwnd, bool useBackBuffer) : m_hwnd(hwnd)
     m_began = true;
     GetClientRect(hwnd, &m_client);
 
+    // BeginPaint hands back exactly the region that changed. Honour it:
+    // the caller (Shell::Paint) clips to this and we blit only this. A
+    // whole-window invalidate leaves rcPaint == client, so the common
+    // full-frame case is byte-for-byte what it was.
+    m_update = m_client;
+    if (m_ps.rcPaint.right > m_ps.rcPaint.left &&
+        m_ps.rcPaint.bottom > m_ps.rcPaint.top) {
+        m_update.left   = m_ps.rcPaint.left   > m_client.left   ? m_ps.rcPaint.left   : m_client.left;
+        m_update.top    = m_ps.rcPaint.top    > m_client.top    ? m_ps.rcPaint.top    : m_client.top;
+        m_update.right  = m_ps.rcPaint.right  < m_client.right  ? m_ps.rcPaint.right  : m_client.right;
+        m_update.bottom = m_ps.rcPaint.bottom < m_client.bottom ? m_ps.rcPaint.bottom : m_client.bottom;
+    }
+    if (m_update.right <= m_update.left || m_update.bottom <= m_update.top)
+        m_update = m_client;
+
     int w = m_client.right, h = m_client.bottom;
     if (!useBackBuffer || w <= 0 || h <= 0) return;
 
@@ -597,10 +612,11 @@ PaintDC::PaintDC(HWND hwnd, bool useBackBuffer) : m_hwnd(hwnd)
         // against whatever was in here, so a partially covered frame used
         // to present as black noise for a moment. Pre-fill with the theme
         // background: transparency then degrades to the correct colour
-        // instead of garbage.
-        RECT rcFill = m_client;
+        // instead of garbage. Only the blitted rect needs defined pixels,
+        // and on the GDI path Shell::Paint repaints the whole clip anyway,
+        // so a partial update only pre-fills the part we will present.
         gfx::Brush bgBrush(Pal().bg);
-        FillRect(m_mem, &rcFill, bgBrush);
+        FillRect(m_mem, &m_update, bgBrush);
     }
 }
 
@@ -617,9 +633,14 @@ PaintDC::~PaintDC()
 void PaintDC::Flush()
 {
     if (m_flushed || !m_began) return;
-    if (m_mem && m_wdc)
-        BitBlt(m_wdc, 0, 0, m_client.right, m_client.bottom,
-               m_mem, 0, 0, SRCCOPY);
+    if (m_mem && m_wdc) {
+        // Blit only what changed. The BeginPaint DC is itself clipped to
+        // the true update region, so a bounding-box copy can never spill
+        // onto anything that was still valid.
+        const RECT& u = m_update;
+        BitBlt(m_wdc, u.left, u.top, u.right - u.left, u.bottom - u.top,
+               m_mem, u.left, u.top, SRCCOPY);
+    }
     m_flushed = true;
 }
 
