@@ -150,11 +150,28 @@ private:
 class PaintDC
 {
 public:
+    // Persistent back buffer. Creating a full-size compatible bitmap and
+    // DC on every WM_PAINT cost 0.4-2.7 ms of a 3-8 ms GDI frame, and a
+    // DIB's contents are reusable: the next frame overwrites the region
+    // it presents anyway. The owner keeps one of these for the window's
+    // lifetime and hands it in; PaintDC grows/releases it on resize.
+    struct BackBuffer
+    {
+        HDC     mem = nullptr;
+        HBITMAP bmp = nullptr;
+        HGDIOBJ old = nullptr;
+        int     w = 0;
+        int     h = 0;
+        void Release();
+    };
+
     // useBackBuffer=false paints straight onto the BeginPaint DC. That is
     // only correct for a backend which has its own back buffer and
     // blits the finished client area (the Skia path); for GDI it would
     // flicker, so the default stays buffered.
-    explicit PaintDC(HWND hwnd, bool useBackBuffer = true);
+    // cache == nullptr keeps the old allocate-per-frame behaviour.
+    explicit PaintDC(HWND hwnd, bool useBackBuffer = true,
+                     BackBuffer* cache = nullptr);
     ~PaintDC();
 
     PaintDC(const PaintDC&) = delete;
@@ -185,6 +202,7 @@ private:
     HGDIOBJ     m_old  = nullptr;
     RECT        m_client = {};
     RECT        m_update = {};
+    BackBuffer* m_cache  = nullptr;   // when non-null, m_mem/m_bmp belong to it
     bool        m_began = false;
     bool        m_flushed = false;
 };

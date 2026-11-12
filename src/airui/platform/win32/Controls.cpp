@@ -579,7 +579,19 @@ void NavBar::SetBadge(int id, const std::wstring& text, bool ok)
 // ============================================================
 // PaintDC
 // ============================================================
-PaintDC::PaintDC(HWND hwnd, bool useBackBuffer) : m_hwnd(hwnd)
+void PaintDC::BackBuffer::Release()
+{
+    if (mem) {
+        if (old) SelectObject(mem, old);
+        old = nullptr;
+    }
+    if (bmp) { DeleteObject(bmp); bmp = nullptr; }
+    if (mem) { DeleteDC(mem); mem = nullptr; }
+    w = h = 0;
+}
+
+PaintDC::PaintDC(HWND hwnd, bool useBackBuffer, BackBuffer* cache)
+    : m_hwnd(hwnd), m_cache(cache)
 {
     m_wdc = BeginPaint(hwnd, &m_ps);
     m_began = true;
@@ -603,6 +615,40 @@ PaintDC::PaintDC(HWND hwnd, bool useBackBuffer) : m_hwnd(hwnd)
     int w = m_client.right, h = m_client.bottom;
     if (!useBackBuffer || w <= 0 || h <= 0) return;
 
+    if (m_cache) {
+        bool fresh = false;
+        // Reuse the window's buffer when the size still matches. Growth
+        // and DPI changes take the slow path below.
+        if (!(m_cache->mem && m_cache->bmp && m_cache->w == w && m_cache->h == h)) {
+            m_cache->Release();
+            m_cache->mem = CreateCompatibleDC(m_wdc);
+            m_cache->bmp = CreateCompatibleBitmap(m_wdc, w, h);
+            if (m_cache->mem && m_cache->bmp) {
+                m_cache->old = SelectObject(m_cache->mem, m_cache->bmp);
+                m_cache->w = w;
+                m_cache->h = h;
+                fresh = true;
+            } else {
+                m_cache->Release();
+            }
+        }
+        m_mem = m_cache->mem;
+        m_bmp = m_cache->bmp;
+        m_old  = m_cache->old;
+        if (fresh && m_mem && m_bmp) {
+            // Only a brand-new DDB has undefined contents, so fill the
+            // whole buffer once (a later partial paint may present an area
+            // this first WM_PAINT never touched). A reused buffer still
+            // holds the previous frame, which is a safe backdrop for
+            // anything a page leaves transparent -- and skipping this fill
+            // removes the last full-area GDI work from every frame.
+            RECT all = { 0, 0, w, h };
+            gfx::Brush bgBrush(Pal().bg);
+            FillRect(m_mem, &all, bgBrush);
+        }
+        return;
+    }
+
     m_mem = CreateCompatibleDC(m_wdc);
     m_bmp = CreateCompatibleBitmap(m_wdc, w, h);
     if (m_mem && m_bmp) {
@@ -612,9 +658,7 @@ PaintDC::PaintDC(HWND hwnd, bool useBackBuffer) : m_hwnd(hwnd)
         // against whatever was in here, so a partially covered frame used
         // to present as black noise for a moment. Pre-fill with the theme
         // background: transparency then degrades to the correct colour
-        // instead of garbage. Only the blitted rect needs defined pixels,
-        // and on the GDI path Shell::Paint repaints the whole clip anyway,
-        // so a partial update only pre-fills the part we will present.
+        // instead of garbage.
         gfx::Brush bgBrush(Pal().bg);
         FillRect(m_mem, &m_update, bgBrush);
     }
@@ -622,11 +666,18 @@ PaintDC::PaintDC(HWND hwnd, bool useBackBuffer) : m_hwnd(hwnd)
 
 PaintDC::~PaintDC()
 {
-    if (m_mem) {
-        if (m_old) SelectObject(m_mem, m_old);
-        if (m_bmp) DeleteObject(m_bmp);
-        DeleteDC(m_mem);
+    // The cache path hands ownership back to the owner; only the
+    // allocate-per-frame path destroys the objects it made here.
+    if (!m_cache) {
+        if (m_mem) {
+            if (m_old) SelectObject(m_mem, m_old);
+            if (m_bmp) DeleteObject(m_bmp);
+            DeleteDC(m_mem);
+        }
     }
+    m_mem = nullptr;
+    m_bmp = nullptr;
+    m_old = nullptr;
     if (m_began) EndPaint(m_hwnd, &m_ps);
 }
 

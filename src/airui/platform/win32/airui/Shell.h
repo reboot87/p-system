@@ -302,6 +302,9 @@ private:
     // PaintClip() to skip work that will only be clipped away.
     RECT          m_paintClip = {};
 
+    // Window back buffer reused across WM_PAINTs (GDI path only).
+    PaintDC::BackBuffer m_backBuffer;
+
     int           m_dpi     = 96;
     int           m_capHover = 0;
     bool          m_paintBtnHover = false;

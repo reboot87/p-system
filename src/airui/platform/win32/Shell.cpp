@@ -189,6 +189,7 @@ Shell::~Shell()
         if (slot.page) slot.page->OnDetach();
     m_pages.clear();
     m_fonts.Destroy();
+    m_backBuffer.Release();
 }
 
 // ============================================================
@@ -1442,7 +1443,7 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         const bool skiaDirect =
             (NormalizeBackend(m_paintBackend) == "skia") &&
             PainterRegistry::Instance().Available("skia");
-        PaintDC pdc(hwnd, !skiaDirect);
+        PaintDC pdc(hwnd, !skiaDirect, skiaDirect ? nullptr : &m_backBuffer);
         const long long tDc1 = QpcUs();
         if (pdc.dc()) {
             // Report the dirty rect for pages that want to skip clipped work.
