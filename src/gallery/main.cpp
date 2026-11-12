@@ -1389,6 +1389,10 @@ private:
         auto markLocal = [&](const RECT& local) {
             RECT r = local;
             OffsetRect(&r, m_content.left, m_content.top - m_scroll);
+            // 控件会在自身矩形外多画一点：hover 底光四周各 4px，分组标题的
+            // 分隔线在底边下方 8px。失效区必须把这个外扩量算进去，否则
+            // 局部重绘会在这些边缘留下上一帧的像素。
+            InflateRect(&r, 8, 10);
             if (r.left   < m_content.left)   r.left   = m_content.left;
             if (r.top    < m_content.top)    r.top    = m_content.top;
             if (r.right  > m_content.right)  r.right  = m_content.right;
