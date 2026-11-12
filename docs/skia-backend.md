@@ -371,24 +371,32 @@ airecord.exe --paint-backend=skia
 
 **② 调用序列层**：`test_skia_backend` 用 `PaintRecorder` 把 core 金样与后端实收的 `IPainter` 调用序列做 `Diff()`，两后端必须**完全一致**。这保证差别只来自光栅化，而不是布局或漏画。
 
-**③ 像素层（真正看出差别）**：`test_paint_compare.exe` 让 gdi 与 skia 在同一块 240×120 32bpp BGRA DIB 上接收**完全相同**的调用序列（背景、圆角、半透明矩形、虚线框、文字），读回像素后分区统计。默认构建无 DLL 时只打印 GDI 基线并跳过；把 exe 放进插件包目录即输出完整报告：
+**③ 像素层（真正看出差别）**：`test_paint_compare.exe` 让 gdi 与 skia 在同一块 320×240 32bpp BGRA DIB 上接收**完全相同**的调用序列（背景、圆角填充/描边、两级半透明、矩形/虚线描边、`Text`、`TextBlock`、嵌套裁剪、`Translate`），读回像素后分区统计。序列经 `PaintFrame` 走生产路由，文字因此遵循运行时策略：本机插件探测未通过时两端都是 `text=host`（宿主 GDI 重放），文字区域必须逐像素一致；探测通过时该区域变成真实的 Skia 文本对比。默认构建无 DLL 时只打印 GDI 基线并跳过；把 exe 放进插件包目录即输出完整报告：
 
 ```
-  gdi  checksum    : 0xBB956986   round-edge intermediates: 0
-  skia checksum    : 0xB1926836   round-edge intermediates: 69
+  gdi  checksum    : 0xC8F2733F (repeat 0xC8F2733F)
+  providers        : gdi(ready),skia(ready)
+  airui-skia.dll   : loaded
+  skia text        : host replay
 ```
 
 本机实测（VS2017 x64 exe + VS2022 x64 `airui-skia.dll`，判据 `|dB|+|dG|+|dR| > 12`）：
 
-| 区域 | 差异像素 / 总像素 | 平均通道差 | 差异来源 |
-|---|---|---|---|
-| 整帧 | 1274 / 28800（4.4%） | 14.1 | 累加 |
-| 圆角矩形 | 209 / 4992（4.2%） | 12.3 | GDI `CreateRoundRectRgn` 硬边（中间色像素 **0**）vs Skia `drawRRect` 开抗锯齿（**69** 个过渡像素） |
-| 半透明矩形 | 0 / 3456（**0.0%**） | 0.0 | 两端最终都走 `AlphaBlend`，结果完全一致 |
-| 虚线框 | 400 / 6912（5.8%） | 22.9 | `PS_USERSTYLE` 硬边 vs `SkDashPathEffect` + AA，虚线相位也不同 |
-| 文字 | 415 / 2592（**16.0%**） | 44.1 | **修复前基线**：当时插件默认 typeface 完全没有可用字形（`drawSimpleText` + 无 CJK/字体回退），GDI 有字、Skia 一片空白；**不是** hinting 或字距差异。字体修复（commit `0cb349f`）后该合成测试应大幅下降，待重测 |
+| 区域 | 差异像素 | inked GDI / Skia | 平均亮度差 | 差异来源 |
+|---|---|---|---|---|
+| 整帧 | 2.7% | 34.1% / 35.3% | 0.3 | 累加 |
+| 圆角填充 | 4.2% | 94.0% / 98.2% | 4.9 | GDI `CreateRoundRectRgn` 硬边 vs Skia `drawRRect` 抗锯齿 |
+| 圆角描边 | 4.2% | 8.9% / 7.5% | 4.6 | 同上，边缘覆盖率不同 |
+| 半透明 50% | 0.0% | 100.0% / 100.0% | 0.0 | 两端最终都走 `AlphaBlend`，结果完全一致 |
+| 半透明 25% | 0.0% | 100.0% / 100.0% | 1.0 | 同上 |
+| 矩形描边 | 8.1% | 8.1% / 8.1% | 7.7 | 1px 硬线 vs 抗锯齿细线，覆盖率相同 |
+| 虚线框 | 4.2% | 2.8% / 2.8% | 2.7 | `PS_USERSTYLE` vs `SkDashPathEffect`，相位不同 |
+| 单行文字 | 0.0% | 10.7% / 10.7% | 0.0 | 本机插件 `text=host`：两端同一份 GDI 重放 |
+| 多行文字 | 0.0% | 26.2% / 26.2% | 0.0 | 同上 |
+| 嵌套裁剪 | 0.0% | 92.5% / 92.5% | 0.0 | 裁剪语义一致，无越界渗漏 |
+| Translate | 0.0% | 100.0% / 100.0% | 0.0 | 偏移量与叠加语义一致 |
 
-**肉眼分辨要点（GUI 整窗）**：看圆角卡片边缘、描边、虚线相位，以及状态栏小圆点——GDI 的 6px `Ellipse` 呈菱形，Skia 的 `FillRound` + AA 是圆形；纯色矩形与半透明矩形基本看不出区别。文字在 GUI 里默认由 Skia 直接绘制（`text=backend`，探测通过时），两后端字形一致；若探测未通过则回退到宿主 GDI 重放（`text=host`），同样可读。上表 16% 是**修复前**的合成测试基线，说明当时字体层未打通，而非界面上会看到字形差异（§5.4）。
+整帧 **2.7%** 差异像素、**SSIM 0.8876**。门禁用的是后端无关的结构指标而不是逐像素相等：每个后端必须确定性（同输入两次校验和相同）、每个区域 inked 覆盖率相对差 ≤ 25%（覆盖率 ≥ 2% 才判定）、平均亮度差 ≤ 12、整帧差异 ≤ 12%、SSIM ≥ 0.80。这三条曾直接抓到「裸 `IPainter` 没有字体表，Skia 静默丢弃 `Text`，文字区域 ink=0%」的缺陷——修复方式就是让测试经 `PaintFrame` 走生产文字路径。
 
 ---
 
@@ -432,7 +440,8 @@ airecord.exe --paint-backend=skia
 - **没有 Skia 版 `IWindow`**：目前只有绘制后端。窗口壳、消息泵、事件注入仍由 `Win32Window` 负责；Linux/macOS 应用本体仍不可构建。
 - **插件 ABI 有工具集与位数边界**：实测 MSVC v141 (VS2017 x64) ↔ v143 (VS2022 x64) 跨代可用（§5.2），但 **x86 进程无法加载 x64 DLL**——本机官方 `build/` 是 x86、CI 产物是 x64，直接放旁边只会静默回退 gdi。仍要求 MSVC 同族、一致 `/MD` 与 `_ITERATOR_DEBUG_LEVEL`；纯 C 绘制桥与非 MSVC 编译器验证均未做。
 - **文字默认由 Skia 直接绘制（`text=backend`）**：字体修复（commit `0cb349f`）后，插件用 `SkCreateTypefaceFromLOGFONT` 创建 "Microsoft YaHei UI" + "Segoe MDL2 Assets" typeface，探测 `SkiaPluginSupportsWideText()` 应返回 true，整窗含文字一起是 Skia 画的。`text=host` 仅作为探测失败时的安全回退（仍由宿主 GDI 重放文字，保证中文/图标可读）。如仍观察到 `text=host`，先确认 `airecord.exe` 同目录已部署 `airui-skia.dll` 且 CI 插件为最新（含字体修复）。
-- **真实 GUI 截图 diff**：已完成逐窗口像素统计（整窗 1.93% / 内容区 0.83% / 往返 0.07%，§5.3、§5.4），但只是手工截图比对，**SSIM 指标与自动化截图基线仍未建立**。
+- **真实 GUI 截图 diff**：已完成逐窗口像素统计（整窗 1.93% / 内容区 0.83% / 往返 0.07%，§5.3、§5.4）；**SSIM 与自动化基线现在只在合成场景（`test_paint_compare`，320×240，整帧 2.7%、SSIM 0.8876）上建立**，真实 GUI 的自动截图 SSIM 仍未接入 CI（需要带窗口的 runner）。
+- **`test_paint_compare` 的文字一致性依赖运行时文字策略**：本机插件当前走 `text=host`，两端都由图宿主 GDI 重放，因此文字区域逐像素相同（差异 0.0%）；`text=backend` 时该区域变成真实的 GDI-vs-Skia 字形对比，阈值可能触发，需要按 §4.1 的字体对齐结论单独看，而不是当成回归。CI 默认产物无 DLL，只跑 GDI 基线分支。
 - **VS2017 只验证了「使用 DLL」，未验证「编译 Skia」**：真 SDK 源码编译仍只在 VS2022 CI 上做；官方 VS2017 工具链 x64 产物通过下载 DLL 使用 Skia 已实测（整窗 GUI 截图、像素差异、启动诊断、双向热切换，§5.2 / §5.3 / §5.4）。CI 目前只出 **x64** 插件，x86 官方产物需 x64 构建或另出 x86 artifact。
 - **Skia API 版本漂移**：所有 Skia 头集中在 `SkiaApi.h`；已在 vcpkg `skia@148` 上校准（§5.1），但 `drawSimpleText` / `measureText` 等仍可能随版本变化。
 - **整窗重绘的时序约束（切页/切菜单不能闪）**：Skia 一帧是「离屏光栅化 → `AlphaBlend` 到内存 DC → `BitBlt` 上屏」，只有最后那次 `BitBlt` 才真正改变屏幕。所以**任何中间态都不能被呈现**，而最容易被呈现的中间态恰恰是「背景色」。实测根因（commit `d6374b8`）：`SwitchPage()` 解除 `WM_SETREDRAW FALSE` 冻结时，Windows 会以**带 erase** 的方式重绘整个客户区，`WM_ERASEBKGND` 先把 1120×780 全填成主题背景色，而真正的 Skia 帧还要 46–63 ms 才上屏——这一帧纯背景就是用户看到的「全屏闪动」。修法是切页期间用 `m_eraseSuppressed` 让 `WM_ERASEBKGND` 只认领不填充，随后一次 `RedrawWindow(RDW_INVALIDATE|RDW_UPDATENOW|RDW_NOERASE|RDW_ALLCHILDREN)` 同步呈现唯一一帧；`m_paintedOnce` 保证窗口第一帧仍正常擦背景（否则新暴露区域会露未初始化内容）。同时「隐藏旧页 → 改选中态 → 布局 → 显示新页」整段收在冻结区内（`OnShow(true)` 若留在解冻之后，子控件会先擦背景露白块）。
@@ -445,6 +454,6 @@ airecord.exe --paint-backend=skia
 ## 7. 下一步
 
 1. ~~观察 `test_skia_plugin` 首次真 SDK 结果~~ 已完成：run `42337859169` 四个作业全绿，插件 DLL 与动态加载测试**首跑即通过**，无需修正 ABI / 导出名；后续每次 push/PR 自动复验。
-2. ~~校准字体度量与 CJK 回退~~ 已完成（commit `0cb349f` 建 face 回退；后续 commit 把字号改为 GDI 宽度标定、修掉 DPI 缩放、字重补 semibold、省略号条件化，见 §4.1）：`EnsureFaces()` 用 `SkCreateTypefaceFromLOGFONT` 创建 "Microsoft YaHei UI" / "Segoe MDL2 Assets" typeface 并做逐码点回退，`SkiaPluginSupportsWideText()` 应返回 true、自动进入 `text=backend` 纯 Skia 整窗；待重测确认探测通过后再补 GDI vs Skia 截图阈值 / SSIM 基线。
+2. ~~校准字体度量与 CJK 回退~~ 已完成（commit `0cb349f` 建 face 回退；后续 commit 把字号改为 GDI 宽度标定、修掉 DPI 缩放、字重补 semibold、省略号条件化，见 §4.1）：`EnsureFaces()` 用 `SkCreateTypefaceFromLOGFONT` 创建 "Microsoft YaHei UI" / "Segoe MDL2 Assets" typeface 并做逐码点回退。合成场景的 GDI vs Skia 结构门禁与 SSIM 基线已建立（`test_paint_compare`，整帧 2.7% / SSIM 0.8876，见 §5.3），但本机插件探测仍走 `text=host`，`text=backend` 下的合成文字对比与真实 GUI 自动截图 SSIM 仍是待办。
 3. 把 `test_paint_frame` 的帧路由契约与 GUI 截图比对接入 CI（需要带窗口的 runner 步骤）。
 3. Phase 2 剩余：Skia 版 `IWindow` / Linux 窗口壳（`cross-platform.md` §10 仍待定）。
