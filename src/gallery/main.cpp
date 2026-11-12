@@ -147,11 +147,34 @@ public:
                     HandleOverlayKey(vk, shift);
                     res = 0; return true;
                 }
+                // 搜索框聚焦时：Backspace 删字，Enter 交还焦点给内容。
+                if (m_searchFocus) {
+                    if (vk == VK_BACK) {
+                        if (!m_search.empty()) {
+                            std::wstring q = m_search;
+                            q.pop_back();
+                            SetSearch(q);
+                        }
+                        res = 0; return true;
+                    }
+                    if (vk == VK_ESCAPE || vk == VK_RETURN) {
+                        m_searchFocus = false;
+                        if (m_shell) m_shell->Invalidate();
+                        res = 0; return true;
+                    }
+                    return true;   // 其它键在搜索框聚焦时被吸收
+                }
                 const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
                 if (HandleTextEditKey(vk, ctrl)) { res = 0; return true; }
             }
             if (msg == WM_CHAR) {
                 const wchar_t ch = static_cast<wchar_t>(wp);
+                if (m_searchFocus) {
+                    if (ch >= 32 && ch != L'T' && ch != L'D') {
+                        SetSearch(m_search + ch);
+                    }
+                    res = 0; return true;
+                }
                 // 'T' / 'D' are consumed by the theme / DPI shortcuts.
                 if (m_x.textbox.edit.hasFocus && ch >= 32 &&
                     ch != L'T' && ch != L'D') {
@@ -327,6 +350,12 @@ public:
         m_shellCore.Layout(rc);
         Rect c = m_shellCore.ContentRect();
         m_content = {c.left, c.top, c.right, c.bottom};
+        // 顶部搜索框：占内容区顶行，首条内容让位到其下方。
+        m_searchBox = { m_content.left + 20,
+                        m_content.top  + 16,
+                        m_content.right - 20,
+                        m_content.top  + 16 + kSearchH };
+        m_topInset = (m_searchBox.bottom - m_content.top) + kSearchGap;
         Build();
         ClampScroll();
         UpdateActiveNav();
@@ -379,6 +408,37 @@ public:
 
         // 内容区整块白底，与灰底页面、侧边导航形成三层结构
         g.Fill(region, p.surface);
+
+        // 顶部搜索框：复用 TextField 的绘制，占内容区顶行。
+        {
+            Rect rc{m_searchBox.left, m_searchBox.top,
+                    m_searchBox.right, m_searchBox.bottom};
+            TextFieldState st;
+            st.base.hover = m_searchHover;
+            st.text = m_search;
+            st.placeholder = L"搜索组件（如 Button）…";
+            st.hasFocus = !m_search.empty();   // 有词时高亮描边
+            CanvasPainter painter(g);
+            PaintTextField(painter, rc, st, Pal(), Mx());
+            // 清空按钮：有词时在右侧画一个 ×。
+            if (!m_search.empty()) {
+                const int cy = (m_searchBox.top + m_searchBox.bottom) / 2;
+                (void)cy;
+                RECT clear = { m_searchBox.right - 30, m_searchBox.top,
+                               m_searchBox.right - 8, m_searchBox.bottom };
+                g.Text(clear, L"\u2715", FontRole::Body, p.textDisabled,
+                       DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
+            }
+        }
+
+        // 空结果提示：过滤没有任何命中时，在搜索框下方给出说明。
+        if (m_items.empty() && FilterActive()) {
+            RECT hint = { m_searchBox.left, m_searchBox.bottom + 24,
+                          m_searchBox.right, m_searchBox.bottom + 60 };
+            g.Text(hint, L"没有匹配“" + m_search + L"”的组件 · 按 Esc 清空",
+                   FontRole::Meta, p.textSub,
+                   DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
+        }
 
         const int scroll = m_scroll;
         const int ox = region.left;              // 内容区原点
@@ -733,6 +793,48 @@ private:
     }
 
     // --------------------------------------------------------
+    // 组件搜索：按名称过滤分组。过滤只影响 Build() 画什么，
+    // 交互状态（hover/checked/…）保留，清空查询即恢复全量。
+    // --------------------------------------------------------
+    bool FilterActive() const { return !m_search.empty(); }
+
+    // 分组名命中查询词（ASCII 大小写不敏感；宽字符用小写逐个比较）。
+    bool NameMatches(const wchar_t* name) const {
+        if (m_search.empty()) return true;
+        const std::wstring n = name;
+        const std::wstring q = m_search;
+        if (q.size() > n.size()) return false;
+        // 前缀匹配，比包含匹配更贴近"按名称搜索组件"的预期。
+        for (size_t i = 0; i < q.size(); ++i) {
+            wchar_t a = n[i], b = q[i];
+            if (a >= L'A' && a <= L'Z') a += 32;
+            if (b >= L'A' && b <= L'Z') b += 32;
+            if (a != b) return false;
+        }
+        return true;
+    }
+
+    // 设置查询词并重建。过滤与滚动互相独立：清空查询后回到
+    // 顶部（否则旧滚动量会落在不存在的 y 上）。整窗失效。
+    void SetSearch(const std::wstring& q) {
+        if (m_search == q) return;
+        m_search = q;
+        Build();
+        m_scroll = 0;
+        ClampScroll();
+        UpdateActiveNav();
+        if (m_shell) m_shell->Invalidate();
+        SetStatusText(q.empty() ? L"搜索已清空"
+                     : L"搜索“" + q + L"” · " +
+                       std::to_wstring((int)m_sections.size()) + L" 个分组");
+    }
+
+    // 命中测试：鼠标点进搜索框就返回 true（用于失效与点击）。
+    bool SearchHit(POINT pt) const {
+        return PtInRect(&m_searchBox, pt) != FALSE;
+    }
+
+    // --------------------------------------------------------
     // Overlay / focus plumbing. All rectangles are in content
     // space (same as Item::rect); CanvasPainter::Translate maps
     // them to the window when drawing.
@@ -1007,21 +1109,25 @@ private:
 
         m_items.clear(); m_cards.clear();
         m_sections.clear(); m_sectionTop.clear();
-        int y = 16;                              // 顶部留白，避免首张卡片贴住标题栏
+        int y = m_topInset;                      // 顶部让位搜索框（无搜索框时 16）
         const int x = 20;                        // 左右留白，卡片不压住导航栏
         int w = m_content.right - m_content.left;
         if (w < 240) w = 240;
         const int contentW = w - 40;
 
         auto sec = [&](const wchar_t* t){
+            // 搜索过滤：查询词非空时，只保留名字命中的分组。
+            // 命中判断对 ASCII 大小写不敏感（Button / button 都能搜到）。
+            if (FilterActive() && !NameMatches(t)) return false;
             Item it; it.kind=Item::Section; it.text=t; it.rect={x,y,x+contentW,y+22};
             m_items.push_back(it);
             m_sectionTop[t] = y;                 // 供导航跳转
             m_sections.push_back({t, y});        // 供滚动高亮
             y+=60;
+            return true;
         };
 
-        sec(L"Button");
+        if (sec(L"Button"))
         {
             const wchar_t* texts[] = {L"Primary", L"Secondary", L"Danger", L"Ghost"};
             BtnStyle styles[] = {BtnStyle::Primary, BtnStyle::Secondary, BtnStyle::Danger, BtnStyle::Ghost};
@@ -1040,7 +1146,7 @@ private:
             y += ((4 + cols - 1) / cols) * (bh + gap) + 10;
         }
 
-        sec(L"Checkbox");
+        if (sec(L"Checkbox"))
         {
             // 窄窗口竖排、宽窗口横排（自适应）
             bool horizontal = contentW >= 360;
@@ -1056,7 +1162,7 @@ private:
             y += horizontal ? 32 : 56;
         }
 
-        sec(L"Radio");
+        if (sec(L"Radio"))
         {
             bool horizontal = contentW >= 360;
             const wchar_t* texts[] = {L"选项1", L"选项2"};
@@ -1071,7 +1177,7 @@ private:
             y += horizontal ? 32 : 56;
         }
 
-        sec(L"ToggleSwitch");
+        if (sec(L"ToggleSwitch"))
         {
             const wchar_t* labels[] = {L"关闭", L"开启", L"禁用"};
             for (int i = 0; i < 3; i++) {
@@ -1084,7 +1190,7 @@ private:
             }
         }
 
-        sec(L"TextField");
+        if (sec(L"TextField"))
         {
             const wchar_t* labels[] = {L"正常", L"禁用"};
             for (int i = 0; i < 2; i++) {
@@ -1097,7 +1203,7 @@ private:
             }
         }
 
-        sec(L"Segmented");
+        if (sec(L"Segmented"))
         {
             const wchar_t* labels[] = {L"正常", L"禁用"};
             for (int i = 0; i < 2; i++) {
@@ -1110,7 +1216,7 @@ private:
             }
         }
 
-        sec(L"ComboBox");
+        if (sec(L"ComboBox"))
         {
             const wchar_t* labels[] = {L"正常", L"禁用"};
             for (int i = 0; i < 2; i++) {
@@ -1122,7 +1228,7 @@ private:
             }
         }
 
-        sec(L"Tag");
+        if (sec(L"Tag"))
         {
             const wchar_t* labels[] = {L"正常", L"选中", L"禁用"};
             for (int i = 0; i < 3; i++) {
@@ -1135,7 +1241,7 @@ private:
             }
         }
 
-        sec(L"Rating");
+        if (sec(L"Rating"))
         {
             const wchar_t* labels[] = {L"3星", L"5星", L"禁用"};
             for (int i = 0; i < 3; i++) {
@@ -1148,7 +1254,7 @@ private:
             }
         }
 
-        sec(L"Stepper");
+        if (sec(L"Stepper"))
         {
             const wchar_t* labels[] = {L"正常", L"禁用"};
             for (int i = 0; i < 2; i++) {
@@ -1161,7 +1267,7 @@ private:
             }
         }
 
-        sec(L"ProgressRing");
+        if (sec(L"ProgressRing"))
         {
             const wchar_t* labels[] = {L"50%", L"禁用"};
             for (int i = 0; i < 2; i++) {
@@ -1174,7 +1280,7 @@ private:
             }
         }
 
-        sec(L"Badge");
+        if (sec(L"Badge"))
         {
             Item it; it.kind=Item::Badge; it.text=L"9";
             it.rect={x, y, x+80, y+28};
@@ -1182,7 +1288,7 @@ private:
             y += 44;
         }
 
-        sec(L"Slider");
+        if (sec(L"Slider"))
         {
             const wchar_t* labels[] = {L"正常", L"禁用"};
             for (int i = 0; i < 2; i++) {
@@ -1195,7 +1301,7 @@ private:
             }
         }
 
-        sec(L"ProgressBar");
+        if (sec(L"ProgressBar"))
         {
             const wchar_t* labels[] = {L"25%", L"60%", L"禁用"};
             for (int i = 0; i < 3; i++) {
@@ -1208,7 +1314,7 @@ private:
             }
         }
 
-        sec(L"Card");
+        if (sec(L"Card"))
         {
             const int minCard = 210;
             const int gap = 12;
@@ -1232,7 +1338,7 @@ private:
             y = cy + rows * 162 + 10;
         }
 
-        sec(L"Alert");
+        if (sec(L"Alert"))
         {
             struct A { AlertKind k; const wchar_t* t; const wchar_t* m; bool dis; };
             const A arr[] = {
@@ -1252,7 +1358,7 @@ private:
             }
         }
 
-        sec(L"Tabs");
+        if (sec(L"Tabs"))
         {
             const wchar_t* labels[] = {L"正常", L"禁用"};
             for (int i = 0; i < 2; i++) {
@@ -1265,7 +1371,7 @@ private:
             }
         }
 
-        sec(L"Avatar");
+        if (sec(L"Avatar"))
         {
             const wchar_t* labels[] = {L"A", L"UI", L"禁"};
             for (int i = 0; i < 3; i++) {
@@ -1277,7 +1383,7 @@ private:
             y += 64;
         }
 
-        sec(L"Skeleton");
+        if (sec(L"Skeleton"))
         {
             Item it; it.kind = Item::Skeleton; it.lines = 3;
             it.rect = {x, y, x + contentW, y + 72};
@@ -1285,7 +1391,7 @@ private:
             y += 88;
         }
 
-        sec(L"Table");
+        if (sec(L"Table"))
         {
             const int titleH = (m_table.showTitle && !m_table.title.empty())
                                ? Mx().rowH : 0;
@@ -1297,7 +1403,7 @@ private:
             y += h + 24;
         }
 
-        sec(L"List");
+        if (sec(L"List"))
         {
             const int h = (int)m_list.items.size() * ListRowHeight(m_list, Mx()) + 2;
             Item it; it.kind = Item::List;
@@ -1306,7 +1412,7 @@ private:
             y += h + 24;
         }
 
-        sec(L"Tree");
+        if (sec(L"Tree"))
         {
             const int rows = (int)TreeVisibleNodes(m_tree).size();
             const int h = rows * TreeRowHeight(Mx()) + 2;
@@ -1316,7 +1422,7 @@ private:
             y += h + 24;
         }
 
-        sec(L"Breadcrumb");
+        if (sec(L"Breadcrumb"))
         {
             Item it; it.kind = Item::Breadcrumb;
             it.rect = {x, y, x + contentW, y + 36};
@@ -1324,7 +1430,7 @@ private:
             y += 52;
         }
 
-        sec(L"Pagination");
+        if (sec(L"Pagination"))
         {
             Item it; it.kind = Item::Pagination;
             it.rect = {x, y, x + contentW, y + 40};
@@ -1332,7 +1438,7 @@ private:
             y += 56;
         }
 
-        sec(L"Toast");
+        if (sec(L"Toast"))
         {
             for (int i = 0; i < (int)m_toasts.size(); ++i) {
                 Item it; it.kind = Item::Toast; it.value = i;
@@ -1342,7 +1448,7 @@ private:
             }
         }
 
-        sec(L"Overlay");
+        if (sec(L"Overlay"))
         {
             const wchar_t* labels[] = {L"Tooltip", L"Dropdown", L"Modal"};
             for (int i = 0; i < 3; ++i) {
@@ -1363,7 +1469,7 @@ private:
         // 状态全部存在 m_x，resize 重建 Item 不会丢失交互。
         for (int i = 0; i < extragallery::Count(); ++i) {
             const auto& d = extragallery::Defs()[static_cast<size_t>(i)];
-            sec(d.label);
+            if (!sec(d.label)) continue;         // 搜索过滤：整块跳过
             Item it; it.kind = Item::Extra; it.ext = i;
             it.rect = {x, y, x + contentW, y + d.height};
             m_items.push_back(it);
@@ -1420,6 +1526,17 @@ private:
             if (!any) { dirty = r; any = true; }
             else { RECT u; UnionRect(&u, &dirty, &r); dirty = u; }
         };
+        // 搜索框在客户区顶部、固定不随内容滚动，直接以客户区坐标失效。
+        auto markSearchClient = [&]() {
+            RECT r = m_searchBox;
+            InflateRect(&r, 4, 4);
+            if (r.left   < m_content.left)   r.left   = m_content.left;
+            if (r.right  > m_content.right)  r.right  = m_content.right;
+            if (r.bottom > m_content.bottom) r.bottom = m_content.bottom;
+            if (r.right <= r.left || r.bottom <= r.top) return;
+            if (!any) { dirty = r; any = true; }
+            else { RECT u; UnionRect(&u, &dirty, &r); dirty = u; }
+        };
 
         // 数据/导航控件的 hover 保存在成员里（而非 Item），这样
         // 窗口 resize 重建布局后状态不会丢。先算出目标值再比较标脏。
@@ -1428,6 +1545,29 @@ private:
         if (msg == WM_MOUSEMOVE) {
             RECT ovlRect{};
             if (UpdateOverlayHover(p, ovlRect)) markLocal(ovlRect);
+        }
+
+        // 搜索框悬停/点击：先处理，避免落到下面任一 Item 上。
+        const bool inSearch = SearchHit(pt);
+        if (msg == WM_MOUSEMOVE) {
+            if (m_searchHover != inSearch) {
+                m_searchHover = inSearch;
+                markSearchClient();
+            }
+        } else if (msg == WM_LBUTTONDOWN && inSearch) {
+            // 点「×」清空查询（有词时才画）。
+            const bool onClear = !m_search.empty() &&
+                pt.x >= m_searchBox.right - 30 &&
+                pt.x <  m_searchBox.right - 8;
+            if (onClear) {
+                SetSearch(L"");
+            } else {
+                m_searchFocus = true;
+            }
+            markSearchClient();
+        } else if (msg == WM_LBUTTONDOWN) {
+            // 点搜索框外：交还焦点并清空悬停。
+            if (m_searchFocus) { m_searchFocus = false; markSearchClient(); }
         }
 
         bool d = false;
@@ -1687,6 +1827,16 @@ private:
     bool m_dark=false;
     ShellCore m_shellCore;
     std::unique_ptr<Win32Window> m_win;
+
+    // 组件搜索：顶部搜索框 + 按名称过滤分组。过滤结果只画命中的
+    // 控件与分组标题；查询词为空时恢复全量。
+    RECT m_searchBox{};                     // 内容区顶部搜索框
+    bool m_searchHover = false;             // 鼠标悬停搜索框
+    bool m_searchFocus = false;             // 键盘输入进入搜索框
+    std::wstring m_search;                  // 当前查询词
+    int  m_topInset = 16;                   // 内容区顶部首行缩进
+    const int kSearchH = 30;                // 搜索框高度
+    const int kSearchGap = 12;              // 搜索框到首条内容的间距
 
     // Table / List / Tree / Breadcrumb / Pagination / Toast 状态
     bool m_dataReady = false;
