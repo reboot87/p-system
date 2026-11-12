@@ -95,12 +95,18 @@ public:
     int  NavScrollMax() const { return m_navScrollMax; }
 
     // --- Paint ---
-    void Paint(IPainter& painter, const Palette& pal, const Metrics& mx);
+    // clip (optional) is the dirty rectangle the backend is repainting, in
+    // shell coordinates. Bands and nav rows that cannot intersect it are
+    // skipped: a one-row hover then costs one row instead of every visible
+    // nav item. nullptr means "repainting everything".
+    void Paint(IPainter& painter, const Palette& pal, const Metrics& mx,
+               const Rect* clip = nullptr);
 
 private:
     void PaintCaption(IPainter& painter, const Palette& pal, const Metrics& mx);
     void PaintStatus(IPainter& painter, const Palette& pal, const Metrics& mx);
-    void PaintNav(IPainter& painter, const Palette& pal, const Metrics& mx);
+    void PaintNav(IPainter& painter, const Palette& pal, const Metrics& mx,
+                  const Rect* clip);
     void LayoutNav(const Metrics& mx);
 
     std::vector<ShellNavGroup> m_groups;

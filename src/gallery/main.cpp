@@ -346,7 +346,12 @@ public:
         {
             Rect rc{client.left, client.top, client.right, client.bottom};
             CanvasPainter painter(g);
-            m_shellCore.Paint(painter, p, Mx());
+            // 局部重绘时把脏区交给 ShellCore：只重画相交的导航行/条带。
+            const RECT& clip = m_shell ? m_shell->PaintClip() : client;
+            const bool partial = clip.left > client.left || clip.top > client.top ||
+                                 clip.right < client.right || clip.bottom < client.bottom;
+            Rect hint{clip.left, clip.top, clip.right, clip.bottom};
+            m_shellCore.Paint(painter, p, Mx(), partial ? &hint : nullptr);
         }
 
         // 画廊条目只在 ContentRect（导航右侧、标题下方、状态栏上方）内绘制
@@ -359,6 +364,18 @@ public:
 
         // 本次 WM_PAINT 真正脏的客户区（整窗失效时 == client；一次 hover 失效时
         // 只包含命中的条目/行）。窗口帧位图只 blit 这块（见 PaintDC::Flush）。
+        const RECT& clip = m_shell ? m_shell->PaintClip() : region;
+        const bool partial = clip.left > region.left || clip.top > region.top ||
+                             clip.right < region.right || clip.bottom < region.bottom;
+        // 条目会在自身矩形外多画一点（hover 底光 ±4px、分组标题底线 +8px），
+        // 失效区已按同样边距外扩，所以“外扩后仍不相交”即可安全跳过。
+        auto touchesClip = [&](const RECT& r) {
+            if (!partial) return true;
+            RECT t = r;
+            InflateRect(&t, 8, 10);
+            RECT i;
+            return IntersectRect(&i, &t, &clip) != FALSE;
+        };
 
         // 内容区整块白底，与灰底页面、侧边导航形成三层结构
         g.Fill(region, p.surface);
@@ -371,6 +388,7 @@ public:
             RECT r = it.rect;
             OffsetRect(&r, ox, oy);
             if (r.bottom < region.top || r.top > region.bottom) continue;
+            if (!touchesClip(r)) continue;
             // Hover highlight for all interactive items
             if (it.kind != Item::Section && it.kind != Item::Extra &&
                 it.hover && !it.disabled) {
@@ -576,6 +594,7 @@ public:
             RECT r = c->GetRect();
             OffsetRect(&r, ox, oy);
             if (r.bottom < region.top || r.top > region.bottom) continue;
+            if (!touchesClip(r)) continue;
             RECT old = c->GetRect(); c->SetRect(r); c->Paint(g); c->SetRect(old);
         }
 

@@ -844,34 +844,65 @@ void Shell::Paint(HDC dc)
     const long long tBegan = QpcUs();
     gfx::Fill(dc, rc, Pal().bg);
 
+    // A partial repaint (one hovered control, one nav row) still used to
+    // run every chrome text measurement and every page-level loop, with
+    // GDI merely clipping the output. Skip whole bands that the update
+    // region does not touch -- measurement is CPU work clipping cannot
+    // save. m_paintClip is the full client for a compositing backend, so
+    // this only ever narrows work on the GDI path.
+    if (m_paintClip.right <= m_paintClip.left ||
+        m_paintClip.bottom <= m_paintClip.top) {
+        m_paintClip = rc;                    // Paint() called outside WM_PAINT
+    }
+    const bool partialPaint =
+        m_paintClip.left > rc.left || m_paintClip.top > rc.top ||
+        m_paintClip.right < rc.right || m_paintClip.bottom < rc.bottom;
+    RECT isect;
+    auto hits = [this, &isect](const RECT& r) {
+        return IntersectRect(&isect, &r, &m_paintClip) != FALSE;
+    };
+    const bool chromeDirty = !partialPaint ||
+        hits(m_caption) || hits(m_side) || hits(m_status);
+    const bool contentDirty = !partialPaint || hits(m_content);
+
+    Rect clipRect{ m_paintClip.left, m_paintClip.top,
+                   m_paintClip.right, m_paintClip.bottom };
+    const Rect* clipHint = partialPaint ? &clipRect : nullptr;
 
     if (m_opt.coreShell) {
-        // HAL chrome still owns state and layout; its IPainter calls now
-        // go through the same frame router as everything else.
-        if (frameActive) {
-            m_shellCore.Paint(PaintFrame::Instance(), Pal(), Mx());
-        } else {
-            GdiPainter fallback(dc);
-            m_shellCore.Paint(fallback, Pal(), Mx());
+        if (chromeDirty) {
+            // HAL chrome still owns state and layout; its IPainter calls now
+            // go through the same frame router as everything else.
+            if (frameActive) {
+                m_shellCore.Paint(PaintFrame::Instance(), Pal(), Mx(), clipHint);
+            } else {
+                GdiPainter fallback(dc);
+                m_shellCore.Paint(fallback, Pal(), Mx(), clipHint);
+            }
         }
     } else {
         // Legacy rich chrome (logo, three caption buttons, status pills,
         // key hints). Its state is read back from ShellCore.
-        DrawCaption(dc, rc);
-        if (m_opt.sidebar) {
+        if (chromeDirty && hits(m_caption)) DrawCaption(dc, rc);
+        if (m_opt.sidebar && chromeDirty && hits(m_side)) {
             m_nav.Paint(dc, m_fonts);
             DrawSidebarFooter(dc);
         }
     }
 
-    if (IPage* p = CurrentPage()) p->OnPaint(dc, m_content);
+    if (contentDirty) {
+        if (IPage* p = CurrentPage()) p->OnPaint(dc, m_content);
+    }
 
-    if (!m_opt.coreShell && m_opt.statusBar) DrawStatusBar(dc, rc);
+    if (!m_opt.coreShell && m_opt.statusBar && chromeDirty && hits(m_status))
+        DrawStatusBar(dc, rc);
 
     // 外壳动作区最后画：两条 chrome 路径下都在最上层，且不会被页面
     // 的 HWND 子控件遮挡（标题栏内没有子控件）。
-    if (m_opt.coreShell) DrawCaptionButtons(dc, rc);
-    DrawPaintBackendButton(dc);
+    if (chromeDirty && hits(m_caption)) {
+        if (m_opt.coreShell) DrawCaptionButtons(dc, rc);
+        DrawPaintBackendButton(dc);
+    }
 
     const long long tDrawn = QpcUs();
 
@@ -1446,8 +1477,16 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         PaintDC pdc(hwnd, !skiaDirect, skiaDirect ? nullptr : &m_backBuffer);
         const long long tDc1 = QpcUs();
         if (pdc.dc()) {
-            // Report the dirty rect for pages that want to skip clipped work.
-            m_paintClip = pdc.update();
+            const RECT& upd = pdc.update();
+            const RECT& cli = pdc.client();
+            const bool partial = pdc.backBuffer() &&
+                (upd.left > cli.left || upd.top > cli.top ||
+                 upd.right < cli.right || upd.bottom < cli.bottom);
+            // Report the dirty rect for pages that want to skip clipped
+            // work. A compositing backend (Skia) rebuilds the whole client
+            // in its own framebuffer, so for it the effective clip is
+            // always the full client even when rcPaint is partial.
+            m_paintClip = partial ? upd : cli;
             // Honour the update region. BeginPaint's rcPaint is exactly
             // what changed; for a one-row hover that is a fraction of the
             // client, yet Paint() used to fill and draw all of it (about
@@ -1455,11 +1494,6 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             // proportional to the dirty area; the blit in Flush() is
             // likewise bounded, and the Skia path (no back buffer) is left
             // completely untouched.
-            const RECT& upd = pdc.update();
-            const RECT& cli = pdc.client();
-            const bool partial = pdc.backBuffer() &&
-                (upd.left > cli.left || upd.top > cli.top ||
-                 upd.right < cli.right || upd.bottom < cli.bottom);
             int saved = 0;
             if (partial) {
                 saved = SaveDC(pdc.dc());

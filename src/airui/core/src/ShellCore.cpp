@@ -113,11 +113,21 @@ int ShellCore::HitTestNav(const Point& p) const
     return -1;
 }
 
-void ShellCore::Paint(IPainter& painter, const Palette& pal, const Metrics& mx)
+namespace {
+// Rect-intersection helper (core Rect has Contains but no overlap test).
+inline bool Overlaps(const Rect& a, const Rect& b)
 {
-    PaintCaption(painter, pal, mx);
-    PaintNav(painter, pal, mx);
-    PaintStatus(painter, pal, mx);
+    return a.left < b.right && b.left < a.right &&
+           a.top < b.bottom && b.top < a.bottom;
+}
+} // namespace
+
+void ShellCore::Paint(IPainter& painter, const Palette& pal, const Metrics& mx,
+                      const Rect* clip)
+{
+    if (!clip || Overlaps(*clip, m_captionRect)) PaintCaption(painter, pal, mx);
+    if (!clip || Overlaps(*clip, m_navRect))     PaintNav(painter, pal, mx, clip);
+    if (!clip || Overlaps(*clip, m_statusRect))  PaintStatus(painter, pal, mx);
 }
 
 void ShellCore::PaintCaption(IPainter& painter, const Palette& pal, const Metrics& mx)
@@ -169,7 +179,8 @@ void ShellCore::PaintStatus(IPainter& painter, const Palette& pal, const Metrics
     }
 }
 
-void ShellCore::PaintNav(IPainter& painter, const Palette& pal, const Metrics& mx)
+void ShellCore::PaintNav(IPainter& painter, const Palette& pal, const Metrics& mx,
+                         const Rect* clip)
 {
     if (m_navRect.Empty()) return;
     if (m_navItemRects.empty() && !m_groups.empty()) LayoutNav(mx);
@@ -187,7 +198,8 @@ void ShellCore::PaintNav(IPainter& painter, const Palette& pal, const Metrics& m
         if (!g.title.empty())
         {
             Rect grc{ m_navRect.left + mx.unit, y, m_navRect.right - mx.unit, y + 18 };
-            painter.Text(grc, g.title, FontRole::Meta, pal.textSub, 0);
+            if (!clip || Overlaps(*clip, grc))
+                painter.Text(grc, g.title, FontRole::Meta, pal.textSub, 0);
             y += 18 + mx.unit;
         }
         for (const auto& it : g.items)
@@ -199,6 +211,8 @@ void ShellCore::PaintNav(IPainter& painter, const Palette& pal, const Metrics& m
             y += itemH + mx.unit;
 
             if (irc.bottom < m_navRect.top || irc.top > m_navRect.bottom) continue;
+            // 只重绘与脏区相交的行：一次单项 hover 不该重排整根导航。
+            if (clip && !Overlaps(*clip, irc)) continue;
 
             const bool active = (it.id == m_activeNav);
             // 禁用项不给悬停高亮：规划中的模块点了没反应，高亮会骗人。
