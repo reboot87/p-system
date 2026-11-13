@@ -40,6 +40,7 @@ enum {
     TIMER_SEARCH_DEBOUNCE = 1, // 搜索防抖 250ms
     TIMER_REFRESH_NOTIFY  = 2, // 服务端新记录通知 → 300ms 防抖刷新
     TIMER_SYSINFO         = 3, // 配置页 CPU/内存 2s 轮询
+    TIMER_SVC_HEARTBEAT   = 8, // 服务心跳 2s（PING\t<sessionId>，检测/拉起服务）
     TIMER_PROBE_HIDDEN    = 9, // 静默启动后的延迟显示（规避启动期窗口检查）
 };
 
@@ -122,6 +123,11 @@ public:
     // 工作台总览或机器配置页。
     void RefreshData();
 
+    // 服务心跳（TIMER_SVC_HEARTBEAT 每 2s 触发）：经全局管道发
+    // PING\t<sessionId>，让 Session 0 服务知道本会话 UI 存活；若服务
+    // 已停止则轻量探测、静默重启（SCM 优先，未安装才提权）并上报状态。
+    void Heartbeat();
+
     // ---- 剪贴板页门面（插件依赖的稳定接口） ----
     HWND List();
     HWND SearchEdit();
@@ -170,4 +176,7 @@ private:
     bool         m_showNoActivate = false;
     std::string  m_paintBackend;   // empty = auto (env / gdi)
     bool         m_coreShell = false;
+    // 上一轮心跳是否已检测到服务停止。避免每 tick 都在 UI 线程上做
+    // EnsureService 的最长 6s 轮询（只有连续两次探测失败才触发拉起）。
+    bool         m_heartbeatDown = false;
 };

@@ -209,6 +209,13 @@ int App::Run(HINSTANCE hInstance)
                 result = 0;
                 return true;
             }
+            // 服务心跳（2s）：让 Session 0 服务知道本会话 UI 存活；若服务
+            // 已停止，轻量探测并静默重启（SCM 优先），检测到回升时更新状态。
+            if (msg == WM_TIMER && wParam == TIMER_SVC_HEARTBEAT) {
+                Heartbeat();
+                result = 0;
+                return true;
+            }
             // 定时器先给插件（F3 搜索防抖 250ms）
             if (msg == WM_TIMER)
                 m_plugins.DispatchTimer(*this, (UINT_PTR)wParam);
@@ -336,6 +343,9 @@ int App::Run(HINSTANCE hInstance)
               (int)m_startHidden, m_showDelayMs);
     if (m_showDelayMs > 0)
         SetTimer(m_shell.Hwnd(), TIMER_PROBE_HIDDEN, (UINT)m_showDelayMs, nullptr);
+    // 服务心跳：窗口隐藏时消息循环仍在跑，心跳照样发，Session 0 服务借此
+    // 知道本会话 UI 存活；服务停了则由 Heartbeat() 检测并静默重启。
+    SetTimer(m_shell.Hwnd(), TIMER_SVC_HEARTBEAT, 2000, nullptr);
     int rc = m_shell.RunMessageLoop();
     diag::Log(L"[ui] message loop end, rc=%d", rc);
     m_plugins.DetachAll(*this);
@@ -485,4 +495,55 @@ void App::SyncServiceUi()
 
     m_shell.SetFooterText(ok ? L"AireRecord v1.3.1 · 服务已连接"
                              : L"AireRecord v1.3.1 · 服务未连接");
+}
+
+// ============================================================
+// 服务心跳（TIMER_SVC_HEARTBEAT 每 2s，UI 线程）
+// ============================================================
+void App::Heartbeat()
+{
+    // 1) 轻量连通性探测：Ping(0) 只做一次立即连接，发送裸 PING，快速失败。
+    //    它不会走 Request 内部的 EnsureService（最长 6s 轮询），因此不阻塞
+    //    UI 线程。会话号随第二步的 PING\t<sessionId> 带上。
+    const bool pipeUp = m_ipc.Ping(0);
+
+    if (pipeUp) {
+        // 服务可达：补发带会话号的心跳，让 Session 0 服务登记本会话存活。
+        // 管道已在，Request 不会阻塞（不再触发 EnsureService）。
+        m_ipc.Request(L"PING\t" + std::to_wstring(diag::SessionId()));
+
+        // 若上一轮还标记为 down，说明刚恢复：刷新状态并 toast 一次（避免刷屏）。
+        const bool wasDown = m_heartbeatDown;
+        m_heartbeatDown = false;
+        if (wasDown) {
+            RefreshStats();
+            SyncServiceUi();
+            Toast(L"服务已重启", L"系统服务已恢复，后台记录继续运行");
+        }
+        return;
+    }
+
+    // 2) 服务没响应。为不阻塞 UI：仅当连续两轮失败（已确认持续 down）时
+    //    才做 EnsureService（可能最长阻塞 6s 轮询）。
+    if (!m_heartbeatDown) {
+        m_heartbeatDown = true;      // 记录 down，下一轮再执行恢复动作
+        m_svcState = sysinfo::QueryServiceState(L"AireRecord", m_svcText);
+        SyncServiceUi();             // 状态栏立即反映"服务未连接"
+        return;
+    }
+
+    // 连续两轮失败 → 尝试静默重启服务（SCM 优先；未安装才提权 -install）
+    const bool recovered = m_ipc.EnsureService();
+    if (recovered) {
+        m_heartbeatDown = false;
+        m_ipc.Request(L"PING\t" + std::to_wstring(diag::SessionId())); // 登记本会话
+        RefreshStats();
+        SyncServiceUi();
+        Toast(L"服务已重启", L"系统服务已恢复，后台记录继续运行");
+    } else {
+        // 未能恢复（如服务被卸载且用户拒绝 UAC）→ 状态栏如实报告失败
+        m_svcState = sysinfo::QueryServiceState(L"AireRecord", m_svcText);
+        SyncServiceUi();
+        diag::Log(L"[heartbeat] service down, recovery failed, svc=%d", m_svcState);
+    }
 }

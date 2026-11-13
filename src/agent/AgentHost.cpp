@@ -267,6 +267,9 @@ void AgentHost::ShowTrayMenu()
         break;
     }
     case CMD_EXIT:
+        // 用户主动退出：写一次性标记，让 Session 0 服务知道本会话是主动
+        // 退出（而非崩溃），从而不再自动拉起本会话的 UI。
+        machine::Set(L"runtime", L"agent_stopped", L"1");
         if (m_onExitRequest) {
             m_onExitRequest();       // 合并模式：交给 UI 强制退出
         } else {

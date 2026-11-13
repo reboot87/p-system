@@ -30,6 +30,7 @@
 #include <userenv.h>
 #include <vector>
 #include <algorithm>
+#include <map>
 #include "../ipc/Ipc.h"
 #include "../ipc/PipeServer.h"
 #include "../core/DiagLog.h"
@@ -67,6 +68,11 @@ static std::wstring ExeDir()
 static Database      g_svcDb;
 static std::wstring   g_svcDbPathInternal;
 static PipeServer     g_svcServer;
+
+// 会话守护共享状态（PING 心跳写入 / WatchThread 巡检，受 g_cs 保护）。
+// 定义在此早于 HandleSvcIpc，使其 PING 分支可直接记录心跳。
+static CRITICAL_SECTION             g_cs;
+static std::map<DWORD, ULONGLONG>   g_sessionSeen;   // sessionId → 最近心跳 GetTickCount64
 
 static const wchar_t* SvcDbPath()
 {
@@ -128,8 +134,17 @@ static std::wstring HandleSvcIpc(const std::wstring& line)
     auto tok = ipc::SplitTabs(line);
     if (tok.empty()) return L"ERR\t空命令";
 
-    if (tok[0] == L"PING")
+    if (tok[0] == L"PING") {
+        // 心跳可携带会话号：PING\t<sessionId> → 记录该会话最后一次心跳。
+        // 无参 PING 保持向后兼容（仅探测连通性，返回 OK）。
+        if (tok.size() >= 2 && !tok[1].empty()) {
+            DWORD sid = (DWORD)_wtoi(tok[1].c_str());
+            EnterCriticalSection(&g_cs);
+            g_sessionSeen[sid] = GetTickCount64();
+            LeaveCriticalSection(&g_cs);
+        }
         return L"OK";
+    }
 
     if (tok[0] == L"LIST") {
         std::wstring filter = tok.size() > 1 ? ipc::UnescapeField(tok[1]) : L"";
@@ -242,7 +257,41 @@ static void DeleteLogonTask()
 static SERVICE_STATUS         g_svcStatus = {};
 static SERVICE_STATUS_HANDLE  g_svcHandle = nullptr;
 static HANDLE                 g_stopEvent = nullptr;
-static CRITICAL_SECTION       g_cs;
+
+// ============================================================
+// 会话守护（watchdog）状态
+//
+// 服务为每个活动登录会话拉起一个隐藏的 airecord.exe --hidden（UI +
+// 同进程剪贴板代理）。UI 每 2s 经全局管道发 PING\t<sessionId> 心跳，
+// WatchThread 巡检：
+//   · 某会话心跳超时（kHeartbeatTimeoutMs）→ 视为 UI 死亡，重启之；
+//   · 新会话登录 → 自动拉起；
+//   · 用户托盘「退出」→ 写入一次性 agent_stopped 标记，本会话不再拉起。
+// 共享状态 g_cs / g_sessionSeen 定义在文件前部（早于 HandleSvcIpc 的
+// PING 分支），此处只补充其余状态。
+// ============================================================
+static const ULONGLONG kHeartbeatTimeoutMs = 15000;   // UI 心跳超时阈值
+
+struct SessionProc {
+    DWORD  sessionId;
+    HANDLE process;        // 已拉起的 airecord.exe 进程句柄
+};
+
+static std::vector<SessionProc>   g_procs;         // 已拉起的会话 UI 进程
+static std::vector<DWORD>         g_stopped;       // 用户主动退出的会话（不再拉起）
+static std::wstring               g_clientPath;    // airecord.exe 完整路径（服务同目录）
+
+// 读取并消费一次性「用户主动退出」标记。返回 true 表示标记已设置。
+// 语义：AgentHost 托盘「退出」时写 machine [runtime] agent_stopped=1。
+// WatchThread 看到某会话 UI 退出时查询它：置位 → 加入 g_stopped 不再
+// 拉起；否则视为崩溃 → 重启。
+static bool AgentStoppedFlag()
+{
+    std::wstring v = machine::Get(L"runtime", L"agent_stopped", L"0");
+    if (v != L"1") return false;
+    machine::Set(L"runtime", L"agent_stopped", L"0");   // 消费掉（一次性）
+    return true;
+}
 
 static void SetSvcStatus(DWORD state, DWORD exitCode, DWORD waitHint)
 {
@@ -256,20 +305,243 @@ static void SetSvcStatus(DWORD state, DWORD exitCode, DWORD waitHint)
     SetServiceStatus(g_svcHandle, &g_svcStatus);
 }
 
-static void WINAPI ServiceCtrl(DWORD ctrl, DWORD /*eventType*/,
-                               LPVOID /*eventData*/, LPVOID /*context*/)
+// 前向声明：ServiceCtrl 的会话注销分支调用（定义在其后）
+static void RemoveSessionProcLocked(DWORD sessionId);
+
+static void WINAPI ServiceCtrl(DWORD ctrl, DWORD eventType,
+                               LPVOID eventData, LPVOID /*context*/)
 {
     switch (ctrl) {
     case SERVICE_CONTROL_STOP:
         SetSvcStatus(SERVICE_STOP_PENDING, NO_ERROR, 5000);
         if (g_stopEvent) SetEvent(g_stopEvent);
         return;
+    case SERVICE_CONTROL_SESSIONCHANGE: {
+        // 会话登录/注销 → 由 WatchThread 负责拉起/退出，这里只调整
+        // g_stopped 状态：登录清除"用户退出"记录（用户又回来了，重新拉起）；
+        // 注销直接移除进程句柄（本会话已不在，无需再拉起）。
+        if (!eventData) return;
+        const auto* ns = static_cast<const WTSSESSION_NOTIFICATION*>(eventData);
+        const DWORD sid = ns->dwSessionId;
+        EnterCriticalSection(&g_cs);
+        if (eventType == WTS_SESSION_LOGON) {
+            g_stopped.erase(std::remove(g_stopped.begin(), g_stopped.end(), sid),
+                            g_stopped.end());
+            g_sessionSeen.erase(sid);
+        } else if (eventType == WTS_SESSION_LOGOFF) {
+            RemoveSessionProcLocked(sid);
+        }
+        LeaveCriticalSection(&g_cs);
+        diag::Log(L"[svc] sessionchange type=%lu sid=%lu", (DWORD)eventType, sid);
+        return;
+    }
     case SERVICE_CONTROL_INTERROGATE:
         SetSvcStatus(g_svcStatus.dwCurrentState, NO_ERROR, 0);
         return;
     default:
         break;
     }
+}
+
+// ============================================================
+// 会话守护（watchdog）实现
+// ============================================================
+
+// 计算会话 UI 完整路径 = 服务 exe 同目录的 airecord.exe
+static std::wstring ClientExePath()
+{
+    if (!g_clientPath.empty()) return g_clientPath;
+    std::wstring p = ExeDir() + L"\\airecord.exe";
+    return p;
+}
+
+// 在指定会话（WTS 活动会话）内以该用户的令牌拉起隐藏的 airecord.exe --hidden。
+// 成功则登记 g_procs 并重置该会话心跳时刻。
+static bool LaunchAgentInSession(DWORD sessionId)
+{
+    // 会话令牌：SYSTEM 服务经 WTSQueryUserToken 取得对应用户令牌
+    HANDLE token = nullptr;
+    if (!WTSQueryUserToken(sessionId, &token)) {
+        diag::Log(L"[watchdog] WTSQueryUserToken sid=%lu failed gle=%lu",
+                  sessionId, GetLastError());
+        return false;
+    }
+    BOOL ok = FALSE;
+    void* env = nullptr;
+    // 用目标会话的用户环境（避免缺 USERPROFILE / APPDATA 等导致 UI 起不来）
+    if (!CreateEnvironmentBlock(&env, token, FALSE)) {
+        diag::Log(L"[watchdog] CreateEnvironmentBlock sid=%lu failed gle=%lu",
+                  sessionId, GetLastError());
+    }
+    std::wstring client = ClientExePath();
+    std::wstring cmd = L"\"" + client + L"\" --hidden";
+
+    STARTUPINFOW si = { sizeof(si) };
+    PROCESS_INFORMATION pi = {};
+    ok = CreateProcessAsUserW(token, client.c_str(), &cmd[0],
+                              nullptr, nullptr, FALSE, CREATE_UNICODE_ENVIRONMENT,
+                              env, nullptr, &si, &pi);
+    if (env) DestroyEnvironmentBlock(env);
+    CloseHandle(token);
+    if (!ok) {
+        diag::Log(L"[watchdog] CreateProcessAsUser sid=%lu path=%ls failed gle=%lu",
+                  sessionId, client.c_str(), GetLastError());
+        return false;
+    }
+    CloseHandle(pi.hThread);
+
+    EnterCriticalSection(&g_cs);
+    g_procs.push_back({ sessionId, pi.hProcess });
+    g_sessionSeen[sessionId] = GetTickCount64();
+    LeaveCriticalSection(&g_cs);
+    diag::Log(L"[watchdog] launched airecord --hidden sid=%lu pid=%lu",
+              sessionId, pi.dwProcessId);
+    return true;
+}
+
+// 枚举 WTS 活动会话，为每个"尚未拉起且用户未主动退出"的会话拉起 UI。
+// 若某会话已有最近心跳（哪怕不是本服务实例拉起的，如服务重启后存活的
+// 旧 UI），也视为存活而跳过，避免每轮重复拉起同会话的重复实例。
+static void LaunchMissingAgents()
+{
+    WTS_SESSION_INFOW* info = nullptr;
+    DWORD count = 0;
+    if (!WTSEnumerateSessionsW(WTS_CURRENT_SERVER_HANDLE, 0, 1, &info, &count)) {
+        diag::Log(L"[watchdog] WTSEnumerateSessions failed gle=%lu", GetLastError());
+        return;
+    }
+    const ULONGLONG now = GetTickCount64();
+    for (DWORD i = 0; i < count; ++i) {
+        const DWORD sid = info[i].SessionId;
+        if (info[i].State != WTSActive) continue;       // 只守护活动会话
+        bool already = false, stopped = false, alive = false;
+        EnterCriticalSection(&g_cs);
+        for (auto& p : g_procs)
+            if (p.sessionId == sid) { already = true; break; }
+        stopped = std::find(g_stopped.begin(), g_stopped.end(), sid)
+                  != g_stopped.end();
+        auto seen = g_sessionSeen.find(sid);
+        if (seen != g_sessionSeen.end())
+            alive = (now - seen->second < kHeartbeatTimeoutMs);
+        LeaveCriticalSection(&g_cs);
+        // 已在 g_procs、用户主动退出、或仍在心跳（存活中）→ 跳过
+        if (already || stopped || alive) continue;
+        LaunchAgentInSession(sid);
+    }
+    WTSFreeMemory(info);
+}
+
+// 移除某会话的进程记录（不强制结束，仅收尾；注销/超时重启时用）。
+static void RemoveSessionProcLocked(DWORD sessionId)
+{
+    for (auto it = g_procs.begin(); it != g_procs.end(); ++it) {
+        if (it->sessionId == sessionId) {
+            if (it->process) { CloseHandle(it->process); it->process = nullptr; }
+            g_procs.erase(it);
+            break;
+        }
+    }
+}
+
+// 巡检循环：每 ~2s 扫一次会话 UI 存活状态
+//   1. 回收已退出的进程（WaitForSingleObject 0）；若用户明确退出 → g_stopped，
+//      否则视为崩溃 → 立即重启。
+//   2. 心跳超时的会话 → 强制结束并重启。
+//   3. 补拉新登录会话。
+static DWORD WINAPI WatchThread(LPVOID)
+{
+    for (;;) {
+        // 短超时等待停止事件，服务停止时快速退出
+        if (WaitForSingleObject(g_stopEvent, 2000) == WAIT_OBJECT_0)
+            break;
+
+        const ULONGLONG now = GetTickCount64();
+
+        // 1) 回收已退出的会话 UI 进程
+        EnterCriticalSection(&g_cs);
+        std::vector<SessionProc> exited;
+        for (auto it = g_procs.begin(); it != g_procs.end(); ) {
+            DWORD code = 0;
+            if (WaitForSingleObject(it->process, 0) == WAIT_OBJECT_0) {
+                GetExitCodeProcess(it->process, &code);
+                exited.push_back(*it);
+                CloseHandle(it->process);
+                it = g_procs.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        LeaveCriticalSection(&g_cs);
+        for (auto& e : exited) {
+            // 先看本会话是否仍有存活的 UI（其它实例仍在心跳，比如服务重启后
+            // 存活的旧 UI）。若是，刚退出的进程只是冗余的第二实例，无需拉起。
+            const ULONGLONG nowE = GetTickCount64();
+            bool alive = false;
+            EnterCriticalSection(&g_cs);
+            auto seen = g_sessionSeen.find(e.sessionId);
+            if (seen != g_sessionSeen.end())
+                alive = (nowE - seen->second < kHeartbeatTimeoutMs);
+            LeaveCriticalSection(&g_cs);
+            if (alive) continue;
+
+            if (AgentStoppedFlag()) {
+                // 用户主动退出 → 记录该会话，不再拉起
+                EnterCriticalSection(&g_cs);
+                if (std::find(g_stopped.begin(), g_stopped.end(), e.sessionId)
+                    == g_stopped.end())
+                    g_stopped.push_back(e.sessionId);
+                LeaveCriticalSection(&g_cs);
+                diag::Log(L"[watchdog] user exited sid=%lu, not relaunching",
+                          e.sessionId);
+            } else {
+                diag::Log(L"[watchdog] UI crashed sid=%lu, relaunching",
+                          e.sessionId);
+                LaunchAgentInSession(e.sessionId);   // 崩溃 → 重启
+            }
+        }
+
+        // 2) 心跳超时 → 视为死 UI，结束并重启
+        std::vector<SessionProc> stale;
+        EnterCriticalSection(&g_cs);
+        for (auto it = g_procs.begin(); it != g_procs.end(); ) {
+            auto seen = g_sessionSeen.find(it->sessionId);
+            bool timeout = (seen == g_sessionSeen.end()) ||
+                           (now - seen->second > kHeartbeatTimeoutMs);
+            if (timeout) {
+                stale.push_back(*it);
+                TerminateProcess(it->process, 1);
+                CloseHandle(it->process);
+                it = g_procs.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        LeaveCriticalSection(&g_cs);
+        for (auto& s : stale) {
+            diag::Log(L"[watchdog] heartbeat timeout sid=%lu, relaunching",
+                      s.sessionId);
+            LaunchAgentInSession(s.sessionId);
+        }
+
+        // 3) 补拉新登录会话
+        LaunchMissingAgents();
+    }
+    return 0;
+}
+
+// 停止所有已拉起的会话 UI 进程（服务停止时调用）。
+static void StopAllAgents()
+{
+    EnterCriticalSection(&g_cs);
+    for (auto& p : g_procs) {
+        if (p.process) {
+            TerminateProcess(p.process, 1);
+            CloseHandle(p.process);
+            p.process = nullptr;
+        }
+    }
+    g_procs.clear();
+    LeaveCriticalSection(&g_cs);
 }
 
 static void WINAPI ServiceMain(DWORD, LPWSTR*)
@@ -279,11 +551,15 @@ static void WINAPI ServiceMain(DWORD, LPWSTR*)
     if (!g_svcHandle) return;
 
     g_svcStatus.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
-    g_svcStatus.dwControlsAccepted = SERVICE_ACCEPT_STOP;
+    g_svcStatus.dwControlsAccepted = SERVICE_ACCEPT_STOP |
+                                     SERVICE_ACCEPT_SESSIONCHANGE;
     SetSvcStatus(SERVICE_START_PENDING, NO_ERROR, 5000);
 
     g_stopEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     InitializeCriticalSection(&g_cs);
+
+    // 会话 UI 客户端路径 = 本服务 exe 同目录的 airecord.exe
+    g_clientPath = ExeDir() + L"\\airecord.exe";
 
     machine::Set(L"mode", L"run_mode", L"scm");
 
@@ -301,12 +577,23 @@ static void WINAPI ServiceMain(DWORD, LPWSTR*)
     g_svcServer.Start(&HandleSvcIpc);
     diag::Log(L"[svc] pipe server on %ls", ipc::PipeName());
 
+    // 启动会话守护线程：为每个活动会话拉起隐藏 airecord.exe --hidden，
+    // 心跳超时/崩溃自动重启（详见 WatchThread）。
+    HANDLE watch = CreateThread(nullptr, 0, &WatchThread, nullptr, 0, nullptr);
+
     SetSvcStatus(SERVICE_RUNNING, NO_ERROR, 0);
     WaitForSingleObject(g_stopEvent, INFINITE);
 
     SetSvcStatus(SERVICE_STOP_PENDING, NO_ERROR, 5000);
-    g_svcServer.Stop();                    // 停止管道服务
+    StopAllAgents();                   // 结束所有已拉起的会话 UI
+    // 等守护线程在收到停止事件后退出（最多 3s），再回收 g_cs
+    if (watch) {
+        WaitForSingleObject(watch, 3000);
+        CloseHandle(watch);
+    }
+    g_svcServer.Stop();                // 停止管道服务
     g_svcDbPathInternal.clear();
+    g_clientPath.clear();
     DeleteCriticalSection(&g_cs);
     CloseHandle(g_stopEvent);
     SetSvcStatus(SERVICE_STOPPED, NO_ERROR, 0);
