@@ -64,9 +64,9 @@ int App::Run(HINSTANCE hInstance)
 
     // ---- 合并后台剪贴板代理（同进程） ----
     // 代理在独立工作线程 + 自己的隐藏窗口上运行，本进程单进程同时承载
-    // UI 主窗口与后台剪贴板记录。若外部 airecordd -agent（SCM 服务拉起）
-    // 已持有本会话管道，则 AgentHost 不启动自己的代理，UI 走原 PipeClient
-    // 直接连外部管道。
+    // UI 主窗口与后台剪贴板记录。若本会话已有其它剪贴板监听者（如残留的
+    // airecordd -agent），则 AgentHost 不启动自己的代理，UI 仍走 PipeClient
+    // 连全局管道（数据统一由系统服务入库）。
     m_agent = std::make_unique<AgentHost>();
     bool served = m_agent->Start(hInstance, m_shell.Hwnd(), [this]() {
         // 托盘「退出」：强制退出整个进程（不受 close_behavior=hide 影响）。
@@ -74,6 +74,15 @@ int App::Run(HINSTANCE hInstance)
         PostMessage(m_shell.Hwnd(), WM_CLOSE, 0, 0);
     });
     diag::Log(L"[agent] merged in-process agent serving_pipe=%d", (int)served);
+
+    // ---- 确保系统服务就绪（必要依赖） ----
+    // 机器级共享库归 Session 0 系统服务独占。UI 首次 IPC 前先确保服务
+    // 已安装并运行、全局管道就绪；未安装时提权 airecordd.exe -install
+    // （UAC）。失败则后续 Request 每次也会尝试，并显示"服务未连接"。
+    if (m_ipc.EnsureService())
+        diag::Log(L"[ipc] service up on %ls", ipc::PipeName());
+    else
+        diag::Log(L"[ipc] service NOT up on %ls", ipc::PipeName());
 
     // ---- 关闭策略（机器级 [ui] close_behavior，默认 hide） ----
     //   "hide"：关闭主窗口仅隐藏，后台代理与托盘继续运行（进程存活）。

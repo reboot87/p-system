@@ -31,8 +31,9 @@ namespace ipc
     const unsigned long  kUiToastTag    = 0x41525431ul;  // 'ART1'
 
     // 管道全名（从机器级配置 service.ini [service] pipe_name 读取，
-    // 默认 AireRecordIpc，并追加 _s<会话ID> 做会话隔离；首次调用后缓存。
-    // 同一会话内的代理与客户端算出的名字一致，跨会话互不干扰）
+    // 默认 AireRecordIpc；首次调用后缓存）。管道是整机全局的：由
+    // Session 0 的系统服务独占监听，所有会话的 UI/代理都连到它，
+    // 以访问共享的机器级数据库。名字不带会话后缀。
     const wchar_t* PipeName();
 
     std::string  WideToUtf8(const std::wstring& w);

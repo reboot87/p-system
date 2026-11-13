@@ -1,14 +1,13 @@
 // ============================================================
 // test_ipc_pipe.cpp — IPC 管道名回归测试
 //
-// 背景：SCM 服务会为每个 Active 会话（控制台 + 每个 RDP 会话）
-// 各拉起一个 -agent 代理，各自持有本用户的数据库。管道名若为
-// 整机全局（\\.\pipe\AireRecordIpc），多会话就会抢同一个名字：
-// 先创建者独占，后者静默失去 IPC，客户端于是连到别的会话的
-// 代理上——表现为"记录全丢"（其实读到了别人的库），手动录入/
-// 删除也会写进别人的库。
+// 背景：机器级共享数据库归 Session 0 的系统服务独占，服务在整机
+// 全局命名管道（\\.\pipe\AireRecordIpc）上监听。所有登录会话的
+// airecord.exe（UI + 同进程剪贴板代理）都连到这条全局管道，把
+// 剪贴板记录转发给服务入库。
 //
-// 因此管道名必须带会话后缀 _s<sessionId>。
+// 因此管道名必须为整机全局名 \\.\pipe\AireRecordIpc，不带任何
+// 会话后缀。任何会话中的 UI/代理算出的名字都一致。
 // ============================================================
 #include <windows.h>
 #include <cstdio>
@@ -26,19 +25,12 @@ int wmain()
     const std::wstring name = ipc::PipeName();
     std::wprintf(L"pipe name = %ls\n", name.c_str());
 
-    DWORD sid = 0;
-    ProcessIdToSessionId(GetCurrentProcessId(), &sid);
-    const std::wstring suffix = L"_s" + std::to_wstring(sid);
-
     expect(name.rfind(L"\\\\.\\pipe\\", 0) == 0,
            "pipe name starts with \\\\.\\pipe\\");
-    expect(name.size() > suffix.size() &&
-           name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0,
-           "pipe name ends with session suffix _s<sessionId>");
+    expect(name == L"\\\\.\\pipe\\AireRecordIpc",
+           "pipe name is the machine-global name (no session suffix)");
     expect(std::wstring(ipc::PipeName()) == name,
            "pipe name is stable across calls");
-    expect(name != L"\\\\.\\pipe\\AireRecordIpc",
-           "pipe name is not the bare global name");
 
     std::printf(fails ? "FAILED (%d)\n" : "ALL PASSED\n", fails);
     return fails ? 1 : 0;

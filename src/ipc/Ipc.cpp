@@ -10,15 +10,13 @@ const wchar_t* PipeName()
         std::wstring p = machine::Get(L"service", L"pipe_name",
                                       L"AireRecordIpc");
 
-        // 会话内隔离：服务为每个 Active 会话（控制台 + 每个 RDP 会话）
-        // 各拉起一个代理，每个代理有自己的数据库。若用整机全局管道名，
-        // 多个会话会抢同一个名字——先创建者独占，后创建者静默失去 IPC，
-        // 客户端于是连到别的会话的代理上：读到别人的库（看起来像记录
-        // 全丢），且手动录入/删除会写进别人的库。
-        // 追加会话 ID 后，客户端只与本会话的代理通信。
-        DWORD sid = 0;
-        if (!ProcessIdToSessionId(GetCurrentProcessId(), &sid)) sid = 0;
-        return L"\\\\.\\pipe\\" + p + L"_s" + std::to_wstring(sid);
+        // 整机全局管道：由 Session 0 中的系统服务（airecordd.exe -service）
+        // 独占持有，作为所有会话共享的机器级数据库的唯一访问入口。
+        // 每个登录会话只运行一个 airecord.exe（UI + 同进程剪贴板代理），
+        // 它把剪贴板记录通过这里转发给服务入库。因此名字不再带 _s<会话ID>
+        // 后缀——全局唯一，所有会话的 UI/代理都连到同一个服务。
+        // 保留基础名 AireRecordIpc，使旧配置仍能解析到同一管道。
+        return L"\\\\.\\pipe\\" + p;
     }();
     return name.c_str();
 }

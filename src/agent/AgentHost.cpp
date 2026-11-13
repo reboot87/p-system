@@ -1,15 +1,14 @@
 // ============================================================
-// AgentHost.cpp — 会话代理宿主实现
+// AgentHost.cpp — 会话剪贴板代理实现（合并进 airecord.exe）
 //
-// 从 src/service/main.cpp 的 RunAgent / SvcWndProc / HandleIpc /
-// OnClipboardUpdate / SetClipboardTextSvc / AddTrayIcon / ShowTrayMenu
-// 等移入。代理在独立工作线程上跑自己的隐藏窗口与消息循环，
-// 与 UI 主窗口（airecord.exe）同进程共存。
+// 机器级共享数据库归 Session 0 系统服务独占。本类的职责收窄为
+// "本会话的剪贴板监听 + 转发"：在独立工作线程的隐藏窗口上监听
+// 剪贴板变化，抓到新文本后经全局管道 SAVE 转发给服务入库。
+// 不再打开数据库、不再运行 PipeServer、不再分发 IPC 命令。
 // ============================================================
 #include "AgentHost.h"
 #include "../ipc/Ipc.h"
-#include "../ipc/PipeServer.h"
-#include "../core/Database.h"
+#include "../ipc/PipeClient.h"
 #include "../core/DiagLog.h"
 #include "../core/MachineConfig.h"
 #include <shellapi.h>
@@ -28,17 +27,6 @@ enum TrayCmd {
     CMD_AUTOSTART = 101,
     CMD_EXIT      = 102,
 };
-
-// 代理退出标记：代理被用户主动退出时置 1，服务守护不重启；
-// 服务启动 / 安装时清 0（重启电脑后恢复记录）
-static bool AgentStoppedFlag()
-{
-    return machine::Get(L"runtime", L"agent_stopped", L"0") == L"1";
-}
-static void SetAgentStoppedFlag(bool on)
-{
-    machine::Set(L"runtime", L"agent_stopped", on ? L"1" : L"0");
-}
 
 AgentHost::AgentHost() = default;
 AgentHost::~AgentHost()
@@ -72,29 +60,30 @@ bool AgentHost::Start(HINSTANCE hInstance, HWND uiWindow,
     std::wstring dir = slash == std::wstring::npos
         ? L"." : m_selfPath.substr(0, slash);
 
-    // 服务 exe 永远是 airecordd.exe（服务安装/卸载用）；独立代理即本进程
+    // 服务 exe 永远是 airecordd.exe（服务安装/卸载用）
     m_serviceExe = dir + L"\\airecordd.exe";
     m_clientPath = dir + L"\\airecord.exe";
 
-    // 机器级 [service] client_path 覆盖客户端启动路径（独立代理拉起用）
+    // 机器级 [service] client_path 覆盖客户端启动路径（独立拉起用）
     std::wstring cp = machine::Get(L"service", L"client_path", L"");
     if (!cp.empty()) {
         m_clientPath = cp;
         diag::Log(L"[provision] client_path override = %ls", cp.c_str());
     }
 
-    // 单实例互斥（会话内）：已存在 → 外部代理（airecordd -agent）已服务管道
+    // 单实例互斥（会话内）：保证"一个会话只有一个剪贴板监听者"。
+    // 已存在 → 本会话已有其它监听者（如残留的 airecordd -agent），
+    // 本进程不做监听，UI 只走 PipeClient 连全局管道即可。
     m_mutex = CreateMutexW(nullptr, TRUE, L"Local\\AireRecordAgentMutex");
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
         if (m_mutex) { CloseHandle(m_mutex); m_mutex = nullptr; }
-        diag::Log(L"[agent-host] external agent owns pipe, skip in-process agent");
-        return false;   // 外部代理已服务本会话管道
+        diag::Log(L"[agent-host] another clipboard listener in this session, skip");
+        return false;
     }
 
-    m_servingPipe = true;
     m_started = true;
 
-    // 后台工作线程：隐藏窗口 + 消息循环 + 剪贴板/热键/托盘 + PipeServer
+    // 后台工作线程：隐藏窗口 + 消息循环 + 剪贴板监听/热键/托盘 + 转发
     m_thread = std::thread(&AgentHost::Run, this);
     return true;
 }
@@ -125,27 +114,6 @@ void AgentHost::Run()
     HeapSetInformation(nullptr, HeapEnableTerminationOnCorruption, nullptr, 0);
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
-    // 用户级数据库（会话代理的数据归属，见数据分层契约）
-    std::wstring dbPath;
-    wchar_t* env = nullptr;
-    size_t envLen = 0;
-    if (!_wdupenv_s(&env, &envLen, L"APPDATA") && env) {
-        dbPath = std::wstring(env) + L"\\AireRecord";
-        CreateDirectoryW(dbPath.c_str(), nullptr);
-        dbPath += L"\\airecord.db";
-        free(env);
-    }
-    m_db = std::make_unique<Database>();
-    m_db->Open(dbPath);
-    m_dbPath = dbPath;
-
-    // 机器级配置：首次运行写入默认值（不覆盖服务写入的运行模式）
-    if (!machine::Exists()) {
-        machine::Set(L"service", L"pipe_name", L"AireRecordIpc");
-        machine::Set(L"service", L"log_level",  L"info");
-        machine::Set(L"mode",    L"run_mode",   L"agent");
-    }
-
     // 隐藏窗口（托盘/热键/剪贴板消息宿主）
     WNDCLASSEXW wc = { sizeof(wc) };
     wc.lpfnWndProc   = &AgentHost::SvcWndProc;
@@ -157,18 +125,14 @@ void AgentHost::Run()
                              nullptr, nullptr, m_hInst, this);
 
     m_taskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
-    diag::Log(L"[agent-host] hwnd=%p", (void*)m_hwnd);
+    diag::Log(L"[agent-host] hwnd=%p session=%lu", (void*)m_hwnd, diag::SessionId());
     AddTrayIcon();
-
-    m_server = std::make_unique<PipeServer>();
-    m_server->Start([this](const std::wstring& line) { return HandleIpc(line); });
 
     MSG msg;
     while (GetMessage(&msg, nullptr, 0, 0) > 0) {
         TranslateMessage(&msg);
         DispatchMessage(&msg);
     }
-    if (m_server) m_server->Stop();
     m_hwnd = nullptr;
     CoUninitialize();
 }
@@ -199,27 +163,33 @@ void AgentHost::NotifyUi(bool ok, const wchar_t* title, const wchar_t* message)
                         SMTO_ABORTIFHUNG, 1000, &ignored);
 }
 
-// ---------- 剪贴板（代理自己的 COPY → 过滤不入库） ----------
-bool AgentHost::SetClipboardTextSvc(const std::wstring& text)
+// 把一条剪贴板记录经全局管道 SAVE 转发给系统服务。若管道未就绪，
+// PipeClient::Request 会尝试拉起/启动系统服务；这里小循环重试几次，
+// 仍失败则丢弃（记录日志）。
+bool AgentHost::ForwardClipboard(const std::wstring& text)
 {
-    if (!OpenClipboard(m_hwnd)) return false;
-    bool ok = false;
-    if (EmptyClipboard()) {
-        SIZE_T bytes = (text.size() + 1) * sizeof(wchar_t);
-        HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, bytes);
-        if (h) {
-            void* p = GlobalLock(h);
-            if (p) {
-                memcpy(p, text.c_str(), bytes);
-                GlobalUnlock(h);
-                ok = SetClipboardData(CF_UNICODETEXT, h) != nullptr;
-            }
-            if (!ok) GlobalFree(h);
-        }
+    // 服务端 exe 与本 exe 同目录（airecordd.exe）
+    wchar_t self[MAX_PATH] = {};
+    GetModuleFileNameW(nullptr, self, MAX_PATH);
+    std::wstring selfPath = self;
+    size_t slash = selfPath.find_last_of(L'\\');
+    std::wstring dir = slash == std::wstring::npos
+        ? L"." : selfPath.substr(0, slash);
+    std::wstring svcExe = dir + L"\\airecordd.exe";
+
+    std::wstring cmd = L"SAVE\tClipboard\t\t" + ipc::EscapeField(text);
+
+    PipeClient client;
+    client.SetServicePath(svcExe);
+    for (int i = 0; i < 4; ++i) {
+        std::wstring resp = client.Request(cmd);
+        if (resp.rfind(L"OK", 0) == 0)
+            return true;
+        Sleep(300);
     }
-    CloseClipboard();
-    if (ok) m_lastInternalCopy = text;
-    return ok;
+    diag::Log(L"[agent-host] forward clipboard failed, text_len=%zu",
+              text.size());
+    return false;
 }
 
 void AgentHost::OnClipboardUpdate()
@@ -241,10 +211,10 @@ void AgentHost::OnClipboardUpdate()
     if (text.empty()) return;
 
     if (!m_lastInternalCopy.empty() && text == m_lastInternalCopy) {
-        m_lastInternalCopy.clear(); // 本代理自己的 COPY → 过滤
+        m_lastInternalCopy.clear(); // 本代理自己写入的文本 → 不转发
         return;
     }
-    if (m_db && m_db->SaveEntry(text, L"Clipboard"))
+    if (ForwardClipboard(text))
         NotifyClientRefresh();
 }
 
@@ -287,30 +257,27 @@ void AgentHost::ShowTrayMenu()
     case CMD_OPEN_UI: ToggleUiWindow(); break;
     case CMD_AUTOSTART: {
         bool on = IsServiceInstalled();
-        if (m_db) m_db->SetSetting(L"autostart", (!on) ? L"1" : L"0");
         int ret = (int)ShellExecuteW(nullptr, L"runas", m_serviceExe.c_str(),
                                      (!on) ? L"-install" : L"-uninstall",
                                      nullptr, SW_HIDE);
         if (ret <= 32) {
-            if (m_db) m_db->SetSetting(L"autostart", on ? L"1" : L"0");
             NotifyUi(false, L"未能更改自启动",
-                     L"系统权限请求被取消或失败，设置已回滚。");
+                     L"系统权限请求被取消或失败，设置未生效。");
         }
         break;
     }
     case CMD_EXIT:
-        SetAgentStoppedFlag(true);   // 服务守护不再自动拉起
         if (m_onExitRequest) {
             m_onExitRequest();       // 合并模式：交给 UI 强制退出
         } else {
-            PostMessage(m_hwnd, WM_CLOSE, 0, 0);  // 独立代理：结束本消息循环
+            PostMessage(m_hwnd, WM_CLOSE, 0, 0);  // 结束后台消息循环
         }
         break;
     }
 }
 
 // 唤起客户端主界面：合并模式直接显示/隐藏同进程 UI 窗口；
-// 独立代理（无 uiWindow）则拉起独立客户端进程。
+// 独立模式（无 uiWindow）则拉起独立客户端进程。
 void AgentHost::LaunchClient()
 {
     std::wstring args = machine::Get(L"service", L"client_args", L"");
@@ -341,89 +308,8 @@ void AgentHost::ToggleUiWindow()
             SetForegroundWindow(m_uiWindow);   // 隐藏 → 显示并前置
         }
     } else {
-        LaunchClient();                        // 独立代理：拉起客户端进程
+        LaunchClient();                        // 独立模式：拉起客户端进程
     }
-}
-
-// ---------- IPC 命令分发 ----------
-std::wstring AgentHost::HandleIpc(const std::wstring& line)
-{
-    auto tok = ipc::SplitTabs(line);
-    if (tok.empty()) return L"ERR\t空命令";
-
-    if (tok[0] == L"PING")
-        return L"OK";
-
-    if (tok[0] == L"LIST") {
-        std::wstring filter = tok.size() > 1 ? ipc::UnescapeField(tok[1]) : L"";
-        auto v = m_db->Query(filter, 500);
-        std::wstring out = L"OK";
-        wchar_t idbuf[32];
-        for (auto& e : v) {
-            StringCchPrintfW(idbuf, 32, L"%lld", (long long)e.id);
-            out += L"\n";
-            out += idbuf;
-            out += L"\t" + e.source;
-            out += L"\t" + e.createdAt;
-            out += L"\t" + ipc::EscapeField(e.note);
-            out += L"\t" + ipc::EscapeField(e.content);
-        }
-        out += L"\nEND";
-        return out;
-    }
-
-    if (tok[0] == L"SAVE" && tok.size() >= 4) {
-        std::wstring source  = tok[1];
-        std::wstring note    = ipc::UnescapeField(tok[2]);
-        std::wstring content = ipc::UnescapeField(tok[3]);
-        return m_db->SaveEntry(content, source.c_str(), note)
-                   ? L"OK" : L"ERR\t保存失败";
-    }
-
-    if (tok[0] == L"NOTE" && tok.size() >= 3) {
-        int64_t id = _wtoi64(tok[1].c_str());
-        return m_db->UpdateNote(id, ipc::UnescapeField(tok[2]))
-                   ? L"OK" : L"ERR\t备注更新失败";
-    }
-
-    if (tok[0] == L"DEL" && tok.size() >= 2) {
-        int64_t id = _wtoi64(tok[1].c_str());
-        return m_db->DeleteById(id) ? L"OK" : L"ERR\t删除失败";
-    }
-
-    if (tok[0] == L"UI") {
-        ToggleUiWindow();   // 唤起主界面（合并模式显示/隐藏同进程窗口）
-        return L"OK";
-    }
-
-    if (tok[0] == L"STATS") {
-        wchar_t buf[96];
-        long long bytes = 0;
-        HANDLE hf = CreateFileW(m_dbPath.c_str(), GENERIC_READ,
-                                FILE_SHARE_READ | FILE_SHARE_WRITE,
-                                nullptr, OPEN_EXISTING,
-                                FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (hf != INVALID_HANDLE_VALUE) {
-            LARGE_INTEGER sz;
-            if (GetFileSizeEx(hf, &sz)) bytes = sz.QuadPart;
-            CloseHandle(hf);
-        }
-        StringCchPrintfW(buf, 96, L"%lld\t%lld\t%lld",
-                         (long long)m_db->Count(),
-                         (long long)m_db->CountToday(), bytes);
-        return std::wstring(L"OK\t") + buf;
-    }
-
-    if (tok[0] == L"CLEAR") {
-        return m_db->ClearAll() ? L"OK" : L"ERR\t清空失败";
-    }
-
-    if (tok[0] == L"COPY" && tok.size() >= 2) {
-        SetClipboardTextSvc(ipc::UnescapeField(tok[1]));
-        return L"OK";
-    }
-
-    return L"ERR\t未知命令";
 }
 
 // ---------- 代理窗口过程 ----------
