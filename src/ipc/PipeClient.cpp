@@ -38,16 +38,37 @@ bool PipeClient::Ping(int retries)
     return false;
 }
 
-// 系统服务未运行时，提权 airecordd.exe -install（需要 UAC）以安装并
-// 启动服务。返回 true 表示提权调用已发起（成功或失败由 UAC 决定）。
+// 服务已安装但被停止时，用 SCM 静默启动（无需提权/UAC）。
+static bool StartInstalledService()
+{
+    SC_HANDLE mgr = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
+    if (!mgr) return false;
+    SC_HANDLE svc = OpenServiceW(mgr, L"AireRecord", SERVICE_START);
+    if (svc) {
+        const BOOL started = StartServiceW(svc, 0, nullptr) ||
+                             GetLastError() == ERROR_SERVICE_ALREADY_RUNNING;
+        CloseServiceHandle(svc);
+        CloseServiceHandle(mgr);
+        return started != FALSE;
+    }
+    CloseServiceHandle(mgr);
+    return false;   // 服务未安装 → 需要提权安装
+}
+
+// 服务未运行时确保它起来。优先：服务已安装 → SCM 静默启动（无 UAC）；
+// 仅当服务从未安装时，才提权 airecordd.exe -install（UAC）。
+// 返回 true 表示"已发起启动（已安装场景）或提权安装（未安装场景）"。
 bool PipeClient::LaunchService()
 {
     if (m_servicePath.empty()) return false;
 
-    // runas 触发 UAC 提权：-install 会注册（如未注册）并启动系统服务。
+    if (StartInstalledService())
+        return true;                            // 已装 → 静默启动成功
+
+    // 服务未安装 → runas 触发 UAC 提权：-install 注册并启动系统服务。
     HINSTANCE r = ShellExecuteW(nullptr, L"runas", m_servicePath.c_str(),
                                 L"-install", nullptr, SW_HIDE);
-    return (intptr_t)r > 32;   // >32 表示调用发起成功（UAC 结果另计）
+    return (intptr_t)r > 32;   // >32 表示提权调用已发起（UAC 结果另计）
 }
 
 // 确保系统服务已安装并运行、全局管道就绪。若管道未就绪，尝试提权
