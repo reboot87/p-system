@@ -11,9 +11,9 @@
 //   -uninstall  停止并删除服务，清理旧版自启，重新拉起代理
 //   (无参数)    以会话代理运行（兼容客户端的自动拉起逻辑）
 //
-// 为什么拆成"服务 + 代理"：Session 0 隔离下无法使用托盘、全局
-// 热键与剪贴板监听（都属于交互会话），故由服务代管生命周期，
-// 实际功能在用户会话内的代理进程中执行。
+// 会话代理逻辑已抽取到 AgentHost（src/agent）：代理运行在独立
+// 工作线程 + 自己的隐藏窗口 + 消息循环，既可作为 airecord.exe
+// 合并模式的同进程后台，也可作为本 exe 的 -agent 独立模式。
 // ============================================================
 #include <windows.h>
 #include <shellapi.h>
@@ -27,10 +27,9 @@
 #include <vector>
 #include <algorithm>
 #include "../ipc/Ipc.h"
-#include "../ipc/PipeServer.h"
-#include "../core/Database.h"
 #include "../core/DiagLog.h"
 #include "../core/MachineConfig.h"
+#include "../agent/AgentHost.h"
 
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "shlwapi.lib")
@@ -47,18 +46,8 @@ name='Microsoft.Windows.Common-Controls' version='6.0.0.0' \
 processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 
 static const wchar_t* kSvcName    = L"AireRecord";
-static const wchar_t* kSvcWndClass= L"AireRecordSvcWnd";
-static const int      kHotkeyId   = 1;          // Ctrl+Shift+V
-static const UINT     WM_TRAYICON = WM_APP + 1;
-
-enum TrayCmd {
-    CMD_OPEN_UI  = 100,
-    CMD_AUTOSTART= 101,
-    CMD_EXIT     = 102,
-};
 
 static std::wstring g_selfPath;                   // 本 exe 完整路径
-static std::wstring g_clientPath;                 // airecord.exe 完整路径
 
 static std::wstring ExeDir()
 {
@@ -78,28 +67,13 @@ static void SetAgentStoppedFlag(bool on)
 }
 
 // ============================================================
-// 第一部分：会话代理（原交互服务端逻辑，运行在用户会话内）
-// ============================================================
-static HWND         g_hwnd    = nullptr;
-static HINSTANCE    g_hInst   = nullptr;
-static Database     g_db;
-static std::wstring g_dbPath;                      // 数据库文件路径（STATS 用）
-static PipeServer   g_server;
-static NOTIFYICONDATAW g_nid  = {};
-static UINT         s_taskbarCreated = 0;
-static std::wstring g_lastInternalCopy;           // 应用内复制过滤（COPY 命令）
-
-// 通知客户端窗口刷新列表（客户端收到后 300ms 防抖）
-static void NotifyClientRefresh()
-{
-    HWND client = FindWindowW(ipc::kUiWindowClass, nullptr);
-    if (client) PostMessageW(client, WM_APP + 2, 0, 0);
-}
-
+// 第一部分：会话代理
+//
 // 一次性结果交给主界面的自绘 Toast。服务端 / 提权进程绝不弹系统
 // MessageBox：Session 0 没有交互桌面，弹窗会卡住服务线程而且用户
 // 永远看不到；安装器是提升进程，风格也应该跟客户端保持一致。
 // 提升 → 普通完整性方向发 WM_COPYDATA 是 UIPI 允许的。
+// ============================================================
 static void NotifyUi(bool ok, const wchar_t* title, const wchar_t* message)
 {
     diag::Log(L"[ui-notify] ok=%d title=%ls msg=%ls",
@@ -119,289 +93,11 @@ static void NotifyUi(bool ok, const wchar_t* title, const wchar_t* message)
                         SMTO_ABORTIFHUNG, 1000, &ignored);
 }
 
-// ---------- 剪贴板（代理自己的 COPY → 过滤不入库） ----------
-static bool SetClipboardTextSvc(const std::wstring& text)
-{
-    if (!OpenClipboard(g_hwnd)) return false;
-    bool ok = false;
-    if (EmptyClipboard()) {
-        SIZE_T bytes = (text.size() + 1) * sizeof(wchar_t);
-        HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, bytes);
-        if (h) {
-            void* p = GlobalLock(h);
-            if (p) {
-                memcpy(p, text.c_str(), bytes);
-                GlobalUnlock(h);
-                ok = SetClipboardData(CF_UNICODETEXT, h) != nullptr;
-            }
-            if (!ok) GlobalFree(h);
-        }
-    }
-    CloseClipboard();
-    if (ok) g_lastInternalCopy = text;
-    return ok;
-}
-
-static void OnClipboardUpdate()
-{
-    std::wstring text;
-    bool opened = false;
-    for (int i = 0; i < 5 && !opened; ++i) {
-        if (OpenClipboard(g_hwnd)) opened = true;
-        else Sleep(20);
-    }
-    if (!opened) return; // 静默跳过
-
-    HANDLE h = GetClipboardData(CF_UNICODETEXT);
-    if (h) {
-        const wchar_t* p = (const wchar_t*)GlobalLock(h);
-        if (p) { text = p; GlobalUnlock(h); }
-    }
-    CloseClipboard();
-    if (text.empty()) return;
-
-    if (!g_lastInternalCopy.empty() && text == g_lastInternalCopy) {
-        g_lastInternalCopy.clear(); // 本代理自己的 COPY → 过滤
-        return;
-    }
-    if (g_db.SaveEntry(text, L"Clipboard"))
-        NotifyClientRefresh();
-}
-
-// ---------- 自启状态（查询系统服务，普通权限可查询） ----------
-static bool IsServiceInstalled()
-{
-    SC_HANDLE mgr = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
-    if (!mgr) return false;
-    SC_HANDLE svc = OpenServiceW(mgr, kSvcName, SERVICE_QUERY_STATUS);
-    if (svc) CloseServiceHandle(svc);
-    CloseServiceHandle(mgr);
-    return svc != nullptr;
-}
-
-static void LaunchClient()
-{
-    // 客户端启动参数来自机器级配置 [service] client_args（默认空）
-    //   例：--hidden 静默启动（新建可见窗口会被管控策略关闭的机器上使用）
-    std::wstring args = machine::Get(L"service", L"client_args", L"");
-    // 启动方式：direct（默认，本进程直接拉起）
-    //           explorer（由桌面壳 explorer.exe 代为启动）
-    // 终端管控/DLP 常把"后台服务进程直接弹窗"判为可疑；改由 explorer 启动后
-    // 客户端的父进程是桌面壳，与用户双击打开的行为一致，通常可放行。
-    std::wstring via  = machine::Get(L"service", L"launch_via", L"direct");
-
-    HINSTANCE r;
-    if (_wcsicmp(via.c_str(), L"explorer") == 0) {
-        std::wstring quoted = L"\"" + g_clientPath + L"\"";
-        r = ShellExecuteW(g_hwnd, L"open", L"explorer.exe", quoted.c_str(),
-                          nullptr, SW_SHOWNORMAL);
-    } else {
-        r = ShellExecuteW(g_hwnd, L"open", g_clientPath.c_str(),
-                          args.empty() ? nullptr : args.c_str(),
-                          nullptr, SW_SHOWNORMAL);
-    }
-    // 客户端"闪一下就没了"时，先确认是没拉起来还是拉起来后退出的
-    diag::Log(L"[launch-client] session=%lu via=%ls path=%ls args='%ls' ret=%p",
-              diag::SessionId(), via.c_str(), g_clientPath.c_str(),
-              args.c_str(), (void*)r);
-}
-
-// ---------- 托盘 ----------
-static void AddTrayIcon()
-{
-    g_nid.cbSize           = sizeof(g_nid);
-    g_nid.hWnd             = g_hwnd;
-    g_nid.uID              = 1;
-    g_nid.uFlags           = NIF_ICON | NIF_MESSAGE | NIF_TIP;
-    g_nid.uCallbackMessage = WM_TRAYICON;
-    g_nid.hIcon = (HICON)LoadImageW(g_hInst, MAKEINTRESOURCEW(1),
-                                    IMAGE_ICON, 0, 0, LR_DEFAULTSIZE);
-    if (!g_nid.hIcon) g_nid.hIcon = LoadIcon(nullptr, IDI_APPLICATION);
-    StringCchCopyW(g_nid.szTip, ARRAYSIZE(g_nid.szTip),
-                   L"AireRecord 后台服务（剪贴板记录中）");
-    Shell_NotifyIconW(NIM_ADD, &g_nid);
-}
-
-static void ShowTrayMenu()
-{
-    POINT pt;
-    GetCursorPos(&pt);
-    HMENU menu = CreatePopupMenu();
-    AppendMenuW(menu, MF_STRING, CMD_OPEN_UI, L"打开主界面");
-    AppendMenuW(menu, MF_STRING | (IsServiceInstalled() ? MF_CHECKED : 0),
-                CMD_AUTOSTART, L"随系统自动启动（系统服务）");
-    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(menu, MF_STRING, CMD_EXIT, L"退出");
-
-    // TrackPopupMenu 前必须前置窗口，否则菜单不消失
-    SetForegroundWindow(g_hwnd);
-    int cmd = TrackPopupMenu(menu,
-                             TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON,
-                             pt.x, pt.y, 0, g_hwnd, nullptr);
-    PostMessageW(g_hwnd, WM_NULL, 0, 0);
-    DestroyMenu(menu);
-
-    switch (cmd) {
-    case CMD_OPEN_UI: LaunchClient(); break;
-    case CMD_AUTOSTART: {
-        bool on = IsServiceInstalled();
-        g_db.SetSetting(L"autostart", (!on) ? L"1" : L"0");
-        int ret = (int)ShellExecuteW(nullptr, L"runas", g_selfPath.c_str(),
-                                     (!on) ? L"-install" : L"-uninstall",
-                                     nullptr, SW_HIDE);
-        if (ret <= 32) {
-            // 用户拒绝 UAC 或提权失败 → 回滚偏好，并给主界面一条错误
-            // Toast（以前是纯静默，用户只会看到开关没反应）。
-            g_db.SetSetting(L"autostart", on ? L"1" : L"0");
-            NotifyUi(false, L"未能更改自启动",
-                     L"系统权限请求被取消或失败，设置已回滚。");
-        }
-        break;
-    }
-    case CMD_EXIT:
-        SetAgentStoppedFlag(true);   // 服务守护不再自动拉起
-        DestroyWindow(g_hwnd);
-        break;
-    }
-}
-
-// ---------- IPC 命令分发 ----------
-static std::wstring HandleIpc(const std::wstring& line)
-{
-    auto tok = ipc::SplitTabs(line);
-    if (tok.empty()) return L"ERR\t空命令";
-
-    if (tok[0] == L"PING")
-        return L"OK";
-
-    if (tok[0] == L"LIST") {
-        std::wstring filter = tok.size() > 1 ? ipc::UnescapeField(tok[1]) : L"";
-        auto v = g_db.Query(filter, 500);
-        std::wstring out = L"OK";
-        wchar_t idbuf[32];
-        for (auto& e : v) {
-            StringCchPrintfW(idbuf, 32, L"%lld", (long long)e.id);
-            out += L"\n";
-            out += idbuf;
-            out += L"\t" + e.source;
-            out += L"\t" + e.createdAt;
-            out += L"\t" + ipc::EscapeField(e.note);
-            out += L"\t" + ipc::EscapeField(e.content);
-        }
-        out += L"\nEND";
-        return out;
-    }
-
-    if (tok[0] == L"SAVE" && tok.size() >= 4) {
-        std::wstring source  = tok[1];
-        std::wstring note    = ipc::UnescapeField(tok[2]);
-        std::wstring content = ipc::UnescapeField(tok[3]);
-        return g_db.SaveEntry(content, source.c_str(), note)
-                   ? L"OK" : L"ERR\t保存失败";
-    }
-
-    if (tok[0] == L"NOTE" && tok.size() >= 3) {
-        // 修改任意条目的备注
-        int64_t id = _wtoi64(tok[1].c_str());
-        return g_db.UpdateNote(id, ipc::UnescapeField(tok[2]))
-                   ? L"OK" : L"ERR\t备注更新失败";
-    }
-
-    if (tok[0] == L"DEL" && tok.size() >= 2) {
-        int64_t id = _wtoi64(tok[1].c_str());
-        return g_db.DeleteById(id) ? L"OK" : L"ERR\t删除失败";
-    }
-
-    if (tok[0] == L"UI") {
-        LaunchClient();   // 唤起客户端主界面（供热键/远程触发）
-        return L"OK";
-    }
-
-    if (tok[0] == L"STATS") {
-        // OK\t<总数>\t<今日新增>\t<库文件字节>
-        wchar_t buf[96];
-        long long bytes = 0;
-        HANDLE hf = CreateFileW(g_dbPath.c_str(), GENERIC_READ,
-                                FILE_SHARE_READ | FILE_SHARE_WRITE,
-                                nullptr, OPEN_EXISTING,
-                                FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (hf != INVALID_HANDLE_VALUE) {
-            LARGE_INTEGER sz;
-            if (GetFileSizeEx(hf, &sz)) bytes = sz.QuadPart;
-            CloseHandle(hf);
-        }
-        StringCchPrintfW(buf, 96, L"%lld\t%lld\t%lld",
-                         (long long)g_db.Count(),
-                         (long long)g_db.CountToday(), bytes);
-        return std::wstring(L"OK\t") + buf;
-    }
-
-    if (tok[0] == L"CLEAR") {
-        return g_db.ClearAll() ? L"OK" : L"ERR\t清空失败";
-    }
-
-    if (tok[0] == L"COPY" && tok.size() >= 2) {
-        SetClipboardTextSvc(ipc::UnescapeField(tok[1]));
-        return L"OK";
-    }
-
-    return L"ERR\t未知命令";
-}
-
-// ---------- 代理窗口过程 ----------
-static LRESULT CALLBACK SvcWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
-{
-    if (msg == s_taskbarCreated) { // Explorer 重启后恢复托盘图标
-        AddTrayIcon();
-        return 0;
-    }
-    switch (msg) {
-    case WM_CREATE:
-        AddClipboardFormatListener(hwnd);
-        RegisterHotKey(hwnd, kHotkeyId, MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT, 'V');
-        return 0;
-
-    case WM_CLIPBOARDUPDATE:
-        OnClipboardUpdate();
-        return 0;
-
-    case WM_HOTKEY:
-        if ((int)wParam == kHotkeyId)
-            LaunchClient();
-        return 0;
-
-    case WM_TRAYICON:
-        if (lParam == WM_LBUTTONDBLCLK)
-            LaunchClient();
-        else if (lParam == WM_RBUTTONUP)
-            ShowTrayMenu();
-        return 0;
-
-    case WM_DESTROY:
-        Shell_NotifyIconW(NIM_DELETE, &g_nid);
-        UnregisterHotKey(hwnd, kHotkeyId);
-        PostQuitMessage(0);
-        return 0;
-    }
-    return DefWindowProcW(hwnd, msg, wParam, lParam);
-}
-
-// 会话代理主流程
+// 会话代理主流程：委托给 AgentHost（独立模式，无同进程 UI 窗口）。
+// 代理在 AgentHost 的后台线程上运行自己的隐藏窗口与消息循环。
 static int RunAgent(HINSTANCE hInstance)
 {
-    HeapSetInformation(nullptr, HeapEnableTerminationOnCorruption, nullptr, 0);
-    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-    g_hInst = hInstance;
-
-    // 单实例（会话内）
-    HANDLE mutex = CreateMutexW(nullptr, TRUE, L"Local\\AireRecordAgentMutex");
-    if (GetLastError() == ERROR_ALREADY_EXISTS)
-        return 0;
-
-    g_clientPath = ExeDir() + L"\\airecord.exe";
-
     // ---- 客户端部署/投放（适配虚拟化桌面、沙箱环境）----
-    // [service] client_path           客户端实际启动路径（默认 = 代理同目录）
     // [service] provision_client_to   启动时把客户端复制到此目录；
     //                                 值 "desktop" 表示当前用户的桌面
     // 说明：部分环境用户桌面被重定向到会话内虚拟盘（如 P:\Users\xx\DesktopX），
@@ -423,56 +119,16 @@ static int RunAgent(HINSTANCE hInstance)
                       diag::SessionId(), src.c_str(), dst.c_str(),
                       (int)ok, ok ? 0 : GetLastError());
         }
-        std::wstring cp = machine::Get(L"service", L"client_path", L"");
-        if (!cp.empty()) {
-            g_clientPath = cp;
-            diag::Log(L"[provision] client_path override = %ls", cp.c_str());
-        }
     }
 
-    // 用户级数据库（会话代理的数据归属，见数据分层契约）
-    std::wstring dbPath;
-    wchar_t* env = nullptr;
-    size_t envLen = 0;
-    if (!_wdupenv_s(&env, &envLen, L"APPDATA") && env) {
-        dbPath = std::wstring(env) + L"\\AireRecord";
-        CreateDirectoryW(dbPath.c_str(), nullptr);
-        dbPath += L"\\airecord.db";
-        free(env);
-    }
-    g_db.Open(dbPath);
-    g_dbPath = dbPath;
-
-    // 机器级配置：首次运行写入默认值（不覆盖服务写入的运行模式）
-    if (!machine::Exists()) {
-        machine::Set(L"service", L"pipe_name", L"AireRecordIpc");
-        machine::Set(L"service", L"log_level",  L"info");
-        machine::Set(L"mode",    L"run_mode",   L"agent");
-    }
-
-    // 隐藏窗口（托盘/热键/剪贴板消息宿主）
-    WNDCLASSEXW wc = { sizeof(wc) };
-    wc.lpfnWndProc   = &SvcWndProc;
-    wc.hInstance     = hInstance;
-    wc.lpszClassName = kSvcWndClass;
-    RegisterClassExW(&wc);
-    g_hwnd = CreateWindowExW(0, kSvcWndClass, L"AireRecordService",
-                             WS_OVERLAPPED, 0, 0, 0, 0,
-                             nullptr, nullptr, hInstance, nullptr);
-
-    s_taskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
-    AddTrayIcon();
-
-    g_server.Start(&HandleIpc);
-
-    MSG m;
-    while (GetMessage(&m, nullptr, 0, 0) > 0) {
-        TranslateMessage(&m);
-        DispatchMessage(&m);
-    }
-    g_server.Stop();
-    if (mutex) { ReleaseMutex(mutex); CloseHandle(mutex); }
-    CoUninitialize();
+    AgentHost host;
+    // 独立代理：uiWindow 传 nullptr（托盘/热键唤起独立客户端），
+    // 无 onExitRequest（托盘退出直接结束后台消息循环）。
+    bool served = host.Start(hInstance, nullptr, nullptr);
+    if (!served)
+        return 0;   // 外部代理已在服务本会话管道，直接退出
+    host.Wait();    // 阻塞直到代理退出（托盘"退出"）
+    host.Stop();
     return 0;
 }
 

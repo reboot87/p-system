@@ -213,6 +213,9 @@ file(GLOB_RECURSE PAGES_SOURCES
 file(GLOB_RECURSE PLUGINS_SOURCES 
     src/plugins/*.cpp
 )
+file(GLOB_RECURSE AGENT_SOURCES
+    src/agent/*.cpp
+)
 file(GLOB_RECURSE SQLITE_SOURCES 
     third_party/sqlite/sqlite3.c
 )
@@ -227,6 +230,7 @@ set(COMMON_SOURCES
     ${IPC_SOURCES}
     ${PAGES_SOURCES}
     ${PLUGINS_SOURCES}
+    ${AGENT_SOURCES}
     ${SQLITE_SOURCES}
 )
 

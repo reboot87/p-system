@@ -1,6 +1,7 @@
 #include "App.h"
 #include "DiagLog.h"
 #include "SysInfo.h"
+#include "../agent/AgentHost.h"
 #include "airui/PaintBackend.h"
 #include "airui/PaintProviders.h"
 #include "../ipc/Ipc.h"
@@ -11,6 +12,9 @@
 using air::ui::NavGroup;
 using air::ui::NavItem;
 using air::ui::ShellOptions;
+
+// App 析构：AgentHost 是完整类型时才析构（unique_ptr 成员）
+App::~App() = default;
 
 // ============================================================
 // 启动
@@ -57,6 +61,36 @@ int App::Run(HINSTANCE hInstance)
         diag::Log(L"[fatal] shell create failed, gle=%lu", GetLastError());
         return 1;
     }
+
+    // ---- 合并后台剪贴板代理（同进程） ----
+    // 代理在独立工作线程 + 自己的隐藏窗口上运行，本进程单进程同时承载
+    // UI 主窗口与后台剪贴板记录。若外部 airecordd -agent（SCM 服务拉起）
+    // 已持有本会话管道，则 AgentHost 不启动自己的代理，UI 走原 PipeClient
+    // 直接连外部管道。
+    m_agent = std::make_unique<AgentHost>();
+    bool served = m_agent->Start(hInstance, m_shell.Hwnd(), [this]() {
+        // 托盘「退出」：强制退出整个进程（不受 close_behavior=hide 影响）。
+        m_forceExit = true;
+        PostMessage(m_shell.Hwnd(), WM_CLOSE, 0, 0);
+    });
+    diag::Log(L"[agent] merged in-process agent serving_pipe=%d", (int)served);
+
+    // ---- 关闭策略（机器级 [ui] close_behavior，默认 hide） ----
+    //   "hide"：关闭主窗口仅隐藏，后台代理与托盘继续运行（进程存活）。
+    //   "exit"：关闭主窗口即退出整个进程（含后台代理）。
+    m_shell.SetCloseGuard([this]() -> bool {
+        if (m_forceExit) {            // 托盘「退出」：总是真正退出
+            m_agent->Stop();
+            return true;
+        }
+        std::wstring policy = machine::Get(L"ui", L"close_behavior", L"hide");
+        if (policy == L"exit") {
+            m_agent->Stop();          // 停止后台代理线程与托盘
+            return true;              // 允许销毁窗口 → 消息循环结束 → 进程退出
+        }
+        ShowWindow(m_shell.Hwnd(), SW_HIDE);   // 默认：仅隐藏，保持进程存活
+        return false;
+    });
 
     // 后端可观测性：把「请求了什么 / 解析成什么 / 哪些真正可用 / 是否
     // 发生回退」写进 client.log，避免「以为在用 Skia，其实回退了 GDI」

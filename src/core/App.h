@@ -15,8 +15,14 @@
 
 #include "PluginManager.h"
 #include "UiEntry.h"
+#include "MachineConfig.h"
 #include "../ipc/PipeClient.h"
+#include "../agent/AgentHost.h"
 #include "airui/AirUi.h"
+
+// 控件 ID（页面与插件共用）
+
+class AgentHost;
 
 // 控件 ID（页面与插件共用）
 enum {
@@ -52,6 +58,9 @@ class ConfigPage;
 class App
 {
 public:
+    App() = default;
+    ~App();   // 需在 .cpp 中定义，以便 unique_ptr<AgentHost> 完整析构
+
     int Run(HINSTANCE hInstance);
 
     // 服务端 exe 路径（IPC 自动拉起用）
@@ -66,6 +75,12 @@ public:
     // 显示时不抢焦点（SW_SHOWNOACTIVATE）。部分终端管控会把"非白名单程序
     // 自动抢前台"当成弹窗行为直接关闭窗口；不激活显示可避开。
     void SetShowNoActivate(bool on) { m_showNoActivate = on; }
+
+    // 关闭策略（机器级 [ui] close_behavior）：
+    //   "hide"（默认）关闭主窗口仅隐藏，后台剪贴板代理与托盘继续运行；
+    //   "exit"          关闭主窗口即退出整个进程（含后台代理）。
+    void SetCloseBehavior(const std::wstring& v)
+        { machine::Set(L"ui", L"close_behavior", v.c_str()); }
 
     // 运行时绘制后端（"gdi" / "skia" / "auto"）。透传给 ShellOptions，
     // 不需要重新编译，也不需要本机安装 Skia SDK（插件按需加载）。
@@ -141,6 +156,10 @@ private:
     ClipsPage*    m_clips    = nullptr;
     OverviewPage* m_overview = nullptr;
     ConfigPage*   m_config   = nullptr;
+
+    // 合并后台剪贴板代理（AgentHost）。同进程后台线程 + 独立隐藏窗口。
+    std::unique_ptr<AgentHost> m_agent;
+    bool m_forceExit = false;   // 托盘"退出" → 强制关闭（不受 close_behavior 影响）
 
     ServiceStats m_stats;
     int          m_svcState = 0;   // 0未装 1停止 2运行
