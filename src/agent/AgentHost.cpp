@@ -165,21 +165,84 @@ void AgentHost::NotifyUi(bool ok, const wchar_t* title, const wchar_t* message)
                         SMTO_ABORTIFHUNG, 1000, &ignored);
 }
 
+// 惰性打开本会话的离线暂存库 %APPDATA%\AireRecord\pending.db。
+// 复用 Database（表结构同机器库），但使用**独立的用户级文件**，
+// 绝不触碰服务独占的机器级 airecord.db。调用方需持有 m_pendingMutex。
+bool AgentHost::EnsurePendingDb()
+{
+    if (m_pending) return true;
+    auto db = std::make_unique<Database>();
+    wchar_t* env = nullptr;
+    size_t len = 0;
+    std::wstring dir;
+    if (!_wdupenv_s(&env, &len, L"APPDATA") && env) {
+        dir = std::wstring(env) + L"\\AireRecord";
+        free(env);
+    } else {
+        dir = L"C:\\Users\\Public\\AireRecord";   // 兜底：正常情况下不会走这里
+    }
+    CreateDirectoryW(dir.c_str(), nullptr);
+    std::wstring path = dir + L"\\pending.db";
+    if (!db->Open(path)) {
+        diag::Log(L"[agent-host] pending db open failed path=%ls", path.c_str());
+        return false;
+    }
+    m_pending = std::move(db);
+    diag::Log(L"[agent-host] pending db open %ls", path.c_str());
+    return true;
+}
+
+// 把 pending 库里的记录逐条 SAVE 到服务；服务端 SaveEntry 内容去重，
+// 重复上送无害。成功一条删一条（避免重复上送已入库的同内容）。
+// 可被 App 的恢复线程（UI 线程）与代理线程并发调用，故用互斥锁保护。
+void AgentHost::FlushPending()
+{
+    // 锁内读快照，锁外做阻塞的 SAVE，避免长时间持锁阻塞剪贴板暂存。
+    std::vector<Entry> rows;
+    {
+        std::lock_guard<std::mutex> lk(m_pendingMutex);
+        if (!m_pending) return;
+        rows = m_pending->Query(L"", 200);
+    }
+    if (rows.empty()) return;
+    for (auto& e : rows) {
+        const std::wstring cmd =
+            L"SAVE\t" + ipc::EscapeField(e.source) + L"\t\t" +
+            ipc::EscapeField(e.content);
+        const std::wstring resp = m_client.Request(cmd);
+        if (resp.rfind(L"OK", 0) == 0) {
+            std::lock_guard<std::mutex> lk(m_pendingMutex);
+            if (m_pending) m_pending->DeleteById(e.id);
+        }
+    }
+    diag::Log(L"[agent-host] flushed %zu pending entries", rows.size());
+}
+
 // 把一条剪贴板记录经持久连接 SAVE 转发给系统服务。若管道未就绪，
 // PipeClient::Request 会自动拉起/重连；这里小循环重试几次，仍失败则
-// 丢弃（记录日志）。服务端成功后广播 EVT NEWRECORD，所有 UI 实时刷新。
+// **不再丢弃**——写入本会话离线暂存库 pending.db，等服务恢复后
+// FlushPending 同步回机器库。服务端成功后广播 EVT NEWRECORD，所有 UI
+// 实时刷新。
 bool AgentHost::ForwardClipboard(const std::wstring& text)
 {
     const std::wstring cmd = L"SAVE\tClipboard\t\t" + ipc::EscapeField(text);
 
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < 2; ++i) {
         const std::wstring resp = m_client.Request(cmd);
-        if (resp.rfind(L"OK", 0) == 0)
+        if (resp.rfind(L"OK", 0) == 0) {
+            FlushPending();      // 连接可用 → 顺带把上次离线时暂存的记录同步回去
             return true;
+        }
         Sleep(300);
     }
-    diag::Log(L"[agent-host] forward clipboard failed, text_len=%zu",
+    // 服务不可达 → 暂存本地，不再丢失（锁内打开/写入，与恢复线程同步）。
+    diag::Log(L"[agent-host] forward clipboard failed, buffering locally, text_len=%zu",
               text.size());
+    {
+        std::lock_guard<std::mutex> lk(m_pendingMutex);
+        if (EnsurePendingDb())
+            m_pending->SaveEntry(text, L"Clipboard");
+    }
     return false;
 }
 

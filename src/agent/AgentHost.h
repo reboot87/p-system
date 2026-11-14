@@ -19,9 +19,12 @@
 #include <windows.h>
 #include <atomic>
 #include <functional>
+#include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 #include "../ipc/PipeClient.h"
+#include "../core/Database.h"
 
 class AgentHost
 {
@@ -42,6 +45,10 @@ public:
     // 本实例是否正运行剪贴板监听
     bool IsServingPipe() const { return m_started.load(); }
 
+    // 把本地暂存库（pending.db）里的记录同步回系统服务。服务恢复后由
+    // App 调用；ForwardClipboard 成功时也会顺带调用。
+    void FlushPending();
+
     // 阻塞直到后台工作线程退出
     void Wait();
 
@@ -60,6 +67,11 @@ private:
     void NotifyUi(bool ok, const wchar_t* title, const wchar_t* message);
     void LaunchClient();
     void ToggleUiWindow();
+
+    // ---- 离线暂存（pending.db）----
+    // 服务不可用时剪贴板记录暂存到本会话 %APPDATA%\AireRecord\pending.db，
+    // 服务恢复后经 FlushPending 同步回机器库，避免记录丢失。
+    bool EnsurePendingDb();                       // 惰性打开 %APPDATA%\AireRecord\pending.db
 
     static LRESULT CALLBACK SvcWndProc(HWND, UINT, WPARAM, LPARAM);
 
@@ -80,4 +92,6 @@ private:
     std::atomic<bool> m_started{ false };
     DWORD        m_agentThreadId = 0;
     PipeClient   m_client;              // 持久转发连接（本会话剪贴板→服务入库）
+    std::unique_ptr<Database> m_pending; // 服务不可用时的本地暂存库（%APPDATA%\AireRecord\pending.db）
+    std::mutex  m_pendingMutex;      // 保护 m_pending（App 恢复线程与代理线程并发访问）
 };

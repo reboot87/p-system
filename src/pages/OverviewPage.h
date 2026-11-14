@@ -32,9 +32,11 @@ private:
                         const std::wstring& number, const wchar_t* unit,
                         const wchar_t* badge, bool off, bool badgeOk,
                         bool hover);
+    void DrawOfflineBanner(air::ui::Canvas& g, const RECT& banner);
 
     App&  m_app;
     RECT  m_content = {};
     RECT  m_rcModCard[3] = {};
     int   m_hoverCard = -1;
+    int   m_bannerH = 0;      // 服务离线横幅高度（离线 ~28px，在线 0）
 };

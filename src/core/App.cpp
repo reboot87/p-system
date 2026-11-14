@@ -80,10 +80,12 @@ int App::Run(HINSTANCE hInstance)
         // 用户主动停服务（sc stop）时，服务端先广播 STOPPING 再关管道：
         // 让 UI 暂停自动重启，避免"停止"与"启动"竞争（SCM 立即报无法停止）。
         if (evt == L"STOPPING") {
-            // 新生命周期策略：服务主动停止 → UI 也退出（不尝试重启服务）。
-            // 服务会在本进程退出前把管道断开，但 UI 已决定跟随退出。
-            diag::Log(L"[evt] STOPPING -> UI exits");
-            ExitAll();
+            // 用户主动停服务（sc stop）：UI **保持存活**进入离线态，不退出。
+            // 剪贴板记录暂存本地，等服务回来（SCM 失败操作 / 用户重新启动）
+            // 时自动同步回机器库。不做重启服务的尝试（尊重 sc stop）。
+            diag::Log(L"[evt] STOPPING -> UI offline (stays alive)");
+            if (m_shell.Hwnd())
+                PostMessage(m_shell.Hwnd(), WM_APP + 3, 0, 0);   // 走 ServiceDied 统一离线
             return;
         }
         if (m_shell.Hwnd())
@@ -104,7 +106,11 @@ int App::Run(HINSTANCE hInstance)
         diag::Log(L"[ipc] service up on %ls", ipc::PipeName());
         RegisterSession();
     } else {
-        diag::Log(L"[ipc] service NOT up on %ls", ipc::PipeName());
+        // 服务启动失败（如未安装且用户拒绝 UAC）：不退出，进入离线态，
+        // 后台每 3s 尝试重连；剪贴板记录暂存本地，等服务可用后同步。
+        diag::Log(L"[ipc] service NOT up on %ls, entering offline mode", ipc::PipeName());
+        SetServiceOffline(true);
+        StartReconnectWatch();
     }
 
     // ---- 关闭策略（机器级 [ui] close_behavior，默认 hide） ----
@@ -237,6 +243,31 @@ int App::Run(HINSTANCE hInstance)
             if (msg == WM_TIMER && wParam == TIMER_SVC_HEARTBEAT) {
                 if (!m_ipc.IsConnected() && m_shell.Hwnd())
                     PostMessage(m_shell.Hwnd(), WM_APP + 3, 0, 0);
+                result = 0;
+                return true;
+            }
+            // 服务离线重连（3s 兜底）：服务不可用时轮询，连接一恢复就
+            // 同步 pending → 退出离线态 → 刷新统计与外壳 → 停定时器。
+            if (msg == WM_TIMER && wParam == TIMER_SVC_RECONNECT) {
+                KillTimer(hwnd, TIMER_SVC_RECONNECT);
+                if (!m_offline.load()) {          // 已恢复：停定时器
+                    result = 0;
+                    return true;
+                }
+                // 服务回来（管道可连上）→ 同步 + 清除离线告警。
+                // 用 Connect()（仅探测管道、不拉起服务）而非 Ping/Request，
+                // 确保离线态绝不擅自重启服务，只等用户/SCM 把它启动。
+                if (m_ipc.Connect()) {
+                    if (m_agent) m_agent->FlushPending();
+                    RegisterSession();
+                    SetServiceOffline(false);
+                    RefreshStats();
+                    SyncServiceUi();
+                    Toast(L"服务已恢复", L"离线期间暂存的剪贴板记录已同步");
+                } else {
+                    // 还没起来 → 下轮继续
+                    StartReconnectWatch();
+                }
                 result = 0;
                 return true;
             }
@@ -502,6 +533,19 @@ void App::RefreshStats()
 
 void App::SyncServiceUi()
 {
+    // 离线态：保持红色告警文案（标题栏/状态栏/底栏），不被刷新覆盖。
+    if (m_offline.load()) {
+        m_shell.SetCaptionBadge(L"服务不可用 · 记录暂存本地", false);
+        m_shell.SetStatus(L"服务不可用 · 剪贴板记录暂存本地 · 恢复后自动同步", false);
+        m_shell.SetFooterText(L"AireRecord · 服务不可用，记录暂存本地");
+        m_shell.SetNavBadge(-2, L"已停止", false);
+        m_shell.SetSidebarInfo(L"本机信息", {
+            { L"运行模式", L"服务 + 代理", false },
+            { L"服务自启", m_svcState == 2 ? L"已启用" : L"未启用", m_svcState == 2 },
+            { L"条目", L"—", false },
+        });
+        return;
+    }
     bool ok = (m_stats.total >= 0);   // STATS 有应答即视为服务连通
 
     // 标题栏胶囊
@@ -536,22 +580,52 @@ void App::SyncServiceUi()
 }
 
 // ============================================================
-// 服务断开恢复（WM_APP+3，UI 线程）：持久连接断开 → 异步重启服务。
+// 服务断开（WM_APP+3，UI 线程）：服务停止/崩溃 → UI **不退出**，
+// 进入离线态（红色告警 + 剪贴板暂存本地 + 每 3s 尝试重连）。
 //
-// EnsureService 内部最长轮询 30×300ms = 9 秒（且可能提权等 UAC），若在
-// UI 线程同步执行，服务停止的瞬间界面会卡死 9 秒。改为后台线程做慢轮询，
-// 完成后回 WM_APP+4 到 UI 线程收尾（重连 / 刷新 / Toast），UI 线程立即返回。
+// SCM 失败操作负责在服务崩溃时自动重启（Session 0）；STOPPING 事件
+// 是用户主动 sc stop，服务不会自动起来，重连直到用户重新启动才成功。
+// 两种情况下 UI 都保持存活，记录不丢失。
 // ============================================================
 void App::ServiceDied()
 {
-    // 新生命周期策略：服务停止/崩溃 → UI 也退出（不尝试重启服务）。
-    // 服务的拉起只在"UI 启动时发现服务未启动"这一次；此后服务停，UI 即退。
-    diag::Log(L"[svc-died] service down, exiting UI");
-    ExitAll();   // 停服务（若本进程是最后一个 UI）+ 退出本 UI
+    diag::Log(L"[svc-died] service down, UI offline (stays alive)");
+    SetServiceOffline(true);
+    StartReconnectWatch();
+}
+
+// 进入 / 退出离线态：更新标题栏胶囊、状态栏、底栏与页面横幅；重绘。
+void App::SetServiceOffline(bool off)
+{
+    const bool wasOff = m_offline.exchange(off);
+    // 离线态：禁止 Request 自动拉起/重启服务（避免 UI 在服务停机时擅自
+    // 重启）。恢复后放开，让首次启动/手动恢复仍能拉起。
+    m_ipc.SetAutoStart(!off);
+    if (wasOff == off) return;   // 状态未变，避免反复刷新
+
+    if (off) {
+        m_shell.SetCaptionBadge(L"服务不可用 · 记录暂存本地", /*ok=*/false);
+        m_shell.SetStatus(L"服务不可用 · 剪贴板记录暂存本地 · 恢复后自动同步", false);
+        m_shell.SetFooterText(L"AireRecord · 服务不可用，记录暂存本地");
+    } else {
+        // 服务恢复：恢复标准文案（刷新统计后由 SyncServiceUi 填充具体数字）
+        m_shell.SetCaptionBadge(L"服务运行中 · 已记录 — 条", true);
+        m_shell.SetStatus(L"服务运行中（airecordd.exe）", true);
+        m_shell.SetFooterText(L"AireRecord v1.3.1 · 服务已连接");
+    }
+    m_shell.Invalidate();        // 页面重绘横幅
+}
+
+// 离线期间每 3s 尝试重连。成功：同步 pending → 重新登记会话 → 退出离线态
+// → 刷新统计与外壳 → 停止定时器。
+void App::StartReconnectWatch()
+{
+    if (m_shell.Hwnd())
+        SetTimer(m_shell.Hwnd(), TIMER_SVC_RECONNECT, 3000, nullptr);
 }
 
 // 统一退出：停止系统服务（best-effort，服务已停则 no-op），再强制退出本 UI。
-// 生命周期契约：服务停止/崩溃 → UI 退出；用户主动退出 UI → 停止服务 + 退出。
+// 仅由托盘「退出」等用户显式退出调用。
 void App::ExitAll()
 {
     // 1) 停止服务（SCM ControlService，发起即返回，不等完全停止）。

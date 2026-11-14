@@ -42,6 +42,7 @@ enum {
     TIMER_SYSINFO         = 3, // 配置页 CPU/内存 2s 轮询
     TIMER_SVC_HEARTBEAT   = 8, // 服务心跳 2s（PING\t<sessionId>，检测/拉起服务）
     TIMER_PROBE_HIDDEN    = 9, // 静默启动后的延迟显示（规避启动期窗口检查）
+    TIMER_SVC_RECONNECT   = 10, // 服务不可用时每 3s 尝试重连（离线恢复）
 };
 
 // 服务统计（IPC STATS）
@@ -123,10 +124,18 @@ public:
     // 工作台总览或机器配置页。
     void RefreshData();
 
-    // 服务端连接断开（由断开回调经 UI 线程触发）：服务停止/崩溃 → UI 也退出。
+    // 服务端连接断开（由断开回调经 UI 线程触发）：服务停止/崩溃 → 进入离线态。
     void ServiceDied();
 
+    // 服务离线（STOPPING / 断开 / 启动失败）：UI 保持存活，红色告警 + 定期重连。
+    void SetServiceOffline(bool off);
+    bool IsServiceOffline() const { return m_offline.load(); }
+
+    // 离线时每 3s 尝试重连，成功则同步 pending、清除告警、刷新统计。
+    void StartReconnectWatch();
+
     // 统一退出：停止服务（best-effort，服务已停则 no-op）+ 强制退出本 UI。
+    // 仅由托盘「退出」等用户显式退出调用。
     void ExitAll();
 
     // 服务恢复完成（后台 EnsureService 结束后回 UI 线程）：重连+刷新+Toast。
@@ -179,6 +188,7 @@ private:
     std::wstring m_svcText;
     std::vector<UiEntry> m_entries;
     std::atomic<bool> m_svcRecovering{ false };   // 服务恢复线程是否进行中
+    std::atomic<bool> m_offline{ false };         // 服务不可用：UI 进入离线态（暂存+重连）
     std::atomic<unsigned long long> m_suppressRestartUntil{ 0 }; // 收到 STOPPING 后暂停自动重启的截止时间
     bool         m_startHidden = false;
     int          m_showDelayMs = 0;

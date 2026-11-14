@@ -50,13 +50,21 @@ public:
     // 是否已建立持久连接
     bool IsConnected() const { return m_connected.load(); }
 
+    // 打开管道 + 派生 reader，建立持久连接。**不拉起/重启服务**：仅探测
+    // 全局管道是否可连（离线重连用，避免 UI 擅自启动服务）。成功返回 true。
+    bool Connect();
+
+    // 控制 Request 失败时是否自动拉起/重启服务（离线态时关闭，避免 UI
+    // 在服务停机时擅自重启它）。恢复后置回 true。
+    void SetAutoStart(bool on) { m_autoStart = on; }
+    bool AutoStart() const { return m_autoStart.load(); }
+
     // 关闭连接并回收 reader 线程（析构/停止时调用）
     void Close();
 
 private:
     void ReaderThread();                 // 后台读帧线程
     void HandleDisconnect(HANDLE h);     // 断开清理（reader 线程）
-    bool Connect();                      // 打开管道 + 派生 reader
 
     std::wstring m_servicePath;
 
@@ -69,6 +77,7 @@ private:
     std::map<unsigned long long, bool>         m_pendingDone;  // id → 已完成
     std::atomic<bool> m_connected{ false };
     std::atomic<bool> m_closing{ false };
+    std::atomic<bool> m_autoStart{ true };   // Request 失败时是否自动拉起服务（离线态关闭）
 
     std::function<void(const std::wstring&)> m_onEvent;
     std::function<void()> m_onDisconnect;

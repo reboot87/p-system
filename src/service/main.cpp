@@ -677,6 +677,31 @@ static int InstallService()
     if (!svc && GetLastError() == ERROR_SERVICE_EXISTS)
         svc = OpenServiceW(mgr, kSvcName, SERVICE_ALL_ACCESS);
 
+    // ---- SCM 崩溃自动重启（失败操作）----
+    // 服务崩溃（异常退出）时由操作系统（Session 0）自动重启，而非由 UI
+    // 重启。SCM 失败操作只在进程异常退出时触发；干净的 `sc stop` 不会。
+    // best-effort：配置失败不影响安装成功。
+    if (svc) {
+        SC_ACTION actions[3] = {
+            { SC_ACTION_RESTART, 1000 },   // 首次崩溃：1s 后重启
+            { SC_ACTION_RESTART, 5000 },   // 再次崩溃：5s 后重启
+            { SC_ACTION_RESTART, 10000 },  // 之后：10s 后重启
+        };
+        SERVICE_FAILURE_ACTIONS fa = {};
+        fa.dwResetPeriod       = 86400;   // 计数重置周期：24h
+        fa.cActions            = 3;
+        fa.lpsaActions         = actions;
+        ChangeServiceConfig2W(svc, SERVICE_CONFIG_FAILURE_ACTIONS, &fa);
+
+        // 失败操作应用在进程异常退出而非干净停止上，并标记为非关键失败：
+        // 重启失败也不会触发系统进入恢复模式（SERVICE_FAILURE_ACTIONS_FLAG）。
+        // 常量按 Windows 7+ SDK 定义取值（部分旧 SDK 未导出该宏）。
+        // best-effort，失败无害。
+        DWORD notCritical = 0x00000001;          // SERVICE_FAILURE_ACTIONS_FLAG_NOT_CRITICAL
+        ChangeServiceConfig2W(svc, SERVICE_CONFIG_FAILURE_ACTIONS_FLAG,
+                              &notCritical);
+    }
+
     bool started = false;
     if (svc) {
         SERVICE_STATUS st = {};

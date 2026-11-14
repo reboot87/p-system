@@ -5,6 +5,9 @@
 
 using namespace air::ui;
 
+// 服务离线横幅高度（px）：内容区顶部一条红色告警条。
+static constexpr int kBannerH = 28;
+
 void OverviewPage::OnShow(bool shown)
 {
     // 切回总览页时也走统一刷新：这里画的是共享快照（总数 / 今日 / 最近动态），
@@ -15,13 +18,15 @@ void OverviewPage::OnShow(bool shown)
 void OverviewPage::OnLayout(const RECT& content)
 {
     m_content = content;
+    m_bannerH = m_app.IsServiceOffline() ? kBannerH : 0;
+    // 离线时顶部让出横幅高度，卡片整体下移
+    int y = content.top + m_bannerH;
 
     int x0 = content.left;
     int x1 = content.right;
     int W  = x1 - x0;
     int cardW = (W - 24) / 3;
     int cardH = 188;
-    int y = content.top;
 
     m_rcModCard[0] = { x0, y, x0 + cardW, y + cardH };
     m_rcModCard[1] = { x0 + cardW + 12, y, x0 + cardW * 2 + 12, y + cardH };
@@ -92,13 +97,20 @@ void OverviewPage::OnPaint(Canvas& g, const RECT& content)
     const Palette& p = Pal();
     const Metrics& m = Mx();
     m_content = content;
+    // 离线态实时切换：横幅出现/消失时内容同步下移
+    m_bannerH = m_app.IsServiceOffline() ? kBannerH : 0;
+    if (m_bannerH > 0) {
+        RECT banner = { content.left, content.top,
+                        content.right, content.top + m_bannerH };
+        DrawOfflineBanner(g, banner);
+    }
 
     int x0 = content.left;
     int x1 = content.right;
     int W  = x1 - x0;
     int cardW = (W - 24) / 3;
     int cardH = 188;
-    int y  = content.top;
+    int y  = content.top + m_bannerH;
 
     // 卡片矩形（绝对坐标，同时供命中测试使用）
     m_rcModCard[0] = { x0, y, x0 + cardW, y + cardH };
@@ -213,4 +225,15 @@ bool OverviewPage::OnMouseLeave()
     if (m_hoverCard == -1) return false;
     m_hoverCard = -1;
     return true;
+}
+
+// 服务离线横幅：内容区顶部一条全宽红色告警条（红色底 + 白字）。
+void OverviewPage::DrawOfflineBanner(Canvas& g, const RECT& banner)
+{
+    const Palette& p = Pal();
+    g.Fill(banner, p.error);
+    RECT rcTxt = { banner.left + 14, banner.top, banner.right - 14, banner.bottom };
+    g.Text(rcTxt, L"服务不可用 · 剪贴板记录暂存本地 · 恢复后自动同步",
+           FontRole::Body, p.textInverse,
+           DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
 }

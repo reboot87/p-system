@@ -188,9 +188,10 @@ std::wstring PipeClient::Request(const std::wstring& line)
     const std::wstring payload = std::to_wstring(id) + L"\t" + line;
 
     for (int attempt = 0; attempt < 2; ++attempt) {
-        // 确保连接就绪（断线时自动重连；首次失败则拉起服务）
+        // 确保连接就绪（断线时自动重连；首次失败则拉起服务——仅当允许自动
+        // 拉起时。离线态（m_autoStart=false）不重启服务，避免 UI 擅自拉起）。
         if (!Connect()) {
-            if (attempt == 0 && EnsureService()) continue;
+            if (attempt == 0 && m_autoStart.load() && EnsureService()) continue;
             return L"";
         }
 
@@ -204,7 +205,7 @@ std::wstring PipeClient::Request(const std::wstring& line)
                 m_connected = false;
                 m_pendingDone[id] = true;
                 m_cv.notify_all();
-                if (attempt == 0) { EnsureService(); continue; }
+                if (attempt == 0 && m_autoStart.load()) { EnsureService(); continue; }
                 return L"";
             }
             std::string req = "REQ\n" + ipc::WideToUtf8(payload) + "\n";
@@ -213,7 +214,7 @@ std::wstring PipeClient::Request(const std::wstring& line)
                 m_connected = false;
                 m_pendingDone[id] = true;
                 m_cv.notify_all();
-                if (attempt == 0) { EnsureService(); continue; }
+                if (attempt == 0 && m_autoStart.load()) { EnsureService(); continue; }
                 return L"";
             }
 
@@ -229,7 +230,7 @@ std::wstring PipeClient::Request(const std::wstring& line)
             if (m_connected.load())
                 return resp;
             // 等待期间连接断开 → 重连重试一次
-            if (attempt == 0) { EnsureService(); continue; }
+            if (attempt == 0 && m_autoStart.load()) { EnsureService(); continue; }
             return resp;
         }
     }

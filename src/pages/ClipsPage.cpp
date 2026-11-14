@@ -7,6 +7,9 @@ using namespace air::ui;
 
 namespace {
 
+// 服务离线横幅高度（px）。离线时内容区顶部显示一条红色告警条。
+constexpr int kBannerH = 28;
+
 // 列表行内三个操作钮的几何，以「行的左上角」为原点。
 //
 // 绘制时整体平移到行矩形，命中时直接用行内坐标比较 —— 两边必须是同一
@@ -196,7 +199,10 @@ void ClipsPage::SyncVisibility()
 
 void ClipsPage::OnLayout(const RECT& content)
 {
+    // 服务离线时顶部让出横幅高度，内容整体下移；横幅在 OnPaint 画。
+    m_bannerH = m_app.IsServiceOffline() ? kBannerH : 0;
     m_content = content;
+    m_content.top += m_bannerH;
     Relayout();
 }
 
@@ -381,7 +387,11 @@ void ClipsPage::RefreshList(const std::wstring& filter)
     const bool ok = ReloadEntries(filter);
     const std::vector<UiEntry>& all = m_app.Entries();
 
-    m_shell->SetStatus(ok ? L"记录中" : L"服务未连接", ok);
+    // 离线态保持红色告警文案，不显示误导性的「服务未连接」。
+    m_shell->SetStatus(
+        m_app.IsServiceOffline() ? L"服务不可用 · 剪贴板记录暂存本地 · 恢复后自动同步"
+                                 : (ok ? L"记录中" : L"服务未连接"),
+        ok && !m_app.IsServiceOffline());
 
     if (!m_list) return;
 
@@ -472,11 +482,36 @@ void ClipsPage::RefreshList(const std::wstring& filter)
 // ============================================================
 void ClipsPage::OnPaint(Canvas& g, const RECT& content)
 {
-    m_content = content;
+    // 离线态实时切换：按当前状态刷新横幅高度并重排（OnLayout 之外被调时
+    // 也能让内容随横幅上下移动，命中测试与绘制保持一致）。
+    const int wantBanner = m_app.IsServiceOffline() ? kBannerH : 0;
+    if (wantBanner != m_bannerH) {
+        m_bannerH = wantBanner;
+        m_content = content;
+        m_content.top += m_bannerH;
+        Relayout();
+    }
+
+    if (m_bannerH > 0) {
+        RECT banner = { content.left, content.top,
+                        content.right, content.top + m_bannerH };
+        DrawOfflineBanner(g, banner);
+    }
 
     DrawToolbar(g);
     if (m_formOpen && !m_editingId) DrawFormCard(g);
     DrawDetailPanel(g);
+}
+
+// 服务离线横幅：内容区顶部一条全宽红色告警条（红色底 + 白字）。
+void ClipsPage::DrawOfflineBanner(Canvas& g, const RECT& banner)
+{
+    const Palette& p = Pal();
+    g.Fill(banner, p.error);
+    RECT rcTxt = { banner.left + 14, banner.top, banner.right - 14, banner.bottom };
+    g.Text(rcTxt, L"服务不可用 · 剪贴板记录暂存本地 · 恢复后自动同步",
+           FontRole::Body, p.textInverse,
+           DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
 }
 
 void ClipsPage::DrawToolbar(Canvas& g)

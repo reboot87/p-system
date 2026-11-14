@@ -72,6 +72,7 @@ private:
     void DrawFormCard(air::ui::Canvas& g);
     void DrawDetailPanel(air::ui::Canvas& g);
     void DrawListRow(air::ui::Canvas& g, const air::ui::ListItemDraw& item);
+    void DrawOfflineBanner(air::ui::Canvas& g, const RECT& banner);
 
     // 交互
     void OnListOp(int entryIdx, int op);          // 0复制 1备注 2删除
@@ -131,4 +132,5 @@ private:
     long long m_editingId = 0;
     int  m_lineH = 0;           // 单行 EDIT 客户区高（= 一行文字高）
     bool m_visible = false;
+    int  m_bannerH = 0;      // 服务离线横幅高度（离线时 ~28px，在线 0）
 };
