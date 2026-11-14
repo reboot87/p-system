@@ -69,9 +69,8 @@ int App::Run(HINSTANCE hInstance)
     // 连全局管道（数据统一由系统服务入库）。
     m_agent = std::make_unique<AgentHost>();
     bool served = m_agent->Start(hInstance, m_shell.Hwnd(), [this]() {
-        // 托盘「退出」：强制退出整个进程（不受 close_behavior=hide 影响）。
-        m_forceExit = true;
-        PostMessage(m_shell.Hwnd(), WM_CLOSE, 0, 0);
+        // 托盘「退出」：停止服务 + 退出 UI（一起退出，符合生命周期契约）。
+        ExitAll();
     });
     diag::Log(L"[agent] merged in-process agent serving_pipe=%d", (int)served);
 
@@ -81,9 +80,10 @@ int App::Run(HINSTANCE hInstance)
         // 用户主动停服务（sc stop）时，服务端先广播 STOPPING 再关管道：
         // 让 UI 暂停自动重启，避免"停止"与"启动"竞争（SCM 立即报无法停止）。
         if (evt == L"STOPPING") {
-            // 60 秒窗口内暂停自动重启（消除"停止瞬间被 UI 拉起"的竞争）；
-            // 窗口过后若服务崩溃仍自动重启。读者线程写原子，安全。
-            m_suppressRestartUntil.store(GetTickCount64() + 60000);
+            // 新生命周期策略：服务主动停止 → UI 也退出（不尝试重启服务）。
+            // 服务会在本进程退出前把管道断开，但 UI 已决定跟随退出。
+            diag::Log(L"[evt] STOPPING -> UI exits");
+            ExitAll();
             return;
         }
         if (m_shell.Hwnd())
@@ -544,23 +544,33 @@ void App::SyncServiceUi()
 // ============================================================
 void App::ServiceDied()
 {
-    // 用户主动停服务（收到 STOPPING）后的 60 秒窗口内暂停自动重启，
-    // 避免"停止"与"启动"竞争（SCM 立即报"无法停止"）。窗口过后若服务
-    // 崩溃仍自动重启。
-    if (GetTickCount64() < m_suppressRestartUntil.load()) {
-        diag::Log(L"[svc-died] suppressed (user stopped service), not restarting");
-        return;
+    // 新生命周期策略：服务停止/崩溃 → UI 也退出（不尝试重启服务）。
+    // 服务的拉起只在"UI 启动时发现服务未启动"这一次；此后服务停，UI 即退。
+    diag::Log(L"[svc-died] service down, exiting UI");
+    ExitAll();   // 停服务（若本进程是最后一个 UI）+ 退出本 UI
+}
+
+// 统一退出：停止系统服务（best-effort，服务已停则 no-op），再强制退出本 UI。
+// 生命周期契约：服务停止/崩溃 → UI 退出；用户主动退出 UI → 停止服务 + 退出。
+void App::ExitAll()
+{
+    // 1) 停止服务（SCM ControlService，发起即返回，不等完全停止）。
+    //    服务已停/已死时是 no-op（返回 ERROR_SERVICE_NOT_ACTIVE）。
+    SC_HANDLE mgr = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
+    if (mgr) {
+        SC_HANDLE svc = OpenServiceW(mgr, L"AireRecord", SERVICE_STOP);
+        if (svc) {
+            SERVICE_STATUS st{};
+            ControlService(svc, SERVICE_CONTROL_STOP, &st);
+            CloseServiceHandle(svc);
+        }
+        CloseServiceHandle(mgr);
     }
-    // 防重入：恢复动作已在后台跑，不再重复起线程
-    if (m_svcRecovering.exchange(true))
-        return;
-    std::thread([this]() {
-        // 后台线程：慢轮询确保服务就绪（SCM 静默 / 提权 -install）
-        const bool recovered = m_ipc.EnsureService();
-        m_svcRecovering.store(false);
-        if (m_shell.Hwnd())
-            PostMessage(m_shell.Hwnd(), WM_APP + 4, recovered ? 1 : 0, 0);
-    }).detach();
+    // 2) 强制退出本 UI（绕过 close_behavior=hide）。
+    if (m_agent) m_agent->Stop();
+    m_forceExit = true;
+    if (m_shell.Hwnd())
+        PostMessage(m_shell.Hwnd(), WM_CLOSE, 0, 0);
 }
 
 // 服务恢复完成（WM_APP+4，UI 线程）：重连 + 刷新状态 + Toast。

@@ -123,9 +123,11 @@ public:
     // 工作台总览或机器配置页。
     void RefreshData();
 
-    // 服务端连接断开后的恢复（由断开回调经 UI 线程触发）：静默重启服务
-    // （SCM 优先，未安装才提权）并重新登记本会话。
+    // 服务端连接断开（由断开回调经 UI 线程触发）：服务停止/崩溃 → UI 也退出。
     void ServiceDied();
+
+    // 统一退出：停止服务（best-effort，服务已停则 no-op）+ 强制退出本 UI。
+    void ExitAll();
 
     // 服务恢复完成（后台 EnsureService 结束后回 UI 线程）：重连+刷新+Toast。
     void OnServiceRecovered(bool ok);
