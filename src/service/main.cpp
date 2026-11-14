@@ -549,14 +549,16 @@ static DWORD WINAPI WatchThread(LPVOID)
     return 0;
 }
 
-// 停止所有已拉起的会话 UI 进程（服务停止时调用）。
+// 服务停止时收尾：仅释放已拉起会话 UI 的进程句柄，**不终止它们**。
+// 停止服务不应把每会话的 airecord.exe（UI）一起杀掉——UI 是用户进程，
+// 它的持久管道连接会在服务停下后断开，由 UI 侧 ServiceDied() 自行决定
+// 是否重启服务。若此处 TerminateProcess，UI 会随服务停止而立即退出。
 static void StopAllAgents()
 {
     EnterCriticalSection(&g_cs);
     for (auto& p : g_procs) {
         if (p.process) {
-            TerminateProcess(p.process, 1);
-            CloseHandle(p.process);
+            CloseHandle(p.process);   // 只关句柄，进程继续存活
             p.process = nullptr;
         }
     }
