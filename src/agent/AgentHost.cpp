@@ -63,6 +63,8 @@ bool AgentHost::Start(HINSTANCE hInstance, HWND uiWindow,
     // 服务 exe 永远是 airecordd.exe（服务安装/卸载用）
     m_serviceExe = dir + L"\\airecordd.exe";
     m_clientPath = dir + L"\\airecord.exe";
+    // 持久转发连接的自动拉起/重连用同目录服务端 exe
+    m_client.SetServicePath(m_serviceExe);
 
     // 机器级 [service] client_path 覆盖客户端启动路径（独立拉起用）
     std::wstring cp = machine::Get(L"service", L"client_path", L"");
@@ -163,26 +165,15 @@ void AgentHost::NotifyUi(bool ok, const wchar_t* title, const wchar_t* message)
                         SMTO_ABORTIFHUNG, 1000, &ignored);
 }
 
-// 把一条剪贴板记录经全局管道 SAVE 转发给系统服务。若管道未就绪，
-// PipeClient::Request 会尝试拉起/启动系统服务；这里小循环重试几次，
-// 仍失败则丢弃（记录日志）。
+// 把一条剪贴板记录经持久连接 SAVE 转发给系统服务。若管道未就绪，
+// PipeClient::Request 会自动拉起/重连；这里小循环重试几次，仍失败则
+// 丢弃（记录日志）。服务端成功后广播 EVT NEWRECORD，所有 UI 实时刷新。
 bool AgentHost::ForwardClipboard(const std::wstring& text)
 {
-    // 服务端 exe 与本 exe 同目录（airecordd.exe）
-    wchar_t self[MAX_PATH] = {};
-    GetModuleFileNameW(nullptr, self, MAX_PATH);
-    std::wstring selfPath = self;
-    size_t slash = selfPath.find_last_of(L'\\');
-    std::wstring dir = slash == std::wstring::npos
-        ? L"." : selfPath.substr(0, slash);
-    std::wstring svcExe = dir + L"\\airecordd.exe";
+    const std::wstring cmd = L"SAVE\tClipboard\t\t" + ipc::EscapeField(text);
 
-    std::wstring cmd = L"SAVE\tClipboard\t\t" + ipc::EscapeField(text);
-
-    PipeClient client;
-    client.SetServicePath(svcExe);
     for (int i = 0; i < 4; ++i) {
-        std::wstring resp = client.Request(cmd);
+        const std::wstring resp = m_client.Request(cmd);
         if (resp.rfind(L"OK", 0) == 0)
             return true;
         Sleep(300);

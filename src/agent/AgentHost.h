@@ -21,6 +21,7 @@
 #include <functional>
 #include <string>
 #include <thread>
+#include "../ipc/PipeClient.h"
 
 class AgentHost
 {
@@ -78,4 +79,5 @@ private:
     std::thread  m_thread;
     std::atomic<bool> m_started{ false };
     DWORD        m_agentThreadId = 0;
+    PipeClient   m_client;              // 持久转发连接（本会话剪贴板→服务入库）
 };

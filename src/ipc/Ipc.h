@@ -6,19 +6,16 @@
 // 内容字段先 EscapeField（\\ \t \n \r 转义），保证原始
 // \n 只作为命令/记录分隔符出现。
 //
-// 协议：
-//   请求  PING
-//   响应  OK
+// 协议（帧）：每条帧 = "TAG\nPAYLOAD\n"，TAG ∈ {REQ, RSP, EVT}。
+//   REQ\n<id>\t<line>\n    客户端→服务端请求（id 匹配响应）
+//   RSP\n<id>\t<resp>\n    服务端→客户端响应（resp 先 EscapeField 转义，
+//                          以便含内嵌换行的 LIST 等响应完整走一帧）
+//   EVT\n<evt>\n           服务端→客户端事件广播（新记录/数据变更）
 //
-//   请求  LIST\t<filter>                      filter 已转义，可为空
-//   响应  OK\n<id>\t<source>\t<time>\t<note>\t<content>\n...\nEND
-//
-//   请求  SAVE\t<source>\t<note>\t<content>   note/content 已转义
-//   响应  OK | ERR\t<msg>
-//
-//   请求  COPY\t<content>                      服务端复制（自动过滤自记录）
-//   响应  OK
+// 命名管道以 FILE_FLAG_OVERLAPPED 打开，支持同一句柄上 reader 线程的
+// 阻塞读 与 其它线程的写 并发进行（持久双向流的必要前提）。
 // ============================================================
+#include <windows.h>
 #include <string>
 #include <vector>
 
@@ -46,4 +43,15 @@ namespace ipc
     std::vector<std::wstring> SplitTabs(const std::wstring& s);
     // 按 '\n' 切分
     std::vector<std::wstring> SplitLines(const std::wstring& s);
+
+    // ---- 命名管道 overlapped I/O 帮助（句柄须以 FILE_FLAG_OVERLAPPED 打开） ----
+    // 用 OVERLAPPED 读一行（'\n' 结尾，不包含换行）。返回 true 表示读到一行；
+    // 断开（ERROR_BROKEN_PIPE / 0 字节）或取消（ERROR_OPERATION_ABORTED）返回 false。
+    // ov.hEvent 由调用方创建（手动重置事件），供阻塞读等待。
+    bool PipeReadLine(HANDLE pipe, OVERLAPPED& ov, std::string& out);
+    // 用 OVERLAPPED 同步写整块数据（内部创建事件并等待完成）。返回 true 表示写成功。
+    bool PipeWrite(HANDLE pipe, const std::string& data);
+    // 用 OVERLAPPED 写整块数据，最多等待 timeoutMs 毫秒（SendEvent 广播用，
+    // 避免因某连接读侧未及时消费而长时间阻塞）。返回 true 表示写完成。
+    bool PipeWriteTimeout(HANDLE pipe, const std::string& data, DWORD timeoutMs);
 }

@@ -123,10 +123,12 @@ public:
     // 工作台总览或机器配置页。
     void RefreshData();
 
-    // 服务心跳（TIMER_SVC_HEARTBEAT 每 2s 触发）：经全局管道发
-    // PING\t<sessionId>，让 Session 0 服务知道本会话 UI 存活；若服务
-    // 已停止则轻量探测、静默重启（SCM 优先，未安装才提权）并上报状态。
-    void Heartbeat();
+    // 服务端连接断开后的恢复（由断开回调经 UI 线程触发）：静默重启服务
+    // （SCM 优先，未安装才提权）并重新登记本会话。
+    void ServiceDied();
+
+    // 经持久连接向服务端登记本会话号（供断开时按会话重启 UI）。
+    void RegisterSession();
 
     // ---- 剪贴板页门面（插件依赖的稳定接口） ----
     HWND List();
@@ -176,7 +178,4 @@ private:
     bool         m_showNoActivate = false;
     std::string  m_paintBackend;   // empty = auto (env / gdi)
     bool         m_coreShell = false;
-    // 上一轮心跳是否已检测到服务停止。避免每 tick 都在 UI 线程上做
-    // EnsureService 的最长 6s 轮询（只有连续两次探测失败才触发拉起）。
-    bool         m_heartbeatDown = false;
 };

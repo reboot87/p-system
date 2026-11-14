@@ -75,14 +75,29 @@ int App::Run(HINSTANCE hInstance)
     });
     diag::Log(L"[agent] merged in-process agent serving_pipe=%d", (int)served);
 
+    // ---- 持久连接回调：事件（实时刷新）+ 断开（实时重启服务） ----
+    // 服务端广播新记录/数据变更 → 通知主界面刷新（读者线程→UI 线程）。
+    m_ipc.SetEventCallback([this](const std::wstring&) {
+        if (m_shell.Hwnd())
+            PostMessage(m_shell.Hwnd(), WM_APP + 2, 0, 0);   // 防抖刷新
+    });
+    // 服务端连接断开（ReadFile 返回 ERROR_BROKEN_PIPE）→ 实时重启服务。
+    // 回调在后台 reader 线程：经 WM_APP+3 转到 UI 线程做恢复动作。
+    m_ipc.SetDisconnectCallback([this]() {
+        if (m_shell.Hwnd())
+            PostMessage(m_shell.Hwnd(), WM_APP + 3, 0, 0);
+    });
+
     // ---- 确保系统服务就绪（必要依赖） ----
     // 机器级共享库归 Session 0 系统服务独占。UI 首次 IPC 前先确保服务
     // 已安装并运行、全局管道就绪；未安装时提权 airecordd.exe -install
     // （UAC）。失败则后续 Request 每次也会尝试，并显示"服务未连接"。
-    if (m_ipc.EnsureService())
+    if (m_ipc.EnsureService()) {
         diag::Log(L"[ipc] service up on %ls", ipc::PipeName());
-    else
+        RegisterSession();
+    } else {
         diag::Log(L"[ipc] service NOT up on %ls", ipc::PipeName());
+    }
 
     // ---- 关闭策略（机器级 [ui] close_behavior，默认 hide） ----
     //   "hide"：关闭主窗口仅隐藏，后台代理与托盘继续运行（进程存活）。
@@ -209,10 +224,17 @@ int App::Run(HINSTANCE hInstance)
                 result = 0;
                 return true;
             }
-            // 服务心跳（2s）：让 Session 0 服务知道本会话 UI 存活；若服务
-            // 已停止，轻量探测并静默重启（SCM 优先），检测到回升时更新状态。
+            // 服务心跳（30s 兜底）：断开回调已是实时主触发（WM_APP+3），
+            // 这里仅作为慢后备，防止断开回调漏触发。
             if (msg == WM_TIMER && wParam == TIMER_SVC_HEARTBEAT) {
-                Heartbeat();
+                if (!m_ipc.IsConnected() && m_shell.Hwnd())
+                    PostMessage(m_shell.Hwnd(), WM_APP + 3, 0, 0);
+                result = 0;
+                return true;
+            }
+            // 服务端连接断开（实时，reader 线程投递）→ 重启服务并重连
+            if (msg == WM_APP + 3) {
+                ServiceDied();
                 result = 0;
                 return true;
             }
@@ -343,9 +365,9 @@ int App::Run(HINSTANCE hInstance)
               (int)m_startHidden, m_showDelayMs);
     if (m_showDelayMs > 0)
         SetTimer(m_shell.Hwnd(), TIMER_PROBE_HIDDEN, (UINT)m_showDelayMs, nullptr);
-    // 服务心跳：窗口隐藏时消息循环仍在跑，心跳照样发，Session 0 服务借此
-    // 知道本会话 UI 存活；服务停了则由 Heartbeat() 检测并静默重启。
-    SetTimer(m_shell.Hwnd(), TIMER_SVC_HEARTBEAT, 2000, nullptr);
+    // 服务心跳兜底：断开回调（WM_APP+3）已是实时主触发；此 30s 定时器
+    // 仅作慢后备。窗口隐藏时消息循环仍在跑，定时器照常触发。
+    SetTimer(m_shell.Hwnd(), TIMER_SVC_HEARTBEAT, 30000, nullptr);
     int rc = m_shell.RunMessageLoop();
     diag::Log(L"[ui] message loop end, rc=%d", rc);
     m_plugins.DetachAll(*this);
@@ -498,45 +520,14 @@ void App::SyncServiceUi()
 }
 
 // ============================================================
-// 服务心跳（TIMER_SVC_HEARTBEAT 每 2s，UI 线程）
+// 服务断开恢复（WM_APP+3，UI 线程）：持久连接断开 → 重启服务并重连
 // ============================================================
-void App::Heartbeat()
+void App::ServiceDied()
 {
-    // 1) 轻量连通性探测：Ping(0) 只做一次立即连接，发送裸 PING，快速失败。
-    //    它不会走 Request 内部的 EnsureService（最长 6s 轮询），因此不阻塞
-    //    UI 线程。会话号随第二步的 PING\t<sessionId> 带上。
-    const bool pipeUp = m_ipc.Ping(0);
-
-    if (pipeUp) {
-        // 服务可达：补发带会话号的心跳，让 Session 0 服务登记本会话存活。
-        // 管道已在，Request 不会阻塞（不再触发 EnsureService）。
-        m_ipc.Request(L"PING\t" + std::to_wstring(diag::SessionId()));
-
-        // 若上一轮还标记为 down，说明刚恢复：刷新状态并 toast 一次（避免刷屏）。
-        const bool wasDown = m_heartbeatDown;
-        m_heartbeatDown = false;
-        if (wasDown) {
-            RefreshStats();
-            SyncServiceUi();
-            Toast(L"服务已重启", L"系统服务已恢复，后台记录继续运行");
-        }
-        return;
-    }
-
-    // 2) 服务没响应。为不阻塞 UI：仅当连续两轮失败（已确认持续 down）时
-    //    才做 EnsureService（可能最长阻塞 6s 轮询）。
-    if (!m_heartbeatDown) {
-        m_heartbeatDown = true;      // 记录 down，下一轮再执行恢复动作
-        m_svcState = sysinfo::QueryServiceState(L"AireRecord", m_svcText);
-        SyncServiceUi();             // 状态栏立即反映"服务未连接"
-        return;
-    }
-
-    // 连续两轮失败 → 尝试静默重启服务（SCM 优先；未安装才提权 -install）
+    // 尝试静默重启服务（SCM 优先；未安装才提权 -install）并等管道就绪
     const bool recovered = m_ipc.EnsureService();
     if (recovered) {
-        m_heartbeatDown = false;
-        m_ipc.Request(L"PING\t" + std::to_wstring(diag::SessionId())); // 登记本会话
+        RegisterSession();          // 重新登记本会话（供断开时按会话重启）
         RefreshStats();
         SyncServiceUi();
         Toast(L"服务已重启", L"系统服务已恢复，后台记录继续运行");
@@ -544,6 +535,13 @@ void App::Heartbeat()
         // 未能恢复（如服务被卸载且用户拒绝 UAC）→ 状态栏如实报告失败
         m_svcState = sysinfo::QueryServiceState(L"AireRecord", m_svcText);
         SyncServiceUi();
-        diag::Log(L"[heartbeat] service down, recovery failed, svc=%d", m_svcState);
+        diag::Log(L"[svc-died] recovery failed, svc=%d", m_svcState);
     }
+}
+
+// 经持久连接向服务端登记本会话号。连接建立后调用一次；服务端借此把
+// 该连接关联到本会话，断开时就能按会话号实时重启本会话 UI。
+void App::RegisterSession()
+{
+    m_ipc.Request(L"PING\t" + std::to_wstring(diag::SessionId()));
 }

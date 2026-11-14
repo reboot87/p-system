@@ -101,4 +101,72 @@ std::vector<std::wstring> SplitLines(const std::wstring& s)
     if (!cur.empty()) out.push_back(std::move(cur));
     return out;
 }
+
+// ---- 命名管道 overlapped I/O 帮助 ----
+bool PipeReadLine(HANDLE pipe, OVERLAPPED& ov, std::string& out)
+{
+    out.clear();
+    char c = 0;
+    DWORD n = 0;
+    while (out.size() < 65536) {
+        ResetEvent(ov.hEvent);
+        ov.Offset = 0; ov.OffsetHigh = 0;
+        BOOL ok = ReadFile(pipe, &c, 1, &n, &ov);
+        if (!ok) {
+            DWORD err = GetLastError();
+            if (err == ERROR_IO_PENDING) {
+                // 等完成（或 CancelIoEx 取消后 GetOverlappedResult 失败）
+                if (WaitForSingleObject(ov.hEvent, INFINITE) != WAIT_OBJECT_0)
+                    return false;
+                if (!GetOverlappedResult(pipe, &ov, &n, FALSE))
+                    return false;   // 取消/断开
+            } else {
+                // 断开：ERROR_BROKEN_PIPE / ERROR_PIPE_NOT_CONNECTED /
+                // ERROR_OPERATION_ABORTED / ERROR_NO_DATA / 其它错误
+                return false;
+            }
+        }
+        if (n == 0) return false;       // 对端关闭（读到 0 字节）
+        if (c == '\n') return true;     // 不把换行放进返回行
+        out += c;
+    }
+    return false;
+}
+
+bool PipeWrite(HANDLE pipe, const std::string& data)
+{
+    OVERLAPPED ov{};
+    ov.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (!ov.hEvent) return false;
+    DWORD written = 0;
+    BOOL ok = WriteFile(pipe, data.data(), (DWORD)data.size(), &written, &ov);
+    if (!ok && GetLastError() == ERROR_IO_PENDING) {
+        if (WaitForSingleObject(ov.hEvent, INFINITE) != WAIT_OBJECT_0)
+            ok = FALSE;
+        else
+            ok = GetOverlappedResult(pipe, &ov, &written, FALSE);
+    }
+    CloseHandle(ov.hEvent);
+    return ok != FALSE;
+}
+
+bool PipeWriteTimeout(HANDLE pipe, const std::string& data, DWORD timeoutMs)
+{
+    OVERLAPPED ov{};
+    ov.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (!ov.hEvent) return false;
+    DWORD written = 0;
+    BOOL ok = WriteFile(pipe, data.data(), (DWORD)data.size(), &written, &ov);
+    if (!ok && GetLastError() == ERROR_IO_PENDING) {
+        DWORD w = WaitForSingleObject(ov.hEvent, timeoutMs);
+        if (w == WAIT_OBJECT_0)
+            ok = GetOverlappedResult(pipe, &ov, &written, FALSE);
+        else {
+            CancelIoEx(pipe, &ov);
+            ok = FALSE;
+        }
+    }
+    CloseHandle(ov.hEvent);
+    return ok != FALSE;
+}
 }
