@@ -188,11 +188,17 @@ std::wstring PipeClient::Request(const std::wstring& line)
     const std::wstring payload = std::to_wstring(id) + L"\t" + line;
 
     for (int attempt = 0; attempt < 2; ++attempt) {
-        // 确保连接就绪（断线时自动重连；首次失败则拉起服务——仅当允许自动
-        // 拉起时。离线态（m_autoStart=false）不重启服务，避免 UI 擅自拉起）。
-        if (!Connect()) {
-            if (attempt == 0 && m_autoStart.load() && EnsureService()) continue;
-            return L"";
+        // 连接已就绪则直接走。未就绪时：离线态（m_autoStart=false）快速失败，
+        // 绝不走 Connect() 的 1 秒重连循环——否则服务停机时每次 Request 都会
+        // 在 UI 线程卡 ~1s，表现为"点击都卡"。非离线（如启动）才走慢速重连。
+        if (!m_connected.load()) {
+            if (!m_autoStart.load())
+                return L"";                       // 离线：不阻塞，直接失败
+            if (!Connect()) {
+                // 首次失败则拉起服务——仅当允许自动拉起时。离线态不拉起。
+                if (attempt == 0 && EnsureService()) continue;
+                return L"";
+            }
         }
 
         {
