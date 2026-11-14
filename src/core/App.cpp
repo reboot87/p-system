@@ -232,9 +232,17 @@ int App::Run(HINSTANCE hInstance)
                 result = 0;
                 return true;
             }
-            // 服务端连接断开（实时，reader 线程投递）→ 重启服务并重连
+            // 服务端连接断开（实时，reader 线程投递）→ 重启服务并重连。
+            // ServiceDied 只发起异步恢复，不在 UI 线程阻塞轮询（会卡界面）。
             if (msg == WM_APP + 3) {
                 ServiceDied();
+                result = 0;
+                return true;
+            }
+            // 服务恢复完成（后台线程 EnsureService 结束，回 UI 线程收尾）：
+            // 重连、刷新统计、状态栏、Toast。wParam=1 恢复成功，0 失败。
+            if (msg == WM_APP + 4) {
+                OnServiceRecovered(wParam != 0);
                 result = 0;
                 return true;
             }
@@ -520,13 +528,30 @@ void App::SyncServiceUi()
 }
 
 // ============================================================
-// 服务断开恢复（WM_APP+3，UI 线程）：持久连接断开 → 重启服务并重连
+// 服务断开恢复（WM_APP+3，UI 线程）：持久连接断开 → 异步重启服务。
+//
+// EnsureService 内部最长轮询 30×300ms = 9 秒（且可能提权等 UAC），若在
+// UI 线程同步执行，服务停止的瞬间界面会卡死 9 秒。改为后台线程做慢轮询，
+// 完成后回 WM_APP+4 到 UI 线程收尾（重连 / 刷新 / Toast），UI 线程立即返回。
 // ============================================================
 void App::ServiceDied()
 {
-    // 尝试静默重启服务（SCM 优先；未安装才提权 -install）并等管道就绪
-    const bool recovered = m_ipc.EnsureService();
-    if (recovered) {
+    // 防重入：恢复动作已在后台跑，不再重复起线程
+    if (m_svcRecovering.exchange(true))
+        return;
+    std::thread([this]() {
+        // 后台线程：慢轮询确保服务就绪（SCM 静默 / 提权 -install）
+        const bool recovered = m_ipc.EnsureService();
+        m_svcRecovering.store(false);
+        if (m_shell.Hwnd())
+            PostMessage(m_shell.Hwnd(), WM_APP + 4, recovered ? 1 : 0, 0);
+    }).detach();
+}
+
+// 服务恢复完成（WM_APP+4，UI 线程）：重连 + 刷新状态 + Toast。
+void App::OnServiceRecovered(bool ok)
+{
+    if (ok) {
         RegisterSession();          // 重新登记本会话（供断开时按会话重启）
         RefreshStats();
         SyncServiceUi();

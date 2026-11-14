@@ -127,6 +127,9 @@ public:
     // （SCM 优先，未安装才提权）并重新登记本会话。
     void ServiceDied();
 
+    // 服务恢复完成（后台 EnsureService 结束后回 UI 线程）：重连+刷新+Toast。
+    void OnServiceRecovered(bool ok);
+
     // 经持久连接向服务端登记本会话号（供断开时按会话重启 UI）。
     void RegisterSession();
 
@@ -173,6 +176,7 @@ private:
     int          m_svcState = 0;   // 0未装 1停止 2运行
     std::wstring m_svcText;
     std::vector<UiEntry> m_entries;
+    std::atomic<bool> m_svcRecovering{ false };   // 服务恢复线程是否进行中
     bool         m_startHidden = false;
     int          m_showDelayMs = 0;
     bool         m_showNoActivate = false;
