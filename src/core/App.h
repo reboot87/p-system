@@ -177,6 +177,7 @@ private:
     std::wstring m_svcText;
     std::vector<UiEntry> m_entries;
     std::atomic<bool> m_svcRecovering{ false };   // 服务恢复线程是否进行中
+    std::atomic<unsigned long long> m_suppressRestartUntil{ 0 }; // 收到 STOPPING 后暂停自动重启的截止时间
     bool         m_startHidden = false;
     int          m_showDelayMs = 0;
     bool         m_showNoActivate = false;

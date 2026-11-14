@@ -608,6 +608,12 @@ static void WINAPI ServiceMain(DWORD, LPWSTR*)
 
     SetSvcStatus(SERVICE_STOP_PENDING, NO_ERROR, 5000);
     g_stopping = true;                   // 停止中：断开回调不再拉起会话 UI
+    // 先广播 STOPPING 再关管道：通知各会话 UI 这是"用户主动停服务"，
+    // 让它们暂停自动重启，避免停止瞬间被 UI 重新拉起（SCM 立即报无法停止）。
+    g_svcServer.SendEvent(L"STOPPING");
+    // 给各会话 UI 一点时间读到 STOPPING 帧，再关管道断开（否则 Stop 的
+    // CancelIoEx 可能抢在客户端消费 EVT 之前取消读，导致 UI 漏收而误重启）。
+    Sleep(200);
     StopAllAgents();                     // 结束所有已拉起的会话 UI
     // 等守护线程在收到停止事件后退出（最多 3s），再回收 g_cs
     if (watch) {

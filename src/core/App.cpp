@@ -77,7 +77,15 @@ int App::Run(HINSTANCE hInstance)
 
     // ---- 持久连接回调：事件（实时刷新）+ 断开（实时重启服务） ----
     // 服务端广播新记录/数据变更 → 通知主界面刷新（读者线程→UI 线程）。
-    m_ipc.SetEventCallback([this](const std::wstring&) {
+    m_ipc.SetEventCallback([this](const std::wstring& evt) {
+        // 用户主动停服务（sc stop）时，服务端先广播 STOPPING 再关管道：
+        // 让 UI 暂停自动重启，避免"停止"与"启动"竞争（SCM 立即报无法停止）。
+        if (evt == L"STOPPING") {
+            // 60 秒窗口内暂停自动重启（消除"停止瞬间被 UI 拉起"的竞争）；
+            // 窗口过后若服务崩溃仍自动重启。读者线程写原子，安全。
+            m_suppressRestartUntil.store(GetTickCount64() + 60000);
+            return;
+        }
         if (m_shell.Hwnd())
             PostMessage(m_shell.Hwnd(), WM_APP + 2, 0, 0);   // 防抖刷新
     });
@@ -536,6 +544,13 @@ void App::SyncServiceUi()
 // ============================================================
 void App::ServiceDied()
 {
+    // 用户主动停服务（收到 STOPPING）后的 60 秒窗口内暂停自动重启，
+    // 避免"停止"与"启动"竞争（SCM 立即报"无法停止"）。窗口过后若服务
+    // 崩溃仍自动重启。
+    if (GetTickCount64() < m_suppressRestartUntil.load()) {
+        diag::Log(L"[svc-died] suppressed (user stopped service), not restarting");
+        return;
+    }
     // 防重入：恢复动作已在后台跑，不再重复起线程
     if (m_svcRecovering.exchange(true))
         return;
@@ -552,6 +567,7 @@ void App::ServiceDied()
 void App::OnServiceRecovered(bool ok)
 {
     if (ok) {
+        m_suppressRestartUntil.store(0);  // 服务已恢复：解除停止抑制，后续崩溃仍自动重启
         RegisterSession();          // 重新登记本会话（供断开时按会话重启）
         RefreshStats();
         SyncServiceUi();
