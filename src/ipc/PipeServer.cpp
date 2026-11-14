@@ -6,6 +6,9 @@ bool PipeServer::Start(Handler handler, DisconnectHandler onDisconnect)
     m_handler      = std::move(handler);
     m_onDisconnect = std::move(onDisconnect);
     m_running = true;
+    if (!m_stopEvent) {
+        m_stopEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);   // manual reset
+    }
     m_acceptThread = std::thread(&PipeServer::AcceptLoop, this);
     return true;
 }
@@ -13,6 +16,7 @@ bool PipeServer::Start(Handler handler, DisconnectHandler onDisconnect)
 void PipeServer::Stop()
 {
     m_running = false;
+    if (m_stopEvent) SetEvent(m_stopEvent);   // 唤醒接受线程（overlapped connect 等待）
     // 唤醒阻塞中的 ConnectNamedPipe / ReadFile（不关闭句柄，由各自的
     // 接受/工作线程负责关闭，避免双重关闭）
     {
@@ -30,6 +34,7 @@ void PipeServer::Stop()
         if (c.worker.joinable())
             c.worker.join();
     m_conns.clear();
+    if (m_stopEvent) { CloseHandle(m_stopEvent); m_stopEvent = nullptr; }
 }
 
 void PipeServer::SendEvent(const std::wstring& evt)
@@ -62,9 +67,27 @@ void PipeServer::AcceptLoop()
             std::lock_guard<std::mutex> lk(m_cs);
             m_acceptPipe = pipe;
         }
-        BOOL connected = ConnectNamedPipe(pipe, nullptr)
-                         ? TRUE
-                         : (GetLastError() == ERROR_PIPE_CONNECTED);
+        // overlapped ConnectNamedPipe：既接受新客户端，也能被 Stop() 的
+        // m_stopEvent 唤醒（阻塞式 ConnectNamedPipe 无法被 CancelIoEx 取消，
+        // 否则服务停止时 accept 线程 join 会卡死，SCM 报"无法停止服务"）。
+        OVERLAPPED cov{};
+        cov.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        BOOL connected = FALSE;
+        HANDLE waiters[2] = { cov.hEvent, m_stopEvent };
+        if (ConnectNamedPipe(pipe, &cov)) {
+            connected = TRUE;
+        } else if (GetLastError() == ERROR_PIPE_CONNECTED) {
+            connected = TRUE;
+        } else if (GetLastError() == ERROR_IO_PENDING) {
+            DWORD w = WaitForMultipleObjects(2, waiters, FALSE, INFINITE);
+            if (w == WAIT_OBJECT_0) {
+                DWORD nr = 0;
+                connected = GetOverlappedResult(pipe, &cov, &nr, FALSE) ? TRUE : FALSE;
+            } else {
+                connected = FALSE;   // 停止事件或失败 → 放弃本次等待
+            }
+        }
+        if (cov.hEvent) CloseHandle(cov.hEvent);
         {
             std::lock_guard<std::mutex> lk(m_cs);
             m_acceptPipe = INVALID_HANDLE_VALUE;

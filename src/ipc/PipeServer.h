@@ -54,5 +54,6 @@ private:
     std::mutex               m_cs;
     std::vector<Connection>  m_conns;        // 受 m_cs 保护
     HANDLE                   m_acceptPipe = INVALID_HANDLE_VALUE; // 受 m_cs 保护
+    HANDLE                   m_stopEvent  = nullptr;  // Stop() 置位，唤醒接受线程
     std::thread              m_acceptThread;
 };
