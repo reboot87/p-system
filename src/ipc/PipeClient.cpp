@@ -80,8 +80,11 @@ bool PipeClient::EnsureService()
             CloseHandle(h);
             return true;
         }
-        if (i == 0)
-            LaunchService();       // 第一次就绪失败 → 提权拉起服务
+        // 首轮失败即拉起；若首轮恰逢服务"已运行但管道未就绪"的过渡态
+        // （被强杀的服务进程 SCM 尚未回收），后续轮次再重试拉起，否则
+        // 会一直连不上而误报失败。
+        if (i == 0 || i == 10 || i == 20)
+            LaunchService();
         Sleep(300);
     }
     return false;
