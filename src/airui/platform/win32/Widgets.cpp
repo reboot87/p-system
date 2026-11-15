@@ -323,6 +323,9 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
         // 重建期间一条也不擦：这时条目数还在往上涨，用「最后一行之后」
         // 算出来的带就是整个客户区，屏幕会先退化成一张空白灰底。
         if (self && self->m_updateLock > 0) {
+            // 前置条件：重建期间返回 1（声称已擦）而不擦，依赖每行卡片在
+            // WM_PAINT 里自绘时已铺满各自的 item rect，从而"就地覆盖"。
+            // 若未来有只重绘部分区域而不整窗覆盖的路径，需先补擦该带。
             HoverLog(L"erase held items=%d", n);
             return 1;
         }

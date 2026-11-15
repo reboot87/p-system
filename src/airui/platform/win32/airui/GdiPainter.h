@@ -174,7 +174,9 @@ public:
     void PushClip(const Rect& r) override {
         if (!m_dc) return;
         RECT rc = ToRect(r);
-        m_clipStack.push(SaveDC(m_dc));
+        const int saved = SaveDC(m_dc);
+        if (saved == 0) return;      // SaveDC 失败：不压栈，避免后续 RestoreDC 破坏 DC 状态
+        m_clipStack.push(saved);
         IntersectClipRect(m_dc, rc.left, rc.top, rc.right, rc.bottom);
     }
 

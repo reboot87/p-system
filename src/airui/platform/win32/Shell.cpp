@@ -1216,6 +1216,10 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         // before our first paint can land (a maximized window would flash
         // black) -- and even then only the strips that are new get filled.
         const bool allowed = m_eraseCount > 0;
+        // 前置条件：返回 1（声称已擦）而不真正擦底，依赖 WM_PAINT 会整窗
+        // 覆盖客户区（Shell::Paint 用全窗后台缓冲 blit）。若未来某条绘制
+        // 路径改成部分重绘而不再整窗覆盖，这里必须先补擦该带，否则残留
+        // 旧帧像素（不要直接改成无条件擦底——会重新引入闪烁）。
         if (m_eraseSuppressed || !allowed) return 1;
         // Cache the brush but re-create it when the palette changes:
         // a once-only static brush keeps erasing with the old theme's

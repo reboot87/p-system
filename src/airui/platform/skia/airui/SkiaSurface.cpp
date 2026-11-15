@@ -6,6 +6,7 @@
 #include "airui/SkiaApi.h"
 #include "airui/SkiaPainter.h"
 
+#include <atomic>
 #include <cstring>
 #include <string>
 
@@ -301,14 +302,25 @@ void SkiaFrame::BeginFrame(HDC dc, const Rect& bounds, bool clearScreen)
 // transient (a page transition that resizes the window).
 namespace {
 
+// 换肤 / 开帧只允许 UI 线程调用（见 Theme.cpp 的同名不变式）。busy 仍是
+// 原子位，这样即便未来单线程假设被打破，也不会出现两个线程通过同一帧
+// 的 CAS 同时拿到一个槽位。
 struct FrameSlot
 {
-    SkiaFrame* frame = nullptr;
-    bool       busy  = false;
+    SkiaFrame*        frame = nullptr;
+    std::atomic<bool> busy  = false;
 };
 
 constexpr int kFramePoolSize = 3;
 FrameSlot g_frames[kFramePoolSize];
+
+// CAS 认领一个槽位：busy 从 false 原子翻转为 true。返回 true 表示本线程
+// 赢得了该槽位。
+bool ClaimSlot(FrameSlot& slot)
+{
+    bool expected = false;
+    return slot.busy.compare_exchange_strong(expected, true);
+}
 
 } // namespace
 
@@ -316,11 +328,13 @@ SkiaFrame* AcquireSkiaFrame(HDC dc, const Rect& bounds)
 {
     if (!dc || bounds.Width() <= 0 || bounds.Height() <= 0) return nullptr;
 
+    // 换肤 / 开帧只允许 UI 线程调用。认领一律走 CAS：busy 是原子位，
+    // 即便未来出现跨线程开帧，两个线程也不可能同时拿到同一槽位。
     for (FrameSlot& slot : g_frames) {
-        if (slot.frame && !slot.busy &&
+        if (slot.frame &&
             slot.frame->Width()  == bounds.Width() &&
-            slot.frame->Height() == bounds.Height()) {
-            slot.busy = true;
+            slot.frame->Height() == bounds.Height() &&
+            ClaimSlot(slot)) {
             slot.frame->BeginFrame(dc, bounds, false);
             return slot.frame;
         }
@@ -332,18 +346,16 @@ SkiaFrame* AcquireSkiaFrame(HDC dc, const Rect& bounds)
         return nullptr;
     }
     for (FrameSlot& slot : g_frames) {
-        if (!slot.frame) {
+        if (!slot.frame && ClaimSlot(slot)) {
             slot.frame = fresh;
-            slot.busy  = true;
             return fresh;
         }
     }
     // Pool full: an idle frame only holds stale pixels.
     for (FrameSlot& slot : g_frames) {
-        if (!slot.busy) {
+        if (ClaimSlot(slot)) {
             delete slot.frame;
             slot.frame = fresh;
-            slot.busy  = true;
             return fresh;
         }
     }
@@ -360,8 +372,11 @@ void ReleaseSkiaFrame(SkiaFrame* frame)
     const bool usable = frame->Valid();
     for (FrameSlot& slot : g_frames) {
         if (slot.frame == frame) {
+            // 归还 / 丢弃都走原子 store，维持与 ClaimSlot 一致的单线程
+            // 读语义。丢弃分支同时清 busy，让空槽可被下一次开帧复用。
+            slot.busy.store(false);
             if (usable) {
-                slot.busy = false;
+                // 帧继续驻留池中，供下一次同尺寸开帧复用。
             } else {
                 slot.frame = nullptr;
                 delete frame;

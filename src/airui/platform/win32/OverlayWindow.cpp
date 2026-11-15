@@ -145,6 +145,9 @@ LRESULT OverlayWindow::Handle(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     case WM_NCHITTEST:
         return HTCLIENT;
     case WM_ERASEBKGND:
+        // 前置条件：浮层是整窗 WM_PAINT 绘制（透明分层窗口，客户区被完整
+        // 重绘），因此返回 1 声称已擦而不擦底是安全的。若改为只重绘部分
+        // 区域而不整窗覆盖，需先补擦，否则会残留旧帧像素。
         return 1;
     default:
         return DefWindowProcW(hwnd, msg, wp, lp);

@@ -61,7 +61,7 @@ class UsePen
 public:
     UsePen(HDC dc, HPEN pen) : m_dc(dc), m_old((HPEN)SelectObject(dc, pen)) {}
     ~UsePen() { SelectObject(m_dc, m_old); }
-    UsePen(const UseBrush&) = delete;
+    UsePen(const UsePen&) = delete;
     UsePen& operator=(const UsePen&) = delete;
 private:
     HDC  m_dc;

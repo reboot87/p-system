@@ -64,7 +64,10 @@ bool Database::Open(const std::wstring& dbPath)
     char* err = nullptr;
     rc = sqlite3_exec(m_db, ddl, nullptr, nullptr, &err);
     if (err) { sqlite3_free(err); }
-    if (rc != SQLITE_OK) return false;
+    if (rc != SQLITE_OK) {
+        sqlite3_close(m_db); m_db = nullptr;   // 不泄漏打开的句柄
+        return false;
+    }
 
     // 旧库迁移：补充 note 列（已存在则忽略错误）
     sqlite3_exec(m_db,

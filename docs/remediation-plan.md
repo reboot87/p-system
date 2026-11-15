@@ -368,7 +368,7 @@
 
 ### P2-5 Win32 消息与返回值检查
 
-- **证据**：`Shell.cpp:1219`、`Widgets.cpp:325-327`、`OverlayWindow.cpp:146-147` 三处 `WM_ERASEBKGND` 返回 1 却什么都不擦，正确性与「GDI 按 `rcPaint` 裁剪 / Skia 整窗缓冲」两套失效语义绑定；`GdiPainter.h:35/51/96/126/174` 与 `PaintFrame.cpp:222` 的 `CreateXxx` / `SaveDC` 不判 NULL / 0；`Ipc.cpp:27-31/38-40` 的 WideCharToMultiByte 首调用返回值 `n` 不检查，`n==0` 时 `&s[0]` 越界；`Database.cpp:67` DDL 失败未 `sqlite3_close`；`Gfx.h:64` 把 `UsePen(const UsePen&)` 误写成 `UsePen(const UseBrush&) = delete;`。
+- **证据**：`Shell.cpp:1219`、`Widgets.cpp:325-327`、`OverlayWindow.cpp:146-147` 三处 `WM_ERASEBKGND` 返回 1 却什么都不擦，正确性与「GDI 按 `rcPaint` 裁剪 / Skia 整窗缓冲」两套失效语义绑定；`GdiPainter.h:35/51/96/126/174` 与 `PaintFrame.cpp:222` 的 `CreateXxx` / `SaveDC` 不判 NULL / 0；`Ipc.cpp:27-31/38-40` 的 WideCharToMultiByte 首调用返回值 `n` 不检查，`n==0` 时 `&s[0]` 越界；`Database.cpp:67` DDL 失败未 `sqlite3_close`；`Gfx.h:64` 的 `UsePen` 复制构造函数把参数误写成 `UseBrush`（`= delete`），导致 `UsePen` 的复制被禁止而 `UseBrush` 的复制反而可写。
 - **改法**：按「先修会崩的、再修风格」的顺序：
   1. `Gfx.h:64` 一行修正；`Ipc.cpp` 两个转换函数加 `if (n <= 0) return {};`；`Database.cpp:67` 失败分支补 `sqlite3_close(m_db); m_db = nullptr;`。
   2. 抽一个 `ScopedDC` 统一 `SaveDC`/`RestoreDC`（含返回值检查），替换三处手写；GDI 创建失败统一走现有 `gfx` RAII 路径（`Gfx.h:21-76` 已是正确的样板）。

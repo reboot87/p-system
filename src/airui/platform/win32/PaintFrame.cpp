@@ -8,13 +8,30 @@
 #include "airui/Fonts.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cstring>
 
 namespace air {
 namespace ui {
 namespace {
 
+// 换肤 / 开帧只允许 UI 线程调用：g_current 是单线程写状态，只在 UI 线程
+// 的 Begin/End 里被改。Release 构建里 assert 是空操作，不影响行为。
 PaintFrame* g_current = nullptr;
+
+// 调试自检：记录首个触碰帧路由的线程 id，之后每次 Begin/End 都断言仍是
+// 它。若未来从工作线程开帧，assert 会在 Debug 构建里立刻暴露。
+namespace {
+DWORD UiThreadId()
+{
+    static const DWORD id = GetCurrentThreadId();
+    return id;
+}
+void AssertUiThread()
+{
+    assert(GetCurrentThreadId() == UiThreadId());
+}
+} // namespace
 
 inline Rect ToUi(const RECT& rc)
 {
@@ -196,11 +213,13 @@ void PaintFrame::Begin(IPainter* backend, HDC dc, const Fonts* fonts,
     m_clips.clear();
     m_textOps.clear();
     m_active = (backend != nullptr && dc != nullptr);
+    AssertUiThread();                       // 开帧只允许 UI 线程
     g_current = m_active ? this : nullptr;
 }
 
 void PaintFrame::End()
 {
+    AssertUiThread();                       // 关帧只允许 UI 线程
     g_current = nullptr;
     m_active  = false;
 }
@@ -220,6 +239,7 @@ void PaintFrame::ReplayText()
 
     for (const TextOp& op : m_textOps) {
         const int saved = SaveDC(m_dc);
+        if (saved == 0) continue;   // SaveDC 失败：不画也不 RestoreDC，保持 DC 一致
         if (op.clipped)
             IntersectClipRect(m_dc, op.clip.left, op.clip.top,
                               op.clip.right, op.clip.bottom);
