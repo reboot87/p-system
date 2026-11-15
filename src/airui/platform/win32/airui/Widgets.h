@@ -164,6 +164,21 @@ public:
     // 这段中间态能被看到好几帧）。可嵌套，按引用计数逐个配对。
     void BeginUpdate();
     void EndUpdate();
+    // RAII 版批量重建：构造时 BeginUpdate，析构时 EndUpdate。
+    // 重建中间 return / 抛异常也会配对还原，不会把列表永远冻结住。
+    class ScopedBatch {
+    public:
+        explicit ScopedBatch(ListBox* lb) : m_lb(lb) {
+            if (m_lb) m_lb->BeginUpdate();
+        }
+        ~ScopedBatch() {
+            if (m_lb) m_lb->EndUpdate();
+        }
+        ScopedBatch(const ScopedBatch&) = delete;
+        ScopedBatch& operator=(const ScopedBatch&) = delete;
+    private:
+        ListBox* m_lb;
+    };
     int  Count();
     int  Selection();
     void SetSelection(int index);

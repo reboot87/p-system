@@ -7,6 +7,7 @@
 #include "airui/Interaction.h"
 #include "airui/Theme.h"
 #include "airui/Gfx.h"
+#include "airui/RaII.h"
 
 #include <algorithm>
 #include <vector>
@@ -632,7 +633,6 @@ int RunModalDialog(HWND owner, const Fonts& fonts,
     OverlayWindow layer;
     if (!layer.Create(owner, screen, true)) return IDCANCEL;
     layer.SetMode(OverlayAlphaMode::Scrim);
-    const bool ownerWasEnabled = IsWindowEnabled(owner) != FALSE;
 
     const UINT kind = flags & 0x0F;
     const bool yesNo   = (kind == MB_YESNO || kind == MB_YESNOCANCEL);
@@ -744,7 +744,9 @@ int RunModalDialog(HWND owner, const Fonts& fonts,
         }
     });
 
-    EnableWindow(owner, FALSE);
+    // RAII 禁用 owner 输入：作用域结束（消息循环 break / return / 异常）
+    // 时自动按原状态恢复，不会把 owner 永久禁掉。
+    ScopedWindowDisable disable(owner);
     layer.Show(true);
     SetForegroundWindow(layer.Native());
     SetActiveWindow(layer.Native());
@@ -764,10 +766,9 @@ int RunModalDialog(HWND owner, const Fonts& fonts,
         DispatchMessageW(&msg);
     }
 
-    // 只在原本启用时恢复：若调用方（或上一层模态）已经禁用了 owner，
-    // 无条件 TRUE 会把不该放开的输入放开。窗口被隐藏 / 最小化时也
-    // 不要硬抢前台，否则会把用户当前正在用的程序挤掉。
-    if (ownerWasEnabled) EnableWindow(owner, TRUE);
+    // disable 在此作用域结束后析构，已把 owner 恢复原启用状态。
+    // 窗口被隐藏 / 最小化时不要硬抢前台，否则会把用户当前正在用的
+    // 程序挤掉。
     if (IsWindowVisible(owner) && !IsIconic(owner))
         SetForegroundWindow(owner);
     layer.Destroy();

@@ -5,6 +5,7 @@
 #include "airui/PaintFrame.h"
 #include "airui/Gfx.h"
 #include "airui/Responsive.h"
+#include "airui/RaII.h"
 #include <commctrl.h>
 #include <algorithm>
 #include <share.h>
@@ -355,7 +356,10 @@ bool Shell::SwitchPage(int id)
     // visible with the Skia backend, where a frame costs far more than a
     // GDI repaint. With everything inside the freeze only the finished
     // frame is ever presented.
-    SendMessageW(m_hwnd, WM_SETREDRAW, FALSE, 0);
+    // RAII 冻结整窗重绘：OnShow(false)→LayoutAll→OnShow(true) 中间若
+    // return / 抛异常，析构也会恢复重绘并连子控件一起失效，不会把窗口
+    // 永久冻住。
+    ScopedRedrawFreeze freeze(m_hwnd);
     // Lifting the freeze repaints the client area WITH an erase. Suppress
     // that fill for the duration of the switch, otherwise the user sees a
     // flat background frame until the (slow) Skia frame lands. Only safe
@@ -371,14 +375,10 @@ bool Shell::SwitchPage(int id)
     LayoutAll();
     next->OnShow(true);
 
-    ::InvalidateRect(m_hwnd, nullptr, FALSE);
-    SendMessageW(m_hwnd, WM_SETREDRAW, TRUE, 0);
-
-    // WM_SETREDRAW TRUE only clears the freeze flag; it does not repaint
-    // by itself. Do a normal (asynchronous) invalidate instead of forcing
-    // RDW_UPDATENOW: a synchronous repaint here blocks the UI thread for the
-    // whole frame, which is 30-50 ms on the Skia backend and piles up user
-    // clicks across repeated switches. The next idle WM_PAINT presents it.
+    // WM_SETREDRAW TRUE（析构时）只清冻结标志，不会自己重画。做正常的
+    // 异步失效而不是 RDW_UPDATENOW：同步重绘会阻塞 UI 线程整整一帧，
+    // Skia 后端 30-50ms，反复切换时会把用户点击积压起来。下一次空闲的
+    // WM_PAINT 把它呈现出来。
     ::InvalidateRect(m_hwnd, nullptr, FALSE);
     m_eraseSuppressed = false;
     return true;
@@ -1652,7 +1652,11 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         return 0;
 
     case WM_DESTROY:
-        PostQuitMessage(0);
+        // 仅主窗口非模态嵌套时投递退出：自绘模态对话框 / 菜单跑着局部
+        // 消息循环，若在里边把主窗口关掉，PostQuitMessage 会把这个
+        // WM_QUIT 当消息循环的退出信号转发出去，模态直接空退、且没有
+        // 走到它的 RAII 还原（owner 保持禁用）。此时让外层主循环自然退出。
+        if (!m_modalActive) PostQuitMessage(0);
         return 0;
     }
 

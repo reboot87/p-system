@@ -471,11 +471,12 @@ void ClipsPage::ApplyEntries()
     }
 
     // ---- 填充列表（行高：分组头 / 条目卡） ----
-    // 整个重建夹在 Begin/EndUpdate 之间：LB_RESETCONTENT 与每次
-    // LB_ADDSTRING 都会各自触发一次同步刷新，不夹住的话屏幕上会先出现
-    // 「整块擦成底色」再逐行画回来，Skia 一帧 30~50ms 时这段中间态看得
-    // 清清楚楚（点筛选胶囊就是最典型的触发点）。
-    m_list->BeginUpdate();
+    // 整个重建夹在 RAII 批处理里：Reset() + N × AddItem() + SetSelection()
+    // 中间就算 return / 抛异常，析构也会配对 EndUpdate，列表不会永远冻结。
+    // 期间不做任何呈现，结束时只提交一帧（原生 LB_RESETCONTENT /
+    // LB_ADDSTRING 各带一次同步刷新，不夹住会闪过「整块擦成底色 →
+    // 逐行画回来」的中间态，Skia 一帧 30~50ms 时看得清清楚楚）。
+    ListBox::ScopedBatch batch(m_list);
     m_list->Reset();
     int selRow = -1, firstEntryRow = -1;
     for (size_t r = 0; r < m_rows.size(); ++r) {
@@ -494,7 +495,6 @@ void ClipsPage::ApplyEntries()
         m_list->SetSelection(firstEntryRow);
         selRow = firstEntryRow;
     }
-    m_list->EndUpdate();
     if (selRow >= 0 && selRow < (int)m_rows.size() && !m_rows[selRow].header)
         m_selEntry = (int)m_rows[selRow].entry;
     else if (firstEntryRow < 0)
