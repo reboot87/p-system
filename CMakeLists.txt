@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.15)
 project(AireRecord VERSION 0.9.0)
 
 # ------------------------------------------------------------
@@ -13,6 +13,16 @@ configure_file(cmake/Version.h.in
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Console test targets must use /SUBSYSTEM:CONSOLE on MSVC. That link flag
+# is MSVC-only, so it is guarded here so Linux/macOS can link the same
+# platform-free targets (see docs/remediation-plan.md P2-2).
+function(airui_console_target name)
+    if(MSVC)
+        set_target_properties(${name} PROPERTIES
+            LINK_FLAGS "/SUBSYSTEM:CONSOLE")
+    endif()
+endfunction()
 
 # Set source file encoding for MSVC
 if(MSVC)
@@ -212,47 +222,50 @@ if(AIRUI_WITH_SKIA)
     message(STATUS "AirUI: Skia backend built (${AIRUI_SKIA_LIBRARIES}); runtime selection stays dynamic")
 endif()
 
-file(GLOB_RECURSE CORE_SOURCES
+file(GLOB_RECURSE CORE_SOURCES CONFIGURE_DEPENDS
     src/core/*.cpp
 )
-file(GLOB_RECURSE IPC_SOURCES 
+file(GLOB_RECURSE IPC_SOURCES CONFIGURE_DEPENDS
     src/ipc/*.cpp
 )
-file(GLOB_RECURSE PAGES_SOURCES 
+file(GLOB_RECURSE PAGES_SOURCES CONFIGURE_DEPENDS
     src/pages/*.cpp
 )
-file(GLOB_RECURSE PLUGINS_SOURCES 
+file(GLOB_RECURSE PLUGINS_SOURCES CONFIGURE_DEPENDS
     src/plugins/*.cpp
 )
-file(GLOB_RECURSE AGENT_SOURCES
+file(GLOB_RECURSE AGENT_SOURCES CONFIGURE_DEPENDS
     src/agent/*.cpp
-)
-file(GLOB_RECURSE SQLITE_SOURCES 
-    third_party/sqlite/sqlite3.c
 )
 
 # Resource file
 set(RESOURCE_FILE ${CMAKE_SOURCE_DIR}/res/app.rc)
 
-# Common sources for both executables.
-# AirUI itself is linked as a library (airui-win32), not compiled here.
-set(COMMON_SOURCES
+# Business-layer sources are compiled once into a shared static library
+# (app-common) instead of being recompiled into every executable / test
+# target. sqlite3.c (~9 MB) likewise lives in its own static lib so it is
+# compiled exactly once. See docs/remediation-plan.md P2-2.
+add_library(app-common STATIC
     ${CORE_SOURCES}
     ${IPC_SOURCES}
     ${PAGES_SOURCES}
     ${PLUGINS_SOURCES}
     ${AGENT_SOURCES}
-    ${SQLITE_SOURCES}
 )
+target_include_directories(app-common PUBLIC
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/generated)
+
+add_library(sqlite3 STATIC third_party/sqlite/sqlite3.c)
+target_include_directories(sqlite3 PUBLIC ${CMAKE_SOURCE_DIR}/third_party/sqlite)
 
 # Service executable (airecordd.exe)
 add_executable(airecordd
     src/service/main.cpp
-    ${COMMON_SOURCES}
     ${RESOURCE_FILE}
 )
 target_link_libraries(airecordd 
-    airui-win32
+    PRIVATE app-common sqlite3 airui-win32
     user32 gdi32 shell32 comctl32 shlwapi advapi32 ole32
 )
 set_target_properties(airecordd PROPERTIES
@@ -264,11 +277,10 @@ set_target_properties(airecordd PROPERTIES
 # Client executable (airecord.exe)
 add_executable(airecord
     src/main.cpp
-    ${COMMON_SOURCES}
     ${RESOURCE_FILE}
 )
 target_link_libraries(airecord 
-    airui-win32
+    PRIVATE app-common sqlite3 airui-win32
     user32 gdi32 shell32 comctl32 shlwapi advapi32 ole32
 )
 set_target_properties(airecord PROPERTIES
@@ -345,83 +357,78 @@ airui_deploy_skia_plugin(airecord)
 # Test executable
 add_executable(test_ui 
     tests/test_ui.cpp
-    ${COMMON_SOURCES}
     ${RESOURCE_FILE}
 )
 target_link_libraries(test_ui 
-    airui-win32
+    PRIVATE app-common sqlite3 airui-win32
     user32 gdi32 shell32 comctl32 shlwapi advapi32 ole32
 )
 set_target_properties(test_ui PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
-    LINK_FLAGS "/SUBSYSTEM:CONSOLE"
 )
+airui_console_target(test_ui)
 
 # Theme manager test
 add_executable(test_theme_manager 
     tests/test_theme_manager.cpp
-    ${COMMON_SOURCES}
     ${RESOURCE_FILE}
 )
 target_link_libraries(test_theme_manager 
-    airui-win32
+    PRIVATE app-common sqlite3 airui-win32
     user32 gdi32 shell32 comctl32 shlwapi advapi32 ole32
 )
 set_target_properties(test_theme_manager PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
-    LINK_FLAGS "/SUBSYSTEM:CONSOLE"
 )
+airui_console_target(test_theme_manager)
 
 # Draw calls test
 add_executable(test_draw_calls 
     tests/test_draw_calls.cpp
-    ${COMMON_SOURCES}
     ${RESOURCE_FILE}
 )
 target_link_libraries(test_draw_calls 
-    airui-win32
+    PRIVATE app-common sqlite3 airui-win32
     user32 gdi32 shell32 comctl32 shlwapi advapi32 ole32
 )
 set_target_properties(test_draw_calls PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
-    LINK_FLAGS "/SUBSYSTEM:CONSOLE"
 )
+airui_console_target(test_draw_calls)
 
 # Locale test
 add_executable(test_locale 
     tests/test_locale.cpp
-    ${COMMON_SOURCES}
     ${RESOURCE_FILE}
 )
 target_link_libraries(test_locale 
-    airui-win32
+    PRIVATE app-common sqlite3 airui-win32
     user32 gdi32 shell32 comctl32 shlwapi advapi32 ole32
 )
 set_target_properties(test_locale PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
-    LINK_FLAGS "/SUBSYSTEM:CONSOLE"
 )
+airui_console_target(test_locale)
 
 # Component gallery renderer
 add_executable(test_component_gallery 
     tests/test_component_gallery.cpp
     src/gallery/GalleryDraw.cpp
-    ${COMMON_SOURCES}
     ${RESOURCE_FILE}
 )
 target_link_libraries(test_component_gallery 
-    airui-win32
+    PRIVATE app-common sqlite3 airui-win32
     user32 gdi32 shell32 comctl32 shlwapi advapi32 ole32
 )
 set_target_properties(test_component_gallery PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
-    LINK_FLAGS "/SUBSYSTEM:CONSOLE"
 )
+airui_console_target(test_component_gallery)
 
 # Data & navigation controls test (Table / List / Tree / Breadcrumb /
 # Pagination / Toast) - core-only, no Win32 backend
@@ -432,8 +439,8 @@ target_link_libraries(test_data_controls airui-core)
 set_target_properties(test_data_controls PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
-    LINK_FLAGS "/SUBSYSTEM:CONSOLE"
 )
+airui_console_target(test_data_controls)
 
 # Overlay + focus test (layers, modal blocking, tab order, focus trap)
 add_executable(test_overlay_core
@@ -443,8 +450,8 @@ target_link_libraries(test_overlay_core airui-core)
 set_target_properties(test_overlay_core PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
-    LINK_FLAGS "/SUBSYSTEM:CONSOLE"
 )
+airui_console_target(test_overlay_core)
 
 # Framework / migrated / extended controls regression (core only)
 add_executable(test_framework_extra
@@ -454,8 +461,8 @@ target_link_libraries(test_framework_extra airui-core)
 set_target_properties(test_framework_extra PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
-    LINK_FLAGS "/SUBSYSTEM:CONSOLE"
 )
+airui_console_target(test_framework_extra)
 
 # Third wave controls regression (core only)
 add_executable(test_advanced_controls
@@ -465,8 +472,8 @@ target_link_libraries(test_advanced_controls airui-core)
 set_target_properties(test_advanced_controls PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
-    LINK_FLAGS "/SUBSYSTEM:CONSOLE"
 )
+airui_console_target(test_advanced_controls)
 
 # Fourth wave controls regression (core only)
 add_executable(test_enterprise_controls
@@ -476,8 +483,8 @@ target_link_libraries(test_enterprise_controls airui-core)
 set_target_properties(test_enterprise_controls PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
-    LINK_FLAGS "/SUBSYSTEM:CONSOLE"
 )
+airui_console_target(test_enterprise_controls)
 
 # Fifth wave controls regression (core only)
 add_executable(test_studio_controls
@@ -487,8 +494,8 @@ target_link_libraries(test_studio_controls airui-core)
 set_target_properties(test_studio_controls PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
-    LINK_FLAGS "/SUBSYSTEM:CONSOLE"
 )
+airui_console_target(test_studio_controls)
 
 # Object-oriented control layer regression (core only)
 add_executable(test_control_classes
@@ -498,8 +505,8 @@ target_link_libraries(test_control_classes airui-core)
 set_target_properties(test_control_classes PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
-    LINK_FLAGS "/SUBSYSTEM:CONSOLE"
 )
+airui_console_target(test_control_classes)
 
 # Core layout test - links airui-core only (no Win32 backend)
 add_executable(test_core_layout
@@ -509,8 +516,8 @@ target_link_libraries(test_core_layout airui-core)
 set_target_properties(test_core_layout PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
-    LINK_FLAGS "/SUBSYSTEM:CONSOLE"
 )
+airui_console_target(test_core_layout)
 
 # Core controls test (PaintButton / PaintCheckbox / PaintRadio)
 add_executable(test_controls_core
@@ -520,8 +527,8 @@ target_link_libraries(test_controls_core airui-core)
 set_target_properties(test_controls_core PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
-    LINK_FLAGS "/SUBSYSTEM:CONSOLE"
 )
+airui_console_target(test_controls_core)
 
 # HotState test - 自绘热区的悬停/按下/拖出取消语义（平台无关）
 add_executable(test_hot_state
@@ -532,9 +539,7 @@ set_target_properties(test_hot_state PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
 )
-if(MSVC)
-    set_target_properties(test_hot_state PROPERTIES LINK_FLAGS "/SUBSYSTEM:CONSOLE")
-endif()
+airui_console_target(test_hot_state)
 
 # ShellCore HAL test - platform-free state / layout / hit test / IPainter
 add_executable(test_shell_hal
@@ -545,10 +550,7 @@ set_target_properties(test_shell_hal PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
 )
-# /SUBSYSTEM is MSVC-only; keep this target linkable on Linux/macOS CI.
-if(MSVC)
-    set_target_properties(test_shell_hal PROPERTIES LINK_FLAGS "/SUBSYSTEM:CONSOLE")
-endif()
+airui_console_target(test_shell_hal)
 
 # PaintRecorder golden test - platform-free DrawCall consistency base (G5)
 add_executable(test_paint_recorder
@@ -559,9 +561,7 @@ set_target_properties(test_paint_recorder PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
 )
-if(MSVC)
-    set_target_properties(test_paint_recorder PROPERTIES LINK_FLAGS "/SUBSYSTEM:CONSOLE")
-endif()
+airui_console_target(test_paint_recorder)
 
 # Runtime painter backend registry: explicit / auto / hot switch /
 # graceful gdi fallback. Platform-free, runs on all three OSes.
@@ -573,9 +573,7 @@ set_target_properties(test_paint_backend PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
 )
-if(MSVC)
-    set_target_properties(test_paint_backend PROPERTIES LINK_FLAGS "/SUBSYSTEM:CONSOLE")
-endif()
+airui_console_target(test_paint_backend)
 
 # Windows runtime wiring: the default build (no SDK, no DLL) must still
 # resolve a "skia" request and fall back to gdi instead of failing.
@@ -586,9 +584,7 @@ if(WIN32)
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
         RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
     )
-    if(MSVC)
-        set_target_properties(test_paint_runtime PROPERTIES LINK_FLAGS "/SUBSYSTEM:CONSOLE")
-    endif()
+    airui_console_target(test_paint_runtime)
 
     # GDI vs Skia raster diff on an identical IPainter call sequence.
     # Runs without a Skia SDK (GDI baseline); with airui-skia.dll deployed
@@ -600,9 +596,7 @@ if(WIN32)
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
         RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
     )
-    if(MSVC)
-        set_target_properties(test_paint_compare PROPERTIES LINK_FLAGS "/SUBSYSTEM:CONSOLE")
-    endif()
+    airui_console_target(test_paint_compare)
 
     # Typography lab: renders one string per role through both painters
     # and prints the raster as ASCII plus coverage statistics, so a
@@ -614,9 +608,7 @@ if(WIN32)
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
         RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
     )
-    if(MSVC)
-        set_target_properties(test_font_lab PROPERTIES LINK_FLAGS "/SUBSYSTEM:CONSOLE")
-    endif()
+    airui_console_target(test_font_lab)
 
     # Whole-window frame routing: every gfx primitive must reach the
     # selected backend, and a closed frame must restore GDI untouched.
@@ -626,9 +618,7 @@ if(WIN32)
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
         RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
     )
-    if(MSVC)
-        set_target_properties(test_paint_frame PROPERTIES LINK_FLAGS "/SUBSYSTEM:CONSOLE")
-    endif()
+    airui_console_target(test_paint_frame)
 endif()
 
 # Skia backend value mapping. NO Skia SDK needed: this is a pure-C++
@@ -644,9 +634,7 @@ set_target_properties(test_skia_types PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
 )
-if(MSVC)
-    set_target_properties(test_skia_types PROPERTIES LINK_FLAGS "/SUBSYSTEM:CONSOLE")
-endif()
+airui_console_target(test_skia_types)
 
 # Real dual-backend check: needs a Skia SDK (AIRUI_WITH_SKIA=ON).
 # Compares the platform-free PaintRecorder golden against the exact
@@ -659,9 +647,7 @@ if(AIRUI_WITH_SKIA)
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
         RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
     )
-    if(MSVC)
-        set_target_properties(test_skia_backend PROPERTIES LINK_FLAGS "/SUBSYSTEM:CONSOLE")
-    endif()
+    airui_console_target(test_skia_backend)
 
     # Proves Skia is selectable at runtime from airui-skia.dll, not by
     # a compile-time switch. Loads the plugin through the C ABI, draws
@@ -673,9 +659,7 @@ if(AIRUI_WITH_SKIA)
             RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
             RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
         )
-        if(MSVC)
-            set_target_properties(test_skia_plugin PROPERTIES LINK_FLAGS "/SUBSYSTEM:CONSOLE")
-        endif()
+        airui_console_target(test_skia_plugin)
         airui_deploy_skia_plugin(test_skia_plugin)
     endif()
 endif()
@@ -719,8 +703,8 @@ target_link_libraries(test_ipc_pipe advapi32)
 set_target_properties(test_ipc_pipe PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
-    LINK_FLAGS "/SUBSYSTEM:CONSOLE"
 )
+airui_console_target(test_ipc_pipe)
 
 # ------------------------------------------------------------
 # Automated tests
