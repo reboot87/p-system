@@ -26,14 +26,17 @@ void SetAccessibleRole(HWND hwnd, Role role)
 
 void SetAccessibleName(HWND hwnd, const std::wstring& name)
 {
-    if (!hwnd) return;
-    SetPropW(hwnd, L"AirUI_A11y_Name", (HANDLE)new std::wstring(name));
+    (void)hwnd; (void)name;
+    // TODO(a11y): 旧实现用 SetPropW(hwnd, ..., new std::wstring(name)) 无任何
+    // 读取方（GetPropW），每个窗口泄漏一个 wstring。真实 IAccessible 见
+    // docs/ROADMAP.md；在实现之前这里是空操作，不泄漏、也不假装有效。
 }
 
 void SetAccessibleDescription(HWND hwnd, const std::wstring& desc)
 {
-    if (!hwnd) return;
-    SetPropW(hwnd, L"AirUI_A11y_Desc", (HANDLE)new std::wstring(desc));
+    (void)hwnd; (void)desc;
+    // TODO(a11y): 与 SetAccessibleName 同理：旧 SetPropW(new std::wstring) 无
+    // 读取方、每次泄漏。真实实现见 docs/ROADMAP.md；实现前为空操作。
 }
 
 void SetAccessibleState(HWND hwnd, State state, bool on)
@@ -47,10 +50,9 @@ void SetAccessibleState(HWND hwnd, State state, bool on)
 void SetAccessibleValue(HWND hwnd, const std::wstring& value, 
                         const std::wstring& min, const std::wstring& max)
 {
-    if (!hwnd) return;
-    SetPropW(hwnd, L"AirUI_A11y_Value", (HANDLE)new std::wstring(value));
-    if (!min.empty()) SetPropW(hwnd, L"AirUI_A11y_Min", (HANDLE)new std::wstring(min));
-    if (!max.empty()) SetPropW(hwnd, L"AirUI_A11y_Max", (HANDLE)new std::wstring(max));
+    (void)hwnd; (void)value; (void)min; (void)max;
+    // TODO(a11y): 旧实现 SetPropW(new std::wstring) 无读取方、每次泄漏。
+    // 真实实现见 docs/ROADMAP.md；实现前为空操作。
 }
 
 void EnableForWidget(Widget* w, const std::wstring& name, Role role)
