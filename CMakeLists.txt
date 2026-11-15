@@ -110,7 +110,8 @@ set(AIRUI_SOURCES
 if(WIN32)
     add_library(airui-win32 STATIC ${AIRUI_SOURCES})
     target_include_directories(airui-win32 PUBLIC
-        ${CMAKE_SOURCE_DIR}/src/airui/platform/win32)
+        ${CMAKE_SOURCE_DIR}/src/airui/platform/win32
+        ${CMAKE_SOURCE_DIR}/src/airui/core/include)
     target_link_libraries(airui-win32 PUBLIC airui-core
         user32 gdi32 msimg32 shell32 comctl32 shlwapi advapi32 ole32 uxtheme imm32)
 else()
@@ -255,6 +256,10 @@ add_library(app-common STATIC
 target_include_directories(app-common PUBLIC
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_BINARY_DIR}/generated)
+target_include_directories(app-common PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/airui/core/include
+    ${CMAKE_SOURCE_DIR}/src/airui/platform/win32
+    ${CMAKE_SOURCE_DIR}/third_party/sqlite)
 
 add_library(sqlite3 STATIC third_party/sqlite/sqlite3.c)
 target_include_directories(sqlite3 PUBLIC ${CMAKE_SOURCE_DIR}/third_party/sqlite)
@@ -264,6 +269,9 @@ add_executable(airecordd
     src/service/main.cpp
     ${RESOURCE_FILE}
 )
+target_include_directories(airecordd PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/generated)
 target_link_libraries(airecordd 
     PRIVATE app-common sqlite3 airui-win32
     user32 gdi32 shell32 comctl32 shlwapi advapi32 ole32
@@ -279,6 +287,9 @@ add_executable(airecord
     src/main.cpp
     ${RESOURCE_FILE}
 )
+target_include_directories(airecord PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/generated)
 target_link_libraries(airecord 
     PRIVATE app-common sqlite3 airui-win32
     user32 gdi32 shell32 comctl32 shlwapi advapi32 ole32
@@ -359,6 +370,9 @@ add_executable(test_ui
     tests/test_ui.cpp
     ${RESOURCE_FILE}
 )
+target_include_directories(test_ui PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/generated)
 target_link_libraries(test_ui 
     PRIVATE app-common sqlite3 airui-win32
     user32 gdi32 shell32 comctl32 shlwapi advapi32 ole32
@@ -374,6 +388,9 @@ add_executable(test_theme_manager
     tests/test_theme_manager.cpp
     ${RESOURCE_FILE}
 )
+target_include_directories(test_theme_manager PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/generated)
 target_link_libraries(test_theme_manager 
     PRIVATE app-common sqlite3 airui-win32
     user32 gdi32 shell32 comctl32 shlwapi advapi32 ole32
@@ -389,6 +406,9 @@ add_executable(test_draw_calls
     tests/test_draw_calls.cpp
     ${RESOURCE_FILE}
 )
+target_include_directories(test_draw_calls PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/generated)
 target_link_libraries(test_draw_calls 
     PRIVATE app-common sqlite3 airui-win32
     user32 gdi32 shell32 comctl32 shlwapi advapi32 ole32
@@ -404,6 +424,9 @@ add_executable(test_locale
     tests/test_locale.cpp
     ${RESOURCE_FILE}
 )
+target_include_directories(test_locale PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/generated)
 target_link_libraries(test_locale 
     PRIVATE app-common sqlite3 airui-win32
     user32 gdi32 shell32 comctl32 shlwapi advapi32 ole32
@@ -420,6 +443,9 @@ add_executable(test_component_gallery
     src/gallery/GalleryDraw.cpp
     ${RESOURCE_FILE}
 )
+target_include_directories(test_component_gallery PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/generated)
 target_link_libraries(test_component_gallery 
     PRIVATE app-common sqlite3 airui-win32
     user32 gdi32 shell32 comctl32 shlwapi advapi32 ole32
@@ -699,6 +725,9 @@ add_executable(test_ipc_pipe
     src/ipc/Ipc.cpp
     src/core/MachineConfig.cpp
 )
+target_include_directories(test_ipc_pipe PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/third_party/sqlite)
 target_link_libraries(test_ipc_pipe advapi32)
 set_target_properties(test_ipc_pipe PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
