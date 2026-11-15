@@ -351,9 +351,10 @@ int ClipsPage::TypeOfEntry(const UiEntry& e)
     return 1;
 }
 
-// 只更新应用层共享快照，不碰任何控件。总览页的「最近动态」读的就是
-// 这份数据，因此停在工作台总览 / 机器配置页时也必须能刷新它。
-bool ClipsPage::ReloadEntries(const std::wstring& filter)
+// 纯 IPC：请求 LIST 并把响应解析成本地 vector<UiEntry>。不调用 SetEntries、
+// 不写任何 App 成员——共享状态 m_entries 只在 UI 线程（WM_APP+6 / RefreshList）
+// 写入。后台刷新线程经此拉数据，返回给 App::RefreshWorker 封进 RefreshResult。
+std::vector<UiEntry> ClipsPage::FetchEntries(const std::wstring& filter, bool* outOk)
 {
     std::vector<UiEntry> entries;
 
@@ -378,13 +379,17 @@ bool ClipsPage::ReloadEntries(const std::wstring& filter)
             }
         }
     }
-    m_app.SetEntries(std::move(entries));
-    return ok;
+    if (outOk) *outOk = ok;
+    return entries;
 }
 
+// 同步路径（UI 线程，用户主动操作）：拉取 + 写共享快照 + 重建列表一次完成。
+// 这里写 m_app.Entries() 是允许的——RefreshList 只在 UI 线程被调用。
 void ClipsPage::RefreshList(const std::wstring& filter)
 {
-    const bool ok = ReloadEntries(filter);
+    bool ok = false;
+    std::vector<UiEntry> entries = FetchEntries(filter, &ok);
+    m_app.SetEntries(std::move(entries));
 
     // 离线态保持红色告警文案，不显示误导性的「服务未连接」。
     m_shell->SetStatus(

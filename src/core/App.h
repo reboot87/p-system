@@ -108,7 +108,6 @@ public:
     PluginManager& Plugins() { return m_plugins; }
 
     const ServiceStats& Stats() const { return m_stats; }
-    void RefreshStats();          // IPC STATS + SCM 服务状态
     int  ServiceState() const { return m_svcState; }
     const std::wstring& ServiceText() const { return m_svcText; }
 
@@ -176,6 +175,10 @@ private:
     void FocusSearch();       // F3：切到剪贴板页并聚焦搜索框
     void OpenManualEntry();   // F4：切到剪贴板页并展开录入卡
 
+    // 后台任务入口（可 join 线程，析构等待，杜绝 detach 线程裸 this 逃逸）
+    void ReconnectProbe(HWND hwnd);                    // 离线重连探测
+    void RefreshWorker(HWND hwnd, std::wstring filter);  // 异步数据刷新
+
     air::ui::Shell m_shell;
     PipeClient     m_ipc;
     PluginManager  m_plugins;
@@ -196,6 +199,11 @@ private:
     std::atomic<bool> m_reconnecting{ false };    // 离线重连探测线程是否在跑
     std::atomic<bool> m_refreshing{ false };      // 后台数据刷新是否进行中（防抖）
     std::atomic<bool> m_offline{ false };         // 服务不可用：UI 进入离线态（暂存+重连）
+    // 可 join 的后台任务线程：启动新线程前 join 前一个（防抖已保证其结束），
+    // 析构时置 m_shuttingDown 后 join，杜绝 detach 线程悬空 / 裸 this 逃逸。
+    std::thread         m_reconnectThread;
+    std::thread         m_refreshThread;
+    std::atomic<bool>   m_shuttingDown{ false };  // 退出标志：后台线程据此不再投递
     std::atomic<unsigned long long> m_suppressRestartUntil{ 0 }; // 收到 STOPPING 后暂停自动重启的截止时间
     bool         m_startHidden = false;
     int          m_showDelayMs = 0;

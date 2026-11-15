@@ -13,8 +13,78 @@ using air::ui::NavGroup;
 using air::ui::NavItem;
 using air::ui::ShellOptions;
 
-// App 析构：AgentHost 是完整类型时才析构（unique_ptr 成员）
-App::~App() = default;
+// App 析构：AgentHost 是完整类型时才析构（unique_ptr 成员）。
+// 后台刷新/重连线程改为可 join：置位停止标志后逐个 join，等待在途的
+// Connect()（~1s）/ Request()（1.5s）结束，杜绝 detach 线程在 App 析构后
+// 仍访问 this 的悬空（use-after-free）。
+App::~App()
+{
+    m_shuttingDown.store(true);
+    if (m_reconnectThread.joinable()) m_reconnectThread.join();
+    if (m_refreshThread.joinable())   m_refreshThread.join();
+}
+
+// ============================================================
+// 后台任务（可 join 线程 + 结果经消息回投）
+// ============================================================
+
+// 后台刷新线程把「拉到的数据」封装成一份结果，经 WM_APP+6 回 UI 线程；
+// UI 线程在 WM_APP+6 里统一写入 m_stats / m_svcState / m_svcText / m_entries，
+// 保证共享状态只有 UI 线程一个写者（消除数据竞争）。
+namespace {
+struct RefreshResult
+{
+    ServiceStats         stats;
+    int                  svcState = 0;
+    std::wstring         svcText;
+    std::vector<UiEntry> entries;
+    bool                 ok = false;
+};
+
+// 纯 IPC：Request(STATS) 解析进局部 ServiceStats，并把 SCM 服务状态查进
+// 输出参数。不写任何 App 成员——供后台线程调用。
+ServiceStats FetchStats(PipeClient& ipc, int& outSvcState, std::wstring& outSvcText)
+{
+    ServiceStats st;
+    std::wstring resp = ipc.Request(L"STATS");
+    if (resp.rfind(L"OK", 0) == 0) {
+        auto f = ipc::SplitTabs(resp);
+        if (f.size() >= 4) {
+            st.total   = _wtoi64(f[1].c_str());
+            st.today   = _wtoi64(f[2].c_str());
+            st.dbBytes = _wtoi64(f[3].c_str());
+        }
+    }
+    outSvcState = sysinfo::QueryServiceState(L"AireRecord", outSvcText);
+    return st;
+}
+} // namespace
+
+// 离线重连探测（后台线程）：只探测/建立连接，不拉起服务。成功经 WM_APP+7
+// 回 UI 线程恢复，失败则由定时器下轮再试。只读 m_ipc，不写共享 UI 成员。
+void App::ReconnectProbe(HWND hwnd)
+{
+    bool ok = m_ipc.Connect();
+    m_reconnecting.store(false);
+    if (m_shuttingDown.load() || !hwnd) return;   // 退出中：不再投递
+    PostMessage(hwnd, WM_APP + 7, ok ? 0 : 1, 0);
+}
+
+// 后台刷新线程：只做纯 IPC 拉取 + 解析，不写任何 App 成员；结果封装进堆
+// 分配的 RefreshResult，经 WM_APP+6 回 UI 线程，由 UI 线程统一应用成员。
+void App::RefreshWorker(HWND hwnd, std::wstring filter)
+{
+    RefreshResult* out = new RefreshResult;
+    out->stats    = FetchStats(m_ipc, out->svcState, out->svcText);  // Request(STATS)
+    if (m_clips)
+        out->entries = m_clips->FetchEntries(filter, &out->ok);      // Request(LIST)
+
+    m_refreshing.store(false);   // 释放防抖锁：本次刷新完成，允许下一次
+
+    if (m_shuttingDown.load() || !hwnd) { delete out; return; }       // 退出中：不投递
+    if (!PostMessage(hwnd, WM_APP + 6, 0, reinterpret_cast<LPARAM>(out)))
+        delete out;               // PostMessage 失败（窗口已销毁）：必须回收
+}
 
 // ============================================================
 // 启动
@@ -261,14 +331,10 @@ int App::Run(HINSTANCE hInstance)
                 // 探测放到后台线程，成功后经 WM_APP+7 回 UI 线程做恢复。
                 if (m_reconnecting.exchange(true))
                     return true;                  // 上一次探测还在跑：跳过本轮
-                std::thread([this, hwnd]() {
-                    bool ok = m_ipc.Connect();    // 仅探测/建立连接，不拉起服务
-                    m_reconnecting.store(false);
-                    if (ok && hwnd)
-                        PostMessage(hwnd, WM_APP + 7, 0, 0);   // 服务回来了
-                    else if (hwnd)
-                        PostMessage(hwnd, WM_APP + 7, 1, 0);   // 仍未恢复，重排
-                }).detach();
+                // 防抖（m_reconnecting）已保证上一个探测线程结束，join 立即
+                // 返回；再用具名可 join 线程持有，析构时等待，杜绝 detach 裸 this。
+                if (m_reconnectThread.joinable()) m_reconnectThread.join();
+                m_reconnectThread = std::thread(&App::ReconnectProbe, this, hwnd);
                 result = 0;
                 return true;
             }
@@ -306,7 +372,17 @@ int App::Run(HINSTANCE hInstance)
             // 回到 UI 线程应用结果：重建剪贴板列表、同步外壳文案、重绘。
             // 页切换/搜索/新记录刷新都不再阻塞 UI。
             if (msg == WM_APP + 6) {
-                ApplyRefresh();
+                // 后台线程把 RefreshResult 堆分配后投递回来；UI 线程在此统一
+                // 写入 m_stats / m_svcState / m_svcText / m_entries（唯一写者），
+                // 再应用界面。PostMessage 失败时后台已 delete out（lParam 为 0）。
+                std::unique_ptr<RefreshResult> r(reinterpret_cast<RefreshResult*>(lParam));
+                if (r) {
+                    m_stats    = r->stats;
+                    m_svcState = r->svcState;
+                    m_svcText  = std::move(r->svcText);
+                    m_entries  = std::move(r->entries);
+                    ApplyRefresh();
+                }
                 result = 0;
                 return true;
             }
@@ -469,18 +545,15 @@ void App::RefreshData()
     // 用 m_refreshing 防抖：上一次还在拉则跳过本次，绝不叠发后台线程。
     if (m_refreshing.exchange(true)) return;
 
-    std::thread([this]() {
-        // 后台线程：只做 IPC，不碰 UI 控件。m_stats / m_entries 是数据成员，
-        // 由 m_refreshing 保证单实例在途，且 UI 只在 WM_APP+6 后才读。
-        RefreshStats();                                   // Request(STATS) -> m_stats
-        std::wstring filter = m_clips ? m_clips->GetSearchText() : L"";
-        bool ok = m_clips ? m_clips->ReloadEntries(filter) : false;  // Request(LIST) -> m_entries
-        (void)ok;
+    // 在 UI 线程先把筛选文本取出来（不能在后台线程读 m_clips->GetSearchText()，
+    // 那是 UI 控件）；按值传进工作线程，后台线程只做纯 IPC、不碰 UI 控件。
+    const std::wstring filter = m_clips ? m_clips->GetSearchText() : L"";
 
-        m_refreshing.store(false);   // 释放防抖锁：本次刷新完成，允许下一次
-        if (m_shell.Hwnd())
-            PostMessage(m_shell.Hwnd(), WM_APP + 6, 0, 0);   // 回 UI 线程应用
-    }).detach();
+    // 防抖已保证上一个刷新线程结束（若有），join 立即返回；再用具名可 join
+    // 线程持有，析构时等待，杜绝 detach 裸 this。结果经 WM_APP+6 回投，由
+    // UI 线程统一写 m_stats / m_svcState / m_svcText / m_entries。
+    if (m_refreshThread.joinable()) m_refreshThread.join();
+    m_refreshThread = std::thread(&App::RefreshWorker, this, m_shell.Hwnd(), filter);
 }
 
 // WM_APP+6（UI 线程）：把后台线程拉好的 m_stats / m_entries 应用到界面。
@@ -551,20 +624,6 @@ std::wstring App::GetWindowTextStr(HWND ctrl)
 // ============================================================
 // 服务状态 / 统计
 // ============================================================
-void App::RefreshStats()
-{
-    std::wstring resp = m_ipc.Request(L"STATS");
-    if (resp.rfind(L"OK", 0) == 0) {
-        auto f = ipc::SplitTabs(resp);
-        if (f.size() >= 4) {
-            m_stats.total   = _wtoi64(f[1].c_str());
-            m_stats.today   = _wtoi64(f[2].c_str());
-            m_stats.dbBytes = _wtoi64(f[3].c_str());
-        }
-    }
-    m_svcState = sysinfo::QueryServiceState(L"AireRecord", m_svcText);
-}
-
 void App::SyncServiceUi()
 {
     // 离线态：保持红色告警文案（标题栏/状态栏/底栏），不被刷新覆盖。

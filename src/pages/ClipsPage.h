@@ -46,10 +46,12 @@ public:
 
     // 只拉取共享快照（m_app.Entries()），不碰列表控件。总览页的
     // 「最近动态」也读这份数据，因此停在任何页面都要能刷新它。
-    bool         ReloadEntries(const std::wstring& filter = L"");
-    void         RefreshList(const std::wstring& filter = L"");
-    void         ApplyEntries();   // 仅从 m_app.Entries() 重建列表，不 Request（UI 线程）
-    std::wstring GetSearchText();
+    // 纯 IPC：请求 LIST 并解析成本地 vector<UiEntry>，不写任何共享成员——
+    // m_entries 只由 UI 线程写入（WM_APP+6 / RefreshList）。后台刷新线程调用。
+    std::vector<UiEntry> FetchEntries(const std::wstring& filter, bool* outOk = nullptr);
+    void                 RefreshList(const std::wstring& filter = L"");
+    void                 ApplyEntries();   // 仅从 m_app.Entries() 重建列表，不 Request（UI 线程）
+    std::wstring         GetSearchText();
 
     bool IsEditingNote() const { return m_editingId != 0; }
     void StartNoteEdit(long long id, const std::wstring& note);
