@@ -2,6 +2,11 @@
 build/
 build-x64/
 build-linux-smoke/
+build-core/
+build-x86/
+build-skia/
+build-linux/
+build-local/
 *.obj
 *.exe
 *.res

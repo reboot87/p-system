@@ -7,10 +7,12 @@
 # 只能在 Windows + MSVC (VS2017) 下构建，见 build.bat。
 #
 # 用法:
-#   ./build.sh            # cmake -G 'Unix Makefiles' 构建 airui-core
-#   ./build.sh clean      # 删除 build-linux 并重新配置
-#   ./build.sh test       # 构建后运行核心冒烟测试 (scripts/check-core-linux-smoke.sh)
-#   ./build.sh clean test # 清空 + 构建 + 冒烟测试
+#   ./build.sh              # cmake -G 'Unix Makefiles' 构建 airui-core 并跑冒烟测试
+#   ./build.sh clean        # 删除 build-linux 并重新配置
+#   ./build.sh test         # 构建后运行核心冒烟测试 (scripts/check-core-linux-smoke.sh)
+#   ./build.sh notest       # 构建但不运行测试
+#   ./build.sh clean test   # 清空 + 构建 + 冒烟测试
+#   ./build.sh --no-test    # 同 notest：显式跳过测试
 # ============================================================
 set -eu
 
@@ -21,12 +23,13 @@ BUILD_DIR="build-linux"
 GEN="Unix Makefiles"
 CXX=${CXX:-g++}
 DO_CLEAN=0
-DO_TEST=0
+DO_TEST=1
 
 for arg in "$@"; do
   case "$arg" in
     clean) DO_CLEAN=1 ;;
     test)  DO_TEST=1 ;;
+    notest|--no-test) DO_TEST=0 ;;
     *) echo "[warn] unknown arg: $arg" ;;
   esac
 done

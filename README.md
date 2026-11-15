@@ -27,7 +27,8 @@ build.bat
 其他用法：
 ```
 build.bat clean        # 清空 build-cmake 并重新配置
-build.bat test         # 构建后运行 ctest
+build.bat notest       # 构建但不运行 ctest（测试默认开启）
+build.bat test         # 构建后运行 ctest（默认已开启）
 build.bat clean test   # 清空 + 构建 + 测试
 ```
 
