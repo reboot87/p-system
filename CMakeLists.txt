@@ -1,5 +1,15 @@
 cmake_minimum_required(VERSION 3.10)
-project(AireRecord)
+project(AireRecord VERSION 0.9.0)
+
+# ------------------------------------------------------------
+# Single version source: project(AireRecord VERSION ...).
+# configure_file() turns cmake/Version.h.in into a generated
+# header exposing AIRUI_VERSION (narrow) / AIRUI_VERSION_W
+# (wide). Every target that surfaces the version includes it
+# via ${CMAKE_BINARY_DIR}/generated. No hardcoded "vX.Y" in src/.
+# ------------------------------------------------------------
+configure_file(cmake/Version.h.in
+               ${CMAKE_BINARY_DIR}/generated/airui/Version.h @ONLY)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -60,7 +70,8 @@ set(AIRUI_CORE_SOURCES
 )
 add_library(airui-core STATIC ${AIRUI_CORE_SOURCES})
 target_include_directories(airui-core PUBLIC
-    ${CMAKE_SOURCE_DIR}/src/airui/core/include)
+    ${CMAKE_SOURCE_DIR}/src/airui/core/include
+    ${CMAKE_BINARY_DIR}/generated)
 if(NOT WIN32)
     target_link_libraries(airui-core PUBLIC pthread)
 endif()

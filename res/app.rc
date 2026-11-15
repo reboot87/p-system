@@ -1,2 +1,42 @@
 // AireRecord 应用图标资源
+// 版本号单一来源：CMake `project(AireRecord VERSION 0.9.0)`。
+// 本文件随版本发布手工更新；CMake 流水线注入是 P1-2 后续项。
 1 ICON "app.ico"
+
+// 版本资源块（文件 / 产品版本，与 project(VERSION) 保持同步）
+#define APP_VERSION_STR "0.9.0"
+#define APP_VERSION_MAJOR 0
+#define APP_VERSION_MINOR 9
+#define APP_VERSION_PATCH 0
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION APP_VERSION_MAJOR,APP_VERSION_MINOR,APP_VERSION_PATCH,0
+ PRODUCTVERSION APP_VERSION_MAJOR,APP_VERSION_MINOR,APP_VERSION_PATCH,0
+ FILEFLAGSMASK 0x3fL
+#ifdef _DEBUG
+ FILEFLAGS 0x1L
+#else
+ FILEFLAGS 0x0L
+#endif
+ FILEOS 0x40004L
+ FILETYPE 0x1L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName", "AireRecord"
+            VALUE "FileDescription", "AireRecord"
+            VALUE "FileVersion", APP_VERSION_STR
+            VALUE "InternalName", "airecord"
+            VALUE "OriginalFilename", "airecord.exe"
+            VALUE "ProductName", "AireRecord"
+            VALUE "ProductVersion", APP_VERSION_STR
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

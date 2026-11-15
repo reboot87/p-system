@@ -13,6 +13,11 @@ using air::ui::NavGroup;
 using air::ui::NavItem;
 using air::ui::ShellOptions;
 
+// 版本单一来源：页脚文案唯一拼接点。版本号来自 CMake 生成的 Version.h
+// （project(AireRecord VERSION ...)），无硬编码 "vX.Y"。后缀（服务已连接 /
+// 未连接）由调用点追加。
+const wchar_t* kAppFooterPrefix = L"AireRecord " AIRUI_VERSION_W L" · ";
+
 // App 析构：AgentHost 是完整类型时才析构（unique_ptr 成员）。
 // 后台刷新/重连线程改为可 join：置位停止标志后逐个 join，等待在途的
 // Connect()（~1s）/ Request()（1.5s）结束，杜绝 detach 线程在 App 析构后
@@ -668,8 +673,8 @@ void App::SyncServiceUi()
           false },
     });
 
-    m_shell.SetFooterText(ok ? L"AireRecord v1.3.1 · 服务已连接"
-                             : L"AireRecord v1.3.1 · 服务未连接");
+    m_shell.SetFooterText(ok ? std::wstring(kAppFooterPrefix) + L"服务已连接"
+                             : std::wstring(kAppFooterPrefix) + L"服务未连接");
 }
 
 // ============================================================
@@ -704,7 +709,7 @@ void App::SetServiceOffline(bool off)
         // 服务恢复：恢复标准文案（刷新统计后由 SyncServiceUi 填充具体数字）
         m_shell.SetCaptionBadge(L"服务运行中 · 已记录 — 条", true);
         m_shell.SetStatus(L"服务运行中（airecordd.exe）", true);
-        m_shell.SetFooterText(L"AireRecord v1.3.1 · 服务已连接");
+        m_shell.SetFooterText(std::wstring(kAppFooterPrefix) + L"服务已连接");
     }
     m_shell.Invalidate();        // 页面重绘横幅
 }

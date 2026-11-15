@@ -22,6 +22,9 @@
 #include "../agent/AgentHost.h"
 #include "airui/AirUi.h"
 
+// 版本单一来源：CMake `project(AireRecord VERSION ...)` 生成的版本头。
+#include "airui/Version.h"
+
 // 控件 ID（页面与插件共用）
 
 class AgentHost;
@@ -167,8 +170,8 @@ public:
 
     static std::wstring GetWindowTextStr(HWND ctrl);
 
-    // 应用版本（侧栏底部、配置页）
-    static const wchar_t* Version() { return L"v1.3"; }
+    // 应用版本（侧栏底部、配置页）—— 单一来源：生成的 Version.h
+    static const wchar_t* Version() { return AIRUI_VERSION_W; }
 
 private:
     // 状态栏 / 侧栏上写着的两个功能键

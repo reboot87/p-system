@@ -1,6 +1,12 @@
 #include "airui/Responsive.h"
 #include "airui/Shell.h"
 
+// 版本单一来源：CMake 生成的 Version.h（无硬编码 "vX.Y"）。
+#include "airui/Version.h"
+
+// 页脚唯一拼接点（与 App 保持同源；Responsive 只在未接管页脚时使用）。
+static const wchar_t* kResponsiveFooter = L"AireRecord " AIRUI_VERSION_W;
+
 namespace air {
 namespace ui {
 namespace responsive {
@@ -12,7 +18,7 @@ std::vector<Breakpoint> StandardBreakpoints(Shell* shell)
             // 大屏：显示侧栏和状态栏
             s.SetSidebarWidth(208);
             s.SetStatus(L"就绪", true);
-            s.SetFooterText(L"AireRecord v1.0");
+            s.SetFooterText(kResponsiveFooter);
         }},
         { 900, [shell](Shell& s){ 
             // 中屏：侧栏折叠为图标模式，添加汉堡菜单
@@ -29,7 +35,7 @@ std::vector<Breakpoint> StandardBreakpoints(Shell* shell)
             s.SetFooterText(L"");
         }, [shell](Shell& s){
             s.SetStatus(L"就绪", true);
-            s.SetFooterText(L"AireRecord v1.0");
+            s.SetFooterText(kResponsiveFooter);
         }}
     };
 }
