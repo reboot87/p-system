@@ -48,6 +48,7 @@ public:
     // 「最近动态」也读这份数据，因此停在任何页面都要能刷新它。
     bool         ReloadEntries(const std::wstring& filter = L"");
     void         RefreshList(const std::wstring& filter = L"");
+    void         ApplyEntries();   // 仅从 m_app.Entries() 重建列表，不 Request（UI 线程）
     std::wstring GetSearchText();
 
     bool IsEditingNote() const { return m_editingId != 0; }

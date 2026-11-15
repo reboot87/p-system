@@ -20,7 +20,8 @@ void SearchPlugin::OnTimer(App& app, UINT_PTR timerId)
         return;
 
     KillTimer(app.Hwnd(), TIMER_SEARCH_DEBOUNCE); // 一次性：触发即停
-    app.RefreshList(app.GetSearchText());
+    // 走异步刷新（后台线程拉 LIST，WM_APP+6 回 UI），避免在 UI 线程阻塞 IPC。
+    app.RefreshData();
 }
 
 void SearchPlugin::OnDetach(App& app)

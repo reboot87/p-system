@@ -12,6 +12,8 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <atomic>
+#include <thread>
 
 #include "PluginManager.h"
 #include "UiEntry.h"
@@ -124,6 +126,10 @@ public:
     // 工作台总览或机器配置页。
     void RefreshData();
 
+    // 后台刷新线程完成后，在 UI 线程把 m_stats / m_entries 应用到界面
+    // （重建剪贴板列表、同步外壳文案、重绘）。由 WM_APP+6 触发。
+    void ApplyRefresh();
+
     // 服务端连接断开（由断开回调经 UI 线程触发）：服务停止/崩溃 → 进入离线态。
     void ServiceDied();
 
@@ -150,7 +156,6 @@ public:
     HWND ManualEdit();
     HWND NoteEdit();
     HWND NoteEditMulti();
-    void RefreshList(const std::wstring& filter = L"");
     std::wstring GetSearchText();
     bool IsEditingNote() const;
     void SaveNoteEdit();
@@ -188,6 +193,7 @@ private:
     std::wstring m_svcText;
     std::vector<UiEntry> m_entries;
     std::atomic<bool> m_svcRecovering{ false };   // 服务恢复线程是否进行中
+    std::atomic<bool> m_refreshing{ false };      // 后台数据刷新是否进行中（防抖）
     std::atomic<bool> m_offline{ false };         // 服务不可用：UI 进入离线态（暂存+重连）
     std::atomic<unsigned long long> m_suppressRestartUntil{ 0 }; // 收到 STOPPING 后暂停自动重启的截止时间
     bool         m_startHidden = false;

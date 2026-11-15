@@ -385,13 +385,22 @@ bool ClipsPage::ReloadEntries(const std::wstring& filter)
 void ClipsPage::RefreshList(const std::wstring& filter)
 {
     const bool ok = ReloadEntries(filter);
-    const std::vector<UiEntry>& all = m_app.Entries();
 
     // 离线态保持红色告警文案，不显示误导性的「服务未连接」。
     m_shell->SetStatus(
         m_app.IsServiceOffline() ? L"服务不可用 · 剪贴板记录暂存本地 · 恢复后自动同步"
                                  : (ok ? L"记录中" : L"服务未连接"),
         ok && !m_app.IsServiceOffline());
+
+    ApplyEntries();
+}
+
+// 仅从应用层共享快照（m_app.Entries()）重建分组行模型与列表，不做任何
+// Request。必须只在 UI 线程调用（操作 ListBox 控件）；数据本身由后台
+// 刷新线程写好、经 WM_APP+6 回 UI 线程后再进这里。
+void ClipsPage::ApplyEntries()
+{
+    const std::vector<UiEntry>& all = m_app.Entries();
 
     if (!m_list) return;
 
@@ -932,7 +941,8 @@ void ClipsPage::ActivateHot(int hotId)
         // 点的就是当前筛选项：行集合不会变，重建只会白闪一次
         if (f == m_typeFilter) return;
         m_typeFilter = f;
-        RefreshList(GetSearchText());
+        // 类型筛选在客户端本地做：只重建行模型，无需再 Request（避免 UI 阻塞）。
+        ApplyEntries();
         m_shell->InvalidateContent();
         return;
     }
@@ -1000,7 +1010,7 @@ void ClipsPage::ToggleForm(bool open)
 
 void ClipsPage::OpenForm()
 {
-    RefreshList(GetSearchText());
+    ApplyEntries();
     ToggleForm(true);
     if (m_manualEdit) m_manualEdit->Focus();
 }

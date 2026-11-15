@@ -261,8 +261,8 @@ int App::Run(HINSTANCE hInstance)
                     if (m_agent) m_agent->FlushPending();
                     RegisterSession();
                     SetServiceOffline(false);
-                    RefreshStats();
-                    SyncServiceUi();
+                    // 数据刷新统一走后台线程（异步），不在 UI 线程阻塞 IPC。
+                    RefreshData();
                     Toast(L"服务已恢复", L"离线期间暂存的剪贴板记录已同步");
                 } else {
                     // 还没起来 → 下轮继续
@@ -282,6 +282,14 @@ int App::Run(HINSTANCE hInstance)
             // 重连、刷新统计、状态栏、Toast。wParam=1 恢复成功，0 失败。
             if (msg == WM_APP + 4) {
                 OnServiceRecovered(wParam != 0);
+                result = 0;
+                return true;
+            }
+            // 后台刷新线程拉完 STATS + LIST（只做 IPC，不碰 UI），经此消息
+            // 回到 UI 线程应用结果：重建剪贴板列表、同步外壳文案、重绘。
+            // 页切换/搜索/新记录刷新都不再阻塞 UI。
+            if (msg == WM_APP + 6) {
+                ApplyRefresh();
                 result = 0;
                 return true;
             }
@@ -436,29 +444,38 @@ HWND App::ManualEdit()    { return m_clips ? m_clips->ManualEdit().Native() : nu
 HWND App::NoteEdit()      { return m_clips ? m_clips->NoteEdit().Native() : nullptr; }
 HWND App::NoteEditMulti() { return m_clips ? m_clips->NoteEditMulti().Native() : nullptr; }
 
-void App::RefreshList(const std::wstring& filter)
-{
-    if (m_clips) m_clips->RefreshList(filter);
-}
-
 void App::RefreshData()
 {
-    // m_entries / m_stats 是跨页共享的：总览页画总数与「最近动态」，
-    // 标题栏胶囊和侧栏角标画总数。所以无论用户停在哪一页都要拉全。
-    // 只有当前正是剪贴板页时才需要把快照灌进 ListBox；其它页重建
-    // 隐藏的列表控件既无意义，还可能在切页时留下半帧。
-    if (m_shell.CurrentPageId() == 1)
-        RefreshList(GetSearchText());
-    else if (m_clips)
-        // 共享快照必须是**全量**：搜索框里可能还留着上次的关键字，
-        // 用过滤结果覆盖 m_entries 会让总览页「最近动态」只剩几条，
-        // 和 STATS 报的总数对不上。
-        m_clips->ReloadEntries();
+    // 不在 UI 线程做阻塞 IPC：后台线程拉 STATS + LIST，完成后经 WM_APP+6
+    // 回 UI 线程应用（ApplyRefresh）。服务连接看似在线实则已死时，Request
+    // 会在 m_cv.wait_for(1500ms) 上阻塞——若放 UI 线程，切页就会卡 1.5s 起。
+    // 用 m_refreshing 防抖：上一次还在拉则跳过本次，绝不叠发后台线程。
+    if (m_refreshing.exchange(true)) return;
 
-    RefreshStats();
-    SyncServiceUi();
-    // 总览页 / 配置页是纯自绘，数据变了没有子控件会替它们标脏。
-    m_shell.Invalidate();
+    std::thread([this]() {
+        // 后台线程：只做 IPC，不碰 UI 控件。m_stats / m_entries 是数据成员，
+        // 由 m_refreshing 保证单实例在途，且 UI 只在 WM_APP+6 后才读。
+        RefreshStats();                                   // Request(STATS) -> m_stats
+        std::wstring filter = m_clips ? m_clips->GetSearchText() : L"";
+        bool ok = m_clips ? m_clips->ReloadEntries(filter) : false;  // Request(LIST) -> m_entries
+        (void)ok;
+
+        m_refreshing.store(false);   // 释放防抖锁：本次刷新完成，允许下一次
+        if (m_shell.Hwnd())
+            PostMessage(m_shell.Hwnd(), WM_APP + 6, 0, 0);   // 回 UI 线程应用
+    }).detach();
+}
+
+// WM_APP+6（UI 线程）：把后台线程拉好的 m_stats / m_entries 应用到界面。
+void App::ApplyRefresh()
+{
+    // 只有停在剪贴板页才重建列表控件；总览/配置页读 m_stats / m_entries
+    // 直接重绘即可（它们已在后台线程更新）。
+    if (m_clips && m_shell.CurrentPageId() == 1)
+        m_clips->ApplyEntries();
+
+    SyncServiceUi();        // 标题栏胶囊 / 状态栏 / 侧栏角标
+    m_shell.Invalidate();   // 总览 / 配置页纯自绘，数据变了要手动标脏
 }
 
 std::wstring App::GetSearchText()
@@ -653,8 +670,8 @@ void App::OnServiceRecovered(bool ok)
     if (ok) {
         m_suppressRestartUntil.store(0);  // 服务已恢复：解除停止抑制，后续崩溃仍自动重启
         RegisterSession();          // 重新登记本会话（供断开时按会话重启）
-        RefreshStats();
-        SyncServiceUi();
+        // 数据刷新走后台线程（异步），不在 UI 线程阻塞 IPC。
+        RefreshData();
         Toast(L"服务已重启", L"系统服务已恢复，后台记录继续运行");
     } else {
         // 未能恢复（如服务被卸载且用户拒绝 UAC）→ 状态栏如实报告失败

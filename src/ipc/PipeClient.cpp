@@ -224,8 +224,11 @@ std::wstring PipeClient::Request(const std::wstring& line)
                 return L"";
             }
 
-            // 等待匹配的 RSP（或连接断开 / 超时）
-            m_cv.wait_for(lk, std::chrono::seconds(8), [&] {
+            // 等待匹配的 RSP（或连接断开 / 超时）。超时取 1.5s：即使连接
+            // 看起来"就绪"但服务实际已断（m_connected 尚未被 reader 清掉），
+            // 也不让调用方（尤其 UI 线程）长时间卡在阻塞等待里。正常服务
+            // 响应在毫秒级，1.5s 足够且不误伤。
+            m_cv.wait_for(lk, std::chrono::milliseconds(1500), [&] {
                 return m_pendingDone[id] || !m_connected.load();
             });
 
