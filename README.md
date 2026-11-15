@@ -108,7 +108,7 @@ cmake --build build-skia --config Release --target test_skia_plugin
 ```
 
 - 也可传 `-DAIRUI_SKIA_ROOT=<prefix>` 指向预编译 release；两者都找不到时配置阶段明确报错，但**不影响默认 GDI 构建**。
-- **VS2017 下编译 Skia 代码未验证**：vcpkg 的 `skia` 官方工具集是 VS2022+，插件推荐由 VS2022 / CI 产出；本地正式构建保持默认 OFF。本机实测装有 **VS2022 Professional 17.14（`C:\2022`）**；CI 的 `skia-windows` 作业在 push/PR 时自动触发，构建 DLL 并跑动态加载测试。
+- **VS2017 下编译 Skia 代码未验证**：vcpkg 的 `skia` 官方工具集是 VS2022+，插件推荐由 VS2022 / CI 产出；本地正式构建保持默认 OFF。本机实测装有 **VS2022 Professional 17.14（`C:\2022`）**；CI 的 `skia-windows` 作业在 push/PR 时自动触发，构建 DLL 并跑动态加载测试。**该作业是 `continue-on-error` 的非阻塞验证**（vcpkg 源码编译第三方 SDK 可能偶发失败）：合并的**必需门禁**是 `core-unix` 与 `windows` / `windows-x86`；`skia-windows` 失败不阻断合并，但会在日志里留痕。
 **CI 每次 push/PR 都做整体编译并发布全部产物**（artifact 保留 14 天）：
 
 ```

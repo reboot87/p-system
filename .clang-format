@@ -1,0 +1,35 @@
+# ============================================================
+# AirUI / p-system C++ formatting rules (.clang-format)
+#
+# Style target: the existing MSVC-oriented code base. The project
+# consistently uses Allman braces (opening brace on its own line)
+# for namespaces, classes, structs, functions and control blocks,
+# 4-space indentation, and single-statement `if`/`for` bodies left
+# on one line where that was already the local habit.
+#
+# P1-5 (remediation-plan): CI only checks PR-changed files with
+# `clang-format --dry-run --Werror`, so pre-existing debt elsewhere
+# is never flagged. Keep this file conservative and compatible with
+# the code that already ships.
+# ============================================================
+BasedOnStyle: LLVM
+IndentWidth: 4
+UseTab: Never
+BreakBeforeBraces: Allman
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: None
+ColumnLimit: 100
+AllowShortBlocksOnASingleLine: Empty
+BreakConstructorInitializers: BeforeColon
+ConstructorInitializerIndentWidth: 4
+ContinuationIndentWidth: 4
+AccessModifierOffset: -4
+NamespaceIndentation: None
+SortIncludes: true
+IncludeBlocks: Preserve
+PointerAlignment: Left
+AlignAfterOpenBracket: Align
+AlignOperands: true
+DerivePointerAlignment: false
+Standard: c++17

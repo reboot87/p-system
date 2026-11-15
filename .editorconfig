@@ -1,0 +1,45 @@
+# ============================================================
+# p-system editor settings (.editorconfig)
+# Matches the MSVC-oriented C++ style used across the repo:
+# 4-space indent, no tabs. LF is used repo-wide; git normalizes
+# line endings via core.autocrlf where the local toolchain prefers
+# CRLF.
+# ============================================================
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{cpp,h,hpp,c,cc,cxx}]
+indent_style = space
+indent_size = 4
+
+[*.{json,yml,yaml}]
+indent_style = space
+indent_size = 2
+
+[*.{cmake,txt}]
+indent_style = space
+indent_size = 2
+
+[CMakeLists.txt]
+indent_style = space
+indent_size = 2
+
+[*.py]
+indent_style = space
+indent_size = 4
+
+[*.ps1]
+indent_style = space
+indent_size = 4
+
+[*.md]
+trim_trailing_whitespace = false
+
+[*.gitignore]
+indent_style = space
+indent_size = 2

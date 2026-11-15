@@ -1,0 +1,16 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "p-system",
+  "version-string": "0.9.0",
+  "description": "Windows desktop performance recording / analysis tool with a self-drawn UI framework and an optional Skia paint backend.",
+  "dependencies": [
+    "skia"
+  ],
+  "builtin-baseline": "8f363bdc11359ede4bc51e5eb32a2617538049c8",
+  "overrides": [
+    {
+      "name": "skia",
+      "version": "148"
+    }
+  ]
+}

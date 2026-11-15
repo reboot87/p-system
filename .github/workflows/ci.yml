@@ -36,6 +36,46 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # P1-5 static checks: whitespace (git diff --check) + clang-format on
+      # PR-changed C/C++ files only. Scope to changed files so a one-time
+      # explosion of pre-existing style debt never fails the gate; new code
+      # is expected to match .clang-format. The step is non-blocking
+      # (continue-on-error) because clang-format is not installed on every
+      # runner and base-sha differs across push/PR events; it reports, not
+      # gates, until that is proven in logs.
+      - name: Format check (git diff --check + clang-format, changed files)
+        shell: bash
+        continue-on-error: true
+        run: |
+          if [ -n "${{ github.event.pull_request.base.sha }}" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+          else
+            # Push event: diff against the previous commit. Shallow clones
+            # make this a no-op; that only narrows coverage, never breaks.
+            BASE="${GITHUB_SHA}~1"
+          fi
+          if ! git rev-parse --verify --quiet "${BASE}" >/dev/null 2>&1; then
+            echo "Format check: base '${BASE}' not present (shallow clone); skipping"
+            exit 0
+          fi
+          set +e
+          git diff --check "${BASE}...HEAD"
+          WS_RC=$?
+          if ! command -v clang-format >/dev/null 2>&1; then
+            echo "Format check: clang-format not installed; only git diff --check ran (rc=$WS_RC)"
+            exit $WS_RC
+          fi
+          FILES=$(git diff --name-only "${BASE}...HEAD" 2>/dev/null \
+            | grep -E '\.(cpp|h|hpp|c|cc|cxx)$' || true)
+          if [ -z "$FILES" ]; then
+            echo "Format check: no changed C/C++ files; whitespace rc=$WS_RC"
+            exit $WS_RC
+          fi
+          clang-format --dry-run --Werror $FILES
+          FMT_RC=$?
+          echo "Format check: git diff --check rc=$WS_RC, clang-format rc=$FMT_RC"
+          exit $((WS_RC != 0 || FMT_RC != 0 ? 1 : 0))
+
       - name: Configure (CMake + Unix Makefiles)
         run: cmake -S . -B build-core -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release
 
@@ -119,11 +159,6 @@ jobs:
       - name: Configure (CMake + VS2022)
         run: cmake -S . -B build-core -G "Visual Studio 17 2022" -A x64
 
-      # Best-effort pre-fetch of the prebuilt x64 Skia plugin so the
-      # POST_BUILD deploy step finds it locally (no `gh` call inside the
-      # CMake build). gh in Actions needs GH_TOKEN explicitly; it falls
-      # back to GITHUB_TOKEN's value. If anything fails we simply let the
-      # app fall back to GDI -- the build must not break.
       # Best-effort pre-fetch of the prebuilt x64 Skia plugin so the
       # POST_BUILD deploy step finds it locally (no `gh` call inside the
       # CMake build). In this Actions setup GITHUB_TOKEN is NOT auto-
@@ -239,11 +274,19 @@ jobs:
   # ---------------------------------------------------------------
   # B. Real Skia SDK verification — automatic on every push / PR.
   #
-  # vcpkg's skia port builds from source (vcpkg_from_github + GN + Ninja),
-  # it does NOT download a prebuilt library. So we cache the vcpkg binary
-  # archives and the installed tree: the first run pays the build cost,
-  # later runs restore. Third-party SDK builds can be flaky, so this job
-  # stays non-blocking; core CI above is the required gate.
+  # NON-BLOCKING: this job has `continue-on-error: true`. Third-party SDK
+  # builds (vcpkg compiles skia from source via GN + Ninja) can be flaky,
+  # so a red here must NOT block a merge. The required gates are the
+  # `core-unix` and `windows`/`windows-x86` jobs above; the docs spell
+  # this out (README, docs/ROADMAP.md, docs/cross-platform.md).
+  #
+  # The skia dependency version is pinned by the vcpkg.json manifest at the
+  # repo root (builtin-baseline + overrides). The cache key hashes that
+  # manifest, so a dependency bump automatically busts the cache.
+  #
+  # Manifest mode: the CMake vcpkg toolchain installs the manifest deps into
+  # the build dir's vcpkg_installed (not the runner's global vcpkg tree), so
+  # every path below points at build-skia/vcpkg_installed.
   #
   # Same VS2022 image pin as the windows job above (windows-latest now
   # ships VS2026 only). CI may differ from the local CMake+VS2017 build
@@ -261,6 +304,9 @@ jobs:
       cancel-in-progress: false
     env:
       VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/.vcpkg-archives"
+      VCPKG_MANIFEST_MODE: "on"
+      VCPKG_MANIFEST_DIR: "${{ github.workspace }}"
+      VCPKG_INSTALLED_DIR: "${{ github.workspace }}/build-skia"
     steps:
       - uses: actions/checkout@v4
 
@@ -274,6 +320,10 @@ jobs:
           "root=$($root.Replace('\', '/'))" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "VCPKG_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           New-Item -ItemType Directory -Force -Path ".vcpkg-archives" | Out-Null
+          # Manifest install root that the vcpkg CMake toolchain uses for this
+          # build tree (build-skia/vcpkg_installed). Exposed for cache globs.
+          "installed=$((Join-Path (Get-Location) 'build-skia\vcpkg_installed').Replace('\', '/'))" |
+            Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       # `env.VCPKG_ROOT` is NOT visible in a `with:` expression (env context
       # only holds workflow-defined values), so use the step output instead.
@@ -283,31 +333,11 @@ jobs:
         with:
           path: |
             .vcpkg-archives
-            ${{ steps.vcpkg.outputs.root }}/installed
+            build-skia/vcpkg_installed
             ${{ steps.vcpkg.outputs.root }}/downloads
-          key: vcpkg-skia-windows-2022-v2
+          key: vcpkg-skia-windows-2022-${{ hashFiles('vcpkg.json') }}
           restore-keys: |
             vcpkg-skia-windows-2022-
-
-      - name: Install Skia via vcpkg
-        shell: pwsh
-        run: |
-          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install skia:x64-windows
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      # Save right after install. actions/cache's implicit post-step only
-      # saves on a fully successful job, so a later compile failure used to
-      # throw away a ~35 min Skia source build on every single run.
-      - name: Save vcpkg Skia artifacts
-        if: steps.skia-cache.outputs.cache-hit != 'true'
-        continue-on-error: true
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            .vcpkg-archives
-            ${{ steps.vcpkg.outputs.root }}/installed
-            ${{ steps.vcpkg.outputs.root }}/downloads
-          key: vcpkg-skia-windows-2022-v2
 
       - name: Verify VS2022 toolchain
         shell: pwsh
@@ -323,11 +353,36 @@ jobs:
 
       # Skia's API drifts between releases; keep the real signatures in
       # the job log so a future compile failure is a one-look diagnosis.
+      - name: Configure (CMake + VS2022, Skia ON)
+        shell: pwsh
+        run: |
+          $tc = "$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake"
+          cmake -S . -B build-skia -G "Visual Studio 17 2022" -A x64 `
+            -DAIRUI_WITH_SKIA=ON "-DCMAKE_TOOLCHAIN_FILE=$tc"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # Manifest install happens during configure, so save the cache now
+      # that build-skia/vcpkg_installed exists. actions/cache's implicit
+      # post-step only saves on a fully successful job, so a later compile
+      # failure used to throw away a ~35 min Skia source build on every run.
+      - name: Save vcpkg Skia artifacts
+        if: steps.skia-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            .vcpkg-archives
+            build-skia/vcpkg_installed
+            ${{ steps.vcpkg.outputs.root }}/downloads
+          key: vcpkg-skia-windows-2022-${{ hashFiles('vcpkg.json') }}
+
+      # Skia's API drifts between releases; keep the real signatures in
+      # the job log so a future compile failure is a one-look diagnosis.
       - name: Record real Skia API signatures (diagnostics)
         continue-on-error: true
         shell: pwsh
         run: |
-          $inc = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\include\skia\include"
+          $inc = "build-skia\vcpkg_installed\x64-windows\include\skia\include"
           foreach ($f in @("core\SkTypeface.h", "core\SkFontMgr.h",
                            "core\SkPathBuilder.h", "core\SkSpan.h",
                            "effects\SkDashPathEffect.h")) {
@@ -340,14 +395,6 @@ jobs:
               ForEach-Object { $_.Line.Trim() }
           }
 
-      - name: Configure (CMake + VS2022, Skia ON)
-        shell: pwsh
-        run: |
-          $tc = "$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake"
-          cmake -S . -B build-skia -G "Visual Studio 17 2022" -A x64 `
-            -DAIRUI_WITH_SKIA=ON "-DCMAKE_TOOLCHAIN_FILE=$tc"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
       # Full build, not just the Skia targets: app, gallery, every test,
       # static libs and the plugin DLL are all produced and published.
       - name: Build ALL targets (app, gallery, tests, Skia plugin DLL)
@@ -359,21 +406,21 @@ jobs:
       - name: Run G5 dual-backend parity test
         shell: pwsh
         run: |
-          $env:PATH = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\bin;$env:PATH"
+          $env:PATH = "build-skia\vcpkg_installed\x64-windows\bin;$env:PATH"
           & .\build-skia\Release\test_skia_backend.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run runtime Skia plugin selection test
         shell: pwsh
         run: |
-          $env:PATH = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\bin;$env:PATH"
+          $env:PATH = "build-skia\vcpkg_installed\x64-windows\bin;$env:PATH"
           & .\build-skia\Release\test_skia_plugin.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run full ctest suite (Skia ON)
         shell: pwsh
         run: |
-          $env:PATH = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\bin;$env:PATH"
+          $env:PATH = "build-skia\vcpkg_installed\x64-windows\bin;$env:PATH"
           ctest --test-dir build-skia -C Release --output-on-failure
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
@@ -389,7 +436,7 @@ jobs:
           Get-ChildItem "build-skia\Release" -File |
             Where-Object { $_.Extension -in @(".exe", ".dll", ".lib") } |
             ForEach-Object { Copy-Item $_.FullName $dst -Force }
-          $bin = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\bin"
+          $bin = "build-skia\vcpkg_installed\x64-windows\bin"
           if (Test-Path $bin) {
             Get-ChildItem -Path $bin -Filter "*.dll" -File | ForEach-Object {
               Copy-Item $_.FullName $dst -Force

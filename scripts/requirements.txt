@@ -1,0 +1,11 @@
+# ============================================================
+# p-system Python forensics tooling dependencies
+# ============================================================
+# Used by the Windows capture / forensics scripts in scripts/:
+#   hover_frames.py  -> Pillow (PIL) + numpy (lazy-imported)
+# The other scripts (screen_shot.py / probe_flash.py / shot.py /
+# band.py / rows.py) are pure stdlib (ctypes + struct + zlib) and
+# need nothing extra.
+# ============================================================
+Pillow>=9.0
+numpy>=1.20
