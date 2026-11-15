@@ -1,0 +1,1 @@
+windows\.h|WinUser|WinBase|\bHWND\b|\bHDC\b|\bHBRUSH\b|\bHFONT\b|\bHPEN\b|\bHMENU\b|\bHINSTANCE\b|\bHICON\b|\bHCURSOR\b|\bLRESULT\b|\bWPARAM\b|\bLPARAM\b|\bRECT\b|\bCOLORREF\b|\bPOINT\b|\bMSG\b|WM_[A-Z0-9]|\bDT_[A-Z]|GetTickCount|GetSystemMetrics|CreateWindow|DrawText|SetTextColor

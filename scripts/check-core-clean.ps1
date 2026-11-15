@@ -12,8 +12,10 @@ $core = Join-Path $PSScriptRoot "..\src\airui\core"
 $core = (Resolve-Path $core).Path
 
 # Forbidden identifiers (case-sensitive: Rect/Point/Color are fine,
-# RECT/POINT/COLORREF are not).
-$pattern = 'windows\.h|WinUser|WinBase|\bHWND\b|\bHDC\b|\bHBRUSH\b|\bHFONT\b|\bHPEN\b|\bHMENU\b|\bHINSTANCE\b|\bHICON\b|\bHCURSOR\b|\bLRESULT\b|\bWPARAM\b|\bLPARAM\b|\bRECT\b|\bCOLORREF\b|\bPOINT\b|\bMSG\b|WM_[A-Z0-9]|\bDT_[A-Z]|GetTickCount|GetSystemMetrics|CreateWindow|DrawText|SetTextColor'
+# RECT/POINT/COLORREF are not). Shared single source of truth lives in
+# scripts/core-forbidden.regex, read by both the .sh and the .ps1 gate.
+$regexPath = Join-Path $PSScriptRoot "core-forbidden.regex"
+$pattern = (Get-Content -Raw -Path $regexPath).Trim()
 
 $hits = Get-ChildItem -Path $core -Recurse -Include *.h,*.cpp |
         Select-String -CaseSensitive -Pattern $pattern

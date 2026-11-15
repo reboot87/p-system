@@ -7,7 +7,7 @@
 #
 #   ./scripts/check-core-clean.sh
 # ============================================================
-set -u
+set -eu
 
 here="$(cd "$(dirname "$0")" && pwd)"
 core="$here/../src/airui/core"
@@ -17,15 +17,19 @@ if [ ! -d "$core" ]; then
     exit 1
 fi
 
-pattern='windows\.h|WinUser|WinBase|\bHWND\b|\bHDC\b|\bHBRUSH\b|\bHFONT\b|\bHPEN\b|\bHMENU\b|\bHINSTANCE\b|\bHICON\b|\bHCURSOR\b|\bLRESULT\b|\bWPARAM\b|\bLPARAM\b|\bRECT\b|\bCOLORREF\b|\bPOINT\b|\bMSG\b|WM_[A-Z0-9]|\bDT_[A-Z]|GetTickCount|GetSystemMetrics|CreateWindow|DrawText|SetTextColor'
+pattern=$(cat "$here/core-forbidden.regex")
 
-hits=$(grep -rnE "$pattern" --include='*.h' --include='*.cpp' "$core" || true)
-
-if [ -n "$hits" ]; then
-    echo "$hits"
+if hits=$(grep -rnE "$pattern" --include='*.h' --include='*.cpp' "$core"); then
+    printf '%s\n' "$hits"
     count=$(printf '%s\n' "$hits" | wc -l)
     echo "check-core-clean: FAILED ($count platform references in core)"
     exit 1
+else
+    rc=$?
+    if [ "$rc" -ne 1 ]; then
+        echo "check-core-clean: grep failed (rc=$rc)" >&2
+        exit 2
+    fi
 fi
 
 files=$(find "$core" \( -name '*.h' -o -name '*.cpp' \) | wc -l)

@@ -56,6 +56,9 @@ jobs:
           ./build-core/test_paint_backend
           ./build-core/test_skia_types
 
+      - name: Core cleanliness gate
+        run: bash scripts/check-core-clean.sh
+
       - name: Skia backend API contract gate (no SDK required)
         run: bash scripts/check-skia-syntax.sh
 
@@ -155,6 +158,12 @@ jobs:
           Set-Content -Path "build-core/ci-all/airui-skia-windows-x64/airui-skia.ci-run" -Value $runId
           Write-Host "deploy-skia: plugin staged under build-core/ci-all/airui-skia-windows-x64 (run $runId)"
 
+      - name: Core cleanliness gate
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-core-clean.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Build ALL targets (app, gallery, tests, libs)
         run: cmake --build build-core --config Release
 
@@ -194,6 +203,12 @@ jobs:
 
       - name: Configure (CMake + VS2022 Win32)
         run: cmake -S . -B build-x86 -G "Visual Studio 17 2022" -A Win32
+
+      - name: Core cleanliness gate
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-core-clean.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build ALL targets
         run: cmake --build build-x86 --config Release
