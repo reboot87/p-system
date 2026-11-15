@@ -127,6 +127,11 @@ private:
     struct Row { bool header; std::wstring label; size_t entry; };
     std::vector<Row> m_rows;
 
+    // 上次已应用到 ListBox 的条目指纹（数量 + 首条 id + 末条 id）。
+    // 用于跳过"数据未变却反复重建列表"：切页回来时 ListBox 已是现成的，
+    // 无需 Reset + 逐行 AddItem（大列表时这段是 UI 线程卡顿主因）。
+    long long m_appliedFp = -1;
+
     int  m_typeFilter = 0;      // 0全部 1文本 2链接 3手动
     bool m_formOpen   = false;
     int  m_selEntry   = -1;

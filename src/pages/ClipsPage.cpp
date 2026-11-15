@@ -404,6 +404,23 @@ void ClipsPage::ApplyEntries()
 
     if (!m_list) return;
 
+    // 数据指纹 = 数量 + 首条/末条 id + 类型筛选。若与上次应用的一致，
+    // 说明条目没变（例如切页回来自带一次刷新，但数据与离开时相同），
+    // 此时 ListBox 已是现成的，跳过 Reset + 逐行 AddItem——大列表时这段
+    // 逐行 LB_ADDSTRING 是 UI 线程卡顿主因。
+    long long fp = (long long)m_typeFilter;
+    if (!all.empty()) {
+        fp = fp * 1000003 + (long long)all.size() * 31 +
+             all.front().id * 7 + all.back().id;
+    }
+    if (fp == m_appliedFp && !m_rows.empty()) {
+        // 条目未变：保留现成列表，仅收尾选中/详情备注编辑态。
+        if (m_visible && m_shell->CurrentPageId() == 1)
+            InvalidateRegion(m_rcDetail);
+        return;
+    }
+    m_appliedFp = fp;   // 记录本次指纹；下次未变则跳过重建
+
     // ---- 行模型：分组头 + 条目（类型筛选在客户端本地做） ----
     m_rows.clear();
     m_hoverOp    = -1;    // 行下标即将全部作废
