@@ -375,15 +375,12 @@ bool Shell::SwitchPage(int id)
     SendMessageW(m_hwnd, WM_SETREDRAW, TRUE, 0);
 
     // WM_SETREDRAW TRUE only clears the freeze flag; it does not repaint
-    // by itself. Force one synchronous frame so the switch lands as a
-    // single swap instead of waiting for the next idle WM_PAINT.
-    const ULONGLONG t0 = GetTickCount64();
-    ::RedrawWindow(m_hwnd, nullptr, nullptr,
-                   RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE |
-                   RDW_ALLCHILDREN);
+    // by itself. Do a normal (asynchronous) invalidate instead of forcing
+    // RDW_UPDATENOW: a synchronous repaint here blocks the UI thread for the
+    // whole frame, which is 30-50 ms on the Skia backend and piles up user
+    // clicks across repeated switches. The next idle WM_PAINT presents it.
+    ::InvalidateRect(m_hwnd, nullptr, FALSE);
     m_eraseSuppressed = false;
-    uiDebugLog(L"[switch] id=%d sync_ms=%llu", id,
-               (unsigned long long)(GetTickCount64() - t0));
     return true;
 }
 
