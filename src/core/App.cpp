@@ -255,18 +255,35 @@ int App::Run(HINSTANCE hInstance)
                     return true;
                 }
                 // 服务回来（管道可连上）→ 同步 + 清除离线告警。
-                // 用 Connect()（仅探测管道、不拉起服务）而非 Ping/Request，
-                // 确保离线态绝不擅自重启服务，只等用户/SCM 把它启动。
-                if (m_ipc.Connect()) {
+                // **不能在 UI 线程直接调 Connect()**：它内部有 10×100ms 的
+                // TryConnect 探测循环，离线时每次探测会把 UI 线程卡 ~1s
+                // （用户报告"点击隔约 1 秒才有反应"的规律性卡顿正是这个）。
+                // 探测放到后台线程，成功后经 WM_APP+7 回 UI 线程做恢复。
+                if (m_reconnecting.exchange(true))
+                    return true;                  // 上一次探测还在跑：跳过本轮
+                std::thread([this, hwnd]() {
+                    bool ok = m_ipc.Connect();    // 仅探测/建立连接，不拉起服务
+                    m_reconnecting.store(false);
+                    if (ok && hwnd)
+                        PostMessage(hwnd, WM_APP + 7, 0, 0);   // 服务回来了
+                    else if (hwnd)
+                        PostMessage(hwnd, WM_APP + 7, 1, 0);   // 仍未恢复，重排
+                }).detach();
+                result = 0;
+                return true;
+            }
+            // 服务恢复探测完成（后台线程投递，UI 线程）：成功→同步+清离线；
+            // 失败→继续下轮探测。
+            if (msg == WM_APP + 7) {
+                if (wParam == 0) {
+                    // 服务已恢复：同步暂存 + 重登记 + 退出离线 + 异步刷新
                     if (m_agent) m_agent->FlushPending();
                     RegisterSession();
                     SetServiceOffline(false);
-                    // 数据刷新统一走后台线程（异步），不在 UI 线程阻塞 IPC。
-                    RefreshData();
+                    RefreshData();               // 后台线程拉数据，UI 不阻塞
                     Toast(L"服务已恢复", L"离线期间暂存的剪贴板记录已同步");
                 } else {
-                    // 还没起来 → 下轮继续
-                    StartReconnectWatch();
+                    StartReconnectWatch();       // 还没起来 → 下轮继续探测
                 }
                 result = 0;
                 return true;

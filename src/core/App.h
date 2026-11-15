@@ -193,6 +193,7 @@ private:
     std::wstring m_svcText;
     std::vector<UiEntry> m_entries;
     std::atomic<bool> m_svcRecovering{ false };   // 服务恢复线程是否进行中
+    std::atomic<bool> m_reconnecting{ false };    // 离线重连探测线程是否在跑
     std::atomic<bool> m_refreshing{ false };      // 后台数据刷新是否进行中（防抖）
     std::atomic<bool> m_offline{ false };         // 服务不可用：UI 进入离线态（暂存+重连）
     std::atomic<unsigned long long> m_suppressRestartUntil{ 0 }; // 收到 STOPPING 后暂停自动重启的截止时间
