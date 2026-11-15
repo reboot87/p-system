@@ -37,6 +37,7 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <cwchar>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -400,7 +401,7 @@ int main(int argc, char** argv)
             PaintTarget target{ surface.dc, Rect{ 0, 0, kW, kH } };
             std::unique_ptr<IPainter> p = reg.Begin("gdi", target);
             if (!p) return {};
-            p->Text(Rect{ 2, 0, kW - 2, kH }, s.text, s.role, kInk, dt::SingleLine);
+            p->Text(Rect{ 2, 0, kW - 2, kH }, s.text, wcslen(s.text), s.role, kInk, dt::SingleLine);
             p.reset();
         } else {
             DrawGdiQuality(surface.dc, s.text, s.role, quality);
@@ -413,7 +414,7 @@ int main(int argc, char** argv)
         PaintTarget target{ surface.dc, Rect{ 0, 0, kW, kH } };
         std::unique_ptr<IPainter> p = reg.Begin("skia", target);
         if (!p) return {};
-        p->Text(Rect{ 2, 0, kW - 2, kH }, s.text, s.role, kInk, dt::SingleLine);
+        p->Text(Rect{ 2, 0, kW - 2, kH }, s.text, wcslen(s.text), s.role, kInk, dt::SingleLine);
         p.reset();
         return surface.Capture();
     };

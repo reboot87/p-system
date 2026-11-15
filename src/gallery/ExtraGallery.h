@@ -25,6 +25,7 @@
 #include "airui/WidgetControls.h"
 
 #include <algorithm>
+#include <cwchar>
 #include <functional>
 #include <memory>
 #include <string>
@@ -699,10 +700,7 @@ inline void DemoPaint_Framework(IPainter& g, const Rect& rc, ExtraDemoState& s,
     g.Translate(Point{rc.left, rc.top});
     s.host.PaintAll(g, pal, mx);
     g.Translate(Point{-rc.left, -rc.top});
-    g.Text(Rect(rc.left, rc.bottom - 28, rc.right, rc.bottom),
-           L"ControlHost：z-order 命中 / 事件路由 / Tab 焦点 · 点击重叠区试试",
-           FontRole::Meta, pal.textSub,
-           dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix | dt::EndEllipsis);
+    g.Text(Rect(rc.left, rc.bottom - 28, rc.right, rc.bottom),L"ControlHost：z-order 命中 / 事件路由 / Tab 焦点 · 点击重叠区试试", 48,FontRole::Meta,pal.textSub,dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix | dt::EndEllipsis);
 }
 
 inline void DemoPaint_ScrollVirtual(IPainter& g, const Rect& rc, ExtraDemoState& s,
@@ -719,13 +717,13 @@ inline void DemoPaint_DpiScaling(IPainter& g, const Rect& rc, ExtraDemoState& s,
     const Rect scaled = ScaleRect(Rect(0, 0, 100, 32), s.dpi);
     g.FillRound(rc, mx.radiusMd, pal.surface);
     g.StrokeRound(rc, mx.radiusMd, pal.split, 1);
-    g.Text(Rect(rc.left + mx.unit, rc.top, rc.right - mx.unit, rc.bottom),
-           L"DPI " + std::to_wstring(s.dpi) + L" · unit=" +
+    g.Text(Rect(rc.left + mx.unit, rc.top, rc.right - mx.unit, rc.bottom),(L"DPI " + std::to_wstring(s.dpi) + L" · unit=" +
            std::to_wstring(MetricsForDpi(s.dpiBase, s.dpi).unit) +
            L" · 100x32 → " + std::to_wstring(scaled.Width()) + L"x" +
-           std::to_wstring(scaled.Height()) + L"（按 D 键切换 96/120/144）",
-           FontRole::Body, pal.text,
-           dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix | dt::EndEllipsis);
+           std::to_wstring(scaled.Height()) + L"（按 D 键切换 96/120/144）").c_str(), (L"DPI " + std::to_wstring(s.dpi) + L" · unit=" +
+           std::to_wstring(MetricsForDpi(s.dpiBase, s.dpi).unit) +
+           L" · 100x32 → " + std::to_wstring(scaled.Width()) + L"x" +
+           std::to_wstring(scaled.Height()) + L"（按 D 键切换 96/120/144）").size(),FontRole::Body,pal.text,dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix | dt::EndEllipsis);
 }
 
 inline void DemoPaint_Animation(IPainter& g, const Rect& rc, ExtraDemoState& s,
@@ -744,8 +742,7 @@ inline void DemoPaint_Accessibility(IPainter& g, const Rect& rc, ExtraDemoState&
                                     const Palette& pal, const Metrics& mx)
 {
     g.FillRound(rc, mx.radiusMd, pal.sunken);
-    g.TextBlock(rc, L"无障碍树：\n" + DescribeAll(s.host),
-                FontRole::Meta, pal.textSub, 4);
+    g.TextBlock(rc,(L"无障碍树：\n" + DescribeAll(s.host)).c_str(), (L"无障碍树：\n" + DescribeAll(s.host)).size(),FontRole::Meta,pal.textSub,4);
 }
 
 inline void DemoPaint_StatusTag(IPainter& g, const Rect& rc, ExtraDemoState& s,
@@ -826,12 +823,11 @@ inline void DemoPaint_Scrollbar(IPainter& g, const Rect& rc, ExtraDemoState& s,
     g.StrokeRound(rc, mx.radiusMd, pal.split, 1);
     s.demoScroll.viewH = rc.Height();
     PaintScrollbar(g, rc, s.demoScroll, pal, mx);
-    g.Text(Rect(rc.left + mx.unit, rc.top, rc.right - mx.unit * 3, rc.bottom),
-           L"自绘滚动条 · offset=" + std::to_wstring(s.demoScroll.offset) +
+    g.Text(Rect(rc.left + mx.unit, rc.top, rc.right - mx.unit * 3, rc.bottom),(L"自绘滚动条 · offset=" + std::to_wstring(s.demoScroll.offset) +
            L" / max=" + std::to_wstring(ScrollMax(s.demoScroll)) +
-           L"（在此区域滚轮）",
-           FontRole::Meta, pal.textSub,
-           dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix | dt::EndEllipsis);
+           L"（在此区域滚轮）").c_str(), (L"自绘滚动条 · offset=" + std::to_wstring(s.demoScroll.offset) +
+           L" / max=" + std::to_wstring(ScrollMax(s.demoScroll)) +
+           L"（在此区域滚轮）").size(),FontRole::Meta,pal.textSub,dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix | dt::EndEllipsis);
 }
 
 inline void DemoPaint_GuideTour(IPainter& g, const Rect& rc, ExtraDemoState& s,
@@ -871,7 +867,7 @@ inline void DemoPaint_WidgetClasses(IPainter& g, const Rect& rc, ExtraDemoState&
         const int labelH = (std::min)(mx.rowH, ch / 3);
         g.Text(Rect(tile.left + gap, tile.top + 2,
                     tile.right - gap, tile.top + labelH),
-               names[i], FontRole::Meta, pal.textSub, tf);
+              names[i], wcslen(names[i]), FontRole::Meta, pal.textSub, tf);
         const Rect body(tile.left + gap, tile.top + labelH,
                         tile.right - gap, tile.bottom - gap);
         items[i]->SetBounds(body);

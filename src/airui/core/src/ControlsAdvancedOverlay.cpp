@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cwchar>
 #include <string>
 #include <vector>
 
@@ -78,7 +79,7 @@ void PaintSmallButton(IPainter& g, const Rect& rc, const wchar_t* label,
                 primary ? pal.primary : hovered ? pal.hover : pal.sunken);
     g.StrokeRound(rc, mx.radiusSm,
                   primary ? pal.primaryDown : pal.border, 1);
-    g.Text(rc, label, FontRole::Meta,
+    g.Text(rc, label, wcslen(label), FontRole::Meta,
            primary ? pal.textInverse : pal.text, kCenter);
 }
 
@@ -197,18 +198,18 @@ void Snackbar::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     g.FillRect(Rect(lay.card.left, lay.card.top,
                     lay.card.left + (std::max)(2, mx.unit / 3), lay.card.bottom),
                AccentFor(st.kind, pal));
-    g.Text(lay.textRc, st.message, FontRole::Body, pal.textInverse, kLeft);
+    g.Text(lay.textRc,(st.message).c_str(), (st.message).size(),FontRole::Body,pal.textInverse,kLeft);
     if (!lay.actionRc.Empty()) {
         if (st.actionHover) {
             g.FillRectAlpha(lay.actionRc, pal.textInverse, 40);
         }
-        g.Text(lay.actionRc, st.action, FontRole::Title, pal.textInverse, kCenter);
+        g.Text(lay.actionRc,(st.action).c_str(), (st.action).size(),FontRole::Title,pal.textInverse,kCenter);
     }
     if (!lay.closeRc.Empty()) {
         if (st.closeHover) {
             g.FillRectAlpha(lay.closeRc, pal.textInverse, 40);
         }
-        g.Text(lay.closeRc, L"\x00D7", FontRole::Meta, pal.textInverse, kCenter);
+        g.Text(lay.closeRc,L"\x00D7", 1,FontRole::Meta,pal.textInverse,kCenter);
     }
     g.PopClip();
 }
@@ -287,9 +288,7 @@ void CommandPalette::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     g.FillRound(lay.search, mx.radiusMd, pal.sunken);
     g.StrokeRound(lay.search, mx.radiusMd, pal.selectRing, 1);
     g.Text(Rect(lay.search.left + mx.unit, lay.search.top,
-                lay.search.right - mx.unit, lay.search.bottom),
-           st.query.empty() ? st.placeholder : st.query,
-           FontRole::Body, st.query.empty() ? pal.textFaint : pal.text, kLeft);
+                lay.search.right - mx.unit, lay.search.bottom),(st.query.empty() ? st.placeholder : st.query).c_str(), (st.query.empty() ? st.placeholder : st.query).size(),FontRole::Body,st.query.empty() ? pal.textFaint : pal.text,kLeft);
     g.PushClip(lay.list);
     for (std::size_t k = 0; k < lay.rows.size(); ++k) {
         if (k >= matches.size()) break;
@@ -308,26 +307,21 @@ void CommandPalette::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         const int textR = row.right - mx.unit -
                           (std::max)(shortcutW, 0) - (std::max)(hintW, 0);
         g.Text(Rect(row.left + mx.unit, row.top,
-                    (std::max)(row.left + mx.unit, textR), row.bottom),
-               item.title, FontRole::Body,
-               item.disabled ? pal.textDisabled : pal.text, kLeft);
+                    (std::max)(row.left + mx.unit, textR), row.bottom),(item.title).c_str(), (item.title).size(),FontRole::Body,item.disabled ? pal.textDisabled : pal.text,kLeft);
         if (hintW > 0) {
             g.Text(Rect(textR, row.top,
                         (std::min)(row.right - mx.unit - shortcutW, textR + hintW),
-                        row.bottom),
-                   item.hint, FontRole::Meta, pal.textFaint, kRight);
+                        row.bottom),(item.hint).c_str(), (item.hint).size(),FontRole::Meta,pal.textFaint,kRight);
         }
         if (shortcutW > 0) {
             g.Text(Rect(row.right - mx.unit - shortcutW, row.top,
-                        row.right - mx.unit, row.bottom),
-                   item.shortcut, FontRole::Meta, pal.textFaint, kRight);
+                        row.right - mx.unit, row.bottom),(item.shortcut).c_str(), (item.shortcut).size(),FontRole::Meta,pal.textFaint,kRight);
         }
     }
     g.PopClip();
-    g.Text(lay.footer,
-           L"方向键选择  ·  Enter 执行  ·  Esc 关闭  ·  共 " +
-               std::to_wstring(matches.size()) + L" 项",
-           FontRole::Meta, pal.textFaint, kLeft);
+    g.Text(lay.footer,(L"方向键选择  ·  Enter 执行  ·  Esc 关闭  ·  共 " +
+               std::to_wstring(matches.size()) + L" 项").c_str(), (L"方向键选择  ·  Enter 执行  ·  Esc 关闭  ·  共 " +
+               std::to_wstring(matches.size()) + L" 项").size(),FontRole::Meta,pal.textFaint,kLeft);
     g.PopClip();
 }
 
@@ -418,8 +412,8 @@ void GuideTour::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     }
     g.FillRound(lay.card, mx.radiusCard, pal.surface);
     g.StrokeRound(lay.card, mx.radiusCard, pal.split, 1);
-    g.Text(lay.titleRc, st.title, FontRole::Title, pal.text, kLeft);
-    g.TextBlock(lay.bodyRc, st.body, FontRole::Meta, pal.textSub, 2);
+    g.Text(lay.titleRc,(st.title).c_str(), (st.title).size(),FontRole::Title,pal.text,kLeft);
+    g.TextBlock(lay.bodyRc,(st.body).c_str(), (st.body).size(),FontRole::Meta,pal.textSub,2);
     const int total = ClampI(st.total, 1, 12);
     const int dot = (std::max)(4, mx.unit);
     const int dotPitch = dot + mx.unit;
@@ -431,10 +425,9 @@ void GuideTour::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
                     i + 1 == st.step ? pal.primary : pal.split);
     }
     g.Text(Rect(lay.dotsRc.left, lay.dotsRc.top,
-                lay.dotsRc.right, lay.dotsRc.bottom),
-           std::to_wstring((std::max)(1, st.step)) + L"/" +
-               std::to_wstring(total),
-           FontRole::Meta, pal.textFaint, kRight);
+                lay.dotsRc.right, lay.dotsRc.bottom),(std::to_wstring((std::max)(1, st.step)) + L"/" +
+               std::to_wstring(total)).c_str(), (std::to_wstring((std::max)(1, st.step)) + L"/" +
+               std::to_wstring(total)).size(),FontRole::Meta,pal.textFaint,kRight);
     PaintSmallButton(g, lay.skipRc, L"跳过", false, st.skipHover, pal, mx);
     PaintSmallButton(g, lay.prevRc, L"上一步", false,
                      st.prevHover && st.step > 1, pal, mx);

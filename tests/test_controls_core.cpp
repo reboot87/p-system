@@ -39,11 +39,11 @@ public:
         ops.push_back(op);
     }
     void StrokeDashed(const Rect&, Color, int, int) override {}
-    void Text(const Rect& r, const std::wstring& s, FontRole role, Color c, TextFormat fmt) override {
-        ops.push_back({Op::Text, r, c, 0, s, role, fmt});
+    void Text(const Rect& r, const wchar_t* s, size_t len, FontRole role, Color c, TextFormat fmt) override {
+        ops.push_back({Op::Text, r, c, 0, std::wstring(s, len), role, fmt});
     }
-    void TextBlock(const Rect&, const std::wstring&, FontRole, Color, int) override {}
-    int MeasureText(const std::wstring&, FontRole) override { return 0; }
+    void TextBlock(const Rect&, const wchar_t*, size_t, FontRole, Color, int) override {}
+    int MeasureText(const wchar_t*, size_t, FontRole) override { return 0; }
     void PushClip(const Rect&) override {}
     void PopClip() override {}
     void Translate(Point) override {}

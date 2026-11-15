@@ -433,7 +433,7 @@ void PaintOverlayFrame(IPainter& g, const OverlayItem& item,
     head.left   += mx.unit;
     head.right  -= mx.unit;
     head.bottom  = head.top + mx.rowH;
-    g.Text(head, item.title, FontRole::Title, pal.text, kLeftText);
+    g.Text(head,(item.title).c_str(), (item.title).size(),FontRole::Title,pal.text,kLeftText);
     g.FillRect(Rect(head.left, head.bottom, head.right, head.bottom + 1), pal.split);
 }
 

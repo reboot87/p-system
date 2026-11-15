@@ -56,14 +56,12 @@ void PaintChip(IPainter& g, const TagChipRect& chipRect,
                      chipRect.close.left,
                      chipRect.chip.bottom);
     if (!label.Empty()) {
-        g.Text(label, text, FontRole::Meta,
-               disabled ? pal.textDisabled : pal.primaryText, kLeft);
+        g.Text(label,(text).c_str(), (text).size(),FontRole::Meta,disabled ? pal.textDisabled : pal.primaryText,kLeft);
     }
     if (hovered && !disabled) {
         g.FillRound(chipRect.close, mx.radiusSm, pal.surface);
     }
-    g.Text(chipRect.close, L"\x00D7", FontRole::Meta,
-           disabled ? pal.textDisabled : pal.primaryText, kGlyph);
+    g.Text(chipRect.close,L"\x00D7", 1,FontRole::Meta,disabled ? pal.textDisabled : pal.primaryText,kGlyph);
 }
 
 // ------------------------------------------------------------
@@ -279,18 +277,15 @@ void TagInput::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     }
     if (!lay.input.Empty()) {
         if (!st.draft.empty()) {
-            g.Text(lay.input, st.draft, FontRole::Body,
-                   st.base.disabled ? pal.textDisabled : pal.text, kLeft);
+            g.Text(lay.input,(st.draft).c_str(), (st.draft).size(),FontRole::Body,st.base.disabled ? pal.textDisabled : pal.text,kLeft);
         } else if (!st.placeholder.empty()) {
-            g.Text(lay.input, st.placeholder, FontRole::Meta,
-                   pal.textFaint, kLeft);
+            g.Text(lay.input,(st.placeholder).c_str(), (st.placeholder).size(),FontRole::Meta,pal.textFaint,kLeft);
         }
     }
     if (!lay.clearAll.Empty()) {
         g.FillRound(lay.clearAll, mx.radiusSm,
                     st.clearAllHover ? pal.hover : pal.sunken);
-        g.Text(lay.clearAll, L"\x00D7", FontRole::Meta,
-               pal.textSub, kGlyph);
+        g.Text(lay.clearAll,L"\x00D7", 1,FontRole::Meta,pal.textSub,kGlyph);
     }
     g.PopClip();
 }
@@ -456,8 +451,7 @@ void OtpInput::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
                          ? st.code[static_cast<std::size_t>(i)] : L'\0';
         if (ch != L'\0') {
             const std::wstring s = st.masked ? L"\x2022" : std::wstring(1, ch);
-            g.Text(cell, s, FontRole::Title,
-                   st.base.disabled ? pal.textDisabled : pal.text, kCenter);
+            g.Text(cell,(s).c_str(), (s).size(),FontRole::Title,st.base.disabled ? pal.textDisabled : pal.text,kCenter);
         } else if (focused) {
             const int caretW = (std::max)(1, mx.unit / 4);
             const int caretH = cell.Height() / 2;
@@ -540,8 +534,7 @@ void Cascader::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         const Rect head(col.left, col.top, col.right, col.top + lay.headerH);
         g.FillRect(head, pal.sunken);
         g.Text(Rect(head.left + mx.unit / 2, head.top,
-                    head.right - mx.unit / 2, head.bottom),
-               st.columns[ci].title, FontRole::Title, pal.textSub, kLeft);
+                    head.right - mx.unit / 2, head.bottom),(st.columns[ci].title).c_str(), (st.columns[ci].title).size(),FontRole::Title,pal.textSub,kLeft);
         const Rect rows = CascaderRows(col, lay);
         if (rows.Empty()) continue;
         g.PushClip(rows);
@@ -565,14 +558,10 @@ void Cascader::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
             const bool hasNext = ci + 1 < lay.columnRects.size();
             const int tail = hasNext ? mx.unit * 3 : mx.unit / 2;
             g.Text(Rect(row.left + mx.unit, row.top,
-                        (std::max)(row.left + mx.unit, row.right - tail), row.bottom),
-                   data.items[static_cast<std::size_t>(r)], FontRole::Body,
-                   st.base.disabled ? pal.textDisabled
-                   : selected == r ? pal.primaryText : pal.text,
-                   kLeft);
+                        (std::max)(row.left + mx.unit, row.right - tail), row.bottom),(data.items[static_cast<std::size_t>(r)]).c_str(), (data.items[static_cast<std::size_t>(r)]).size(),FontRole::Body,st.base.disabled ? pal.textDisabled
+                   : selected == r ? pal.primaryText : pal.text,kLeft);
             if (hasNext) {
-                g.Text(Rect(row.right - tail, row.top, row.right - mx.unit / 2, row.bottom),
-                       L"\x203A", FontRole::Title, pal.textFaint, kRight);
+                g.Text(Rect(row.right - tail, row.top, row.right - mx.unit / 2, row.bottom),L"\x203A", 1,FontRole::Title,pal.textFaint,kRight);
             }
         }
         g.PopClip();

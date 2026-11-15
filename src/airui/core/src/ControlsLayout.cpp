@@ -11,6 +11,7 @@
 #include "airui/ControlsExtra.h"
 
 #include <algorithm>
+#include <cwchar>
 #include <cstddef>
 #include <utility>
 #include <vector>
@@ -291,11 +292,10 @@ void Accordion::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         const Rect glyphRc(head.left + pad, head.top,
                            head.left + pad + mx.rowH, head.bottom);
         g.Text(glyphRc, expanded ? L"\u25BE" : L"\u25B8",
-               FontRole::Meta, muted, kCenterText);
+           wcslen(expanded ? L"\u25BE" : L"\u25B8"),
+           FontRole::Meta, muted, kCenterText);
         g.Text(Rect(head.left + pad + mx.rowH, head.top,
-                    head.right - pad, head.bottom),
-               st.panels[static_cast<std::size_t>(i)].first,
-               FontRole::Body, title, kLeftText);
+                    head.right - pad, head.bottom),(st.panels[static_cast<std::size_t>(i)].first).c_str(), (st.panels[static_cast<std::size_t>(i)].first).size(),FontRole::Body,title,kLeftText);
         g.FillRect(Rect(rc.left, head.bottom - 1, rc.right, head.bottom), pal.split);
 
         const Rect& bodyRc = geom.bodies[static_cast<std::size_t>(i)];
@@ -303,9 +303,7 @@ void Accordion::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
             g.FillRect(Rect(bodyRc.left, bodyRc.top, bodyRc.right,
                             (std::min)(bodyRc.bottom, rc.bottom)), pal.sunken);
             g.TextBlock(Rect(bodyRc.left + pad, bodyRc.top,
-                             bodyRc.right - pad, bodyRc.bottom),
-                        st.panels[static_cast<std::size_t>(i)].second,
-                        FontRole::Body, muted, maxLines);
+                             bodyRc.right - pad, bodyRc.bottom),(st.panels[static_cast<std::size_t>(i)].second).c_str(), (st.panels[static_cast<std::size_t>(i)].second).size(),FontRole::Body,muted,maxLines);
         }
     }
 
@@ -348,9 +346,7 @@ void Anchor::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         }
 
         const Color c = isActive ? activeC : normal;
-        g.Text(Rect(geom.labelLeft, row.top, rc.right - mx.unit, row.bottom),
-               st.items[static_cast<std::size_t>(i)],
-               FontRole::Body, c, kLeftText);
+        g.Text(Rect(geom.labelLeft, row.top, rc.right - mx.unit, row.bottom),(st.items[static_cast<std::size_t>(i)]).c_str(), (st.items[static_cast<std::size_t>(i)]).size(),FontRole::Body,c,kLeftText);
     }
 
     g.PopClip();

@@ -21,9 +21,9 @@ public:
     void StrokeRect(const Rect& r, Color c, int) override { ops.push_back({2, r, c, L""}); }
     void StrokeRound(const Rect&, int, Color, int) override {}
     void StrokeDashed(const Rect&, Color, int, int) override {}
-    void Text(const Rect& r, const std::wstring& s, FontRole, Color c, TextFormat) override { ops.push_back({3, r, c, s}); }
-    void TextBlock(const Rect&, const std::wstring&, FontRole, Color, int) override {}
-    int MeasureText(const std::wstring&, FontRole) override { return 0; }
+    void Text(const Rect& r, const wchar_t* s, size_t len, FontRole, Color c, TextFormat) override { ops.push_back({3, r, c, std::wstring(s, len)}); }
+    void TextBlock(const Rect&, const wchar_t*, size_t, FontRole, Color, int) override {}
+    int MeasureText(const wchar_t*, size_t, FontRole) override { return 0; }
     void PushClip(const Rect&) override {}
     void PopClip() override {}
     void Translate(Point) override {}
@@ -32,11 +32,11 @@ public:
 void drawGalleryItems(RecordingPainter& p) {
     // Simulate gallery items drawing: 3 fill rects + 3 texts
     p.FillRect({10,10,110,110}, 0x00FF00);
-    p.Text({10,10,110,110}, L"Item1", FontRole::Body, 0x000000, 0);
+    p.Text({10,10,110,110},L"Item1", 5,FontRole::Body,0x000000,0);
     p.FillRect({120,10,220,110}, 0x00FF00);
-    p.Text({120,10,220,110}, L"Item2", FontRole::Body, 0x000000, 0);
+    p.Text({120,10,220,110},L"Item2", 5,FontRole::Body,0x000000,0);
     p.FillRect({230,10,330,110}, 0x00FF00);
-    p.Text({230,10,330,110}, L"Item3", FontRole::Body, 0x000000, 0);
+    p.Text({230,10,330,110},L"Item3", 5,FontRole::Body,0x000000,0);
 }
 
 int main() {

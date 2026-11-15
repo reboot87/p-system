@@ -139,14 +139,14 @@ void ShellCore::PaintCaption(IPainter& painter, const Palette& pal, const Metric
     const int pad = mx.unit * 2;
     Rect titleRc = m_captionRect;
     titleRc.left += pad;
-    painter.Text(titleRc, m_caption.title, FontRole::Title, pal.text, 0);
+    painter.Text(titleRc,(m_caption.title).c_str(), (m_caption.title).size(),FontRole::Title,pal.text,0);
 
     if (!m_caption.subtitle.empty())
     {
         Rect subRc = m_captionRect;
         subRc.left += pad;
         subRc.top  += 18;
-        painter.Text(subRc, m_caption.subtitle, FontRole::Meta, pal.textSub, 0);
+        painter.Text(subRc,(m_caption.subtitle).c_str(), (m_caption.subtitle).size(),FontRole::Meta,pal.textSub,0);
     }
 
     if (!m_caption.badge.empty())
@@ -155,7 +155,7 @@ void ShellCore::PaintCaption(IPainter& painter, const Palette& pal, const Metric
         badgeRc.right -= pad + m_captionActionW;
         badgeRc.left  = badgeRc.right - 120;
         if (badgeRc.left < m_captionRect.left + pad) return;
-        painter.Text(badgeRc, m_caption.badge, FontRole::Meta, m_caption.badgeOk ? pal.ok : pal.error, 0);
+        painter.Text(badgeRc,(m_caption.badge).c_str(), (m_caption.badge).size(),FontRole::Meta,m_caption.badgeOk ? pal.ok : pal.error,0);
     }
 }
 
@@ -168,14 +168,14 @@ void ShellCore::PaintStatus(IPainter& painter, const Palette& pal, const Metrics
     const int pad = mx.unit * 2;
     Rect txtRc = m_statusRect;
     txtRc.left += pad;
-    painter.Text(txtRc, m_status.text, FontRole::Meta, m_status.ok ? pal.text : pal.error, 0);
+    painter.Text(txtRc,(m_status.text).c_str(), (m_status.text).size(),FontRole::Meta,m_status.ok ? pal.text : pal.error,0);
 
     if (!m_status.extra.empty())
     {
         Rect extRc = m_statusRect;
         extRc.right -= pad;
         extRc.left  = extRc.right - 200;
-        painter.Text(extRc, m_status.extra, FontRole::Meta, pal.textSub, 0);
+        painter.Text(extRc,(m_status.extra).c_str(), (m_status.extra).size(),FontRole::Meta,pal.textSub,0);
     }
 }
 
@@ -199,7 +199,7 @@ void ShellCore::PaintNav(IPainter& painter, const Palette& pal, const Metrics& m
         {
             Rect grc{ m_navRect.left + mx.unit, y, m_navRect.right - mx.unit, y + 18 };
             if (!clip || Overlaps(*clip, grc))
-                painter.Text(grc, g.title, FontRole::Meta, pal.textSub, 0);
+                painter.Text(grc,(g.title).c_str(), (g.title).size(),FontRole::Meta,pal.textSub,0);
             y += 18 + mx.unit;
         }
         for (const auto& it : g.items)
@@ -235,13 +235,13 @@ void ShellCore::PaintNav(IPainter& painter, const Palette& pal, const Metrics& m
                      : active ? pal.primaryText : pal.text;
             Rect trc = irc;
             trc.left += mx.unit;
-            painter.Text(trc, it.label, FontRole::Body, fg, 0);
+            painter.Text(trc,(it.label).c_str(), (it.label).size(),FontRole::Body,fg,0);
 
             if (!it.badge.empty())
             {
                 Rect brc = irc;
                 brc.left = brc.right - 80;
-                painter.Text(brc, it.badge, FontRole::Meta, it.badgeOk ? pal.ok : pal.error, 0);
+                painter.Text(brc,(it.badge).c_str(), (it.badge).size(),FontRole::Meta,it.badgeOk ? pal.ok : pal.error,0);
             }
         }
         y += mx.unit * 2;

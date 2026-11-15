@@ -10,6 +10,7 @@
 #include "airui/ControlsExtra.h"
 
 #include <algorithm>
+#include <cwchar>
 #include <cstddef>
 #include <string>
 #include <vector>
@@ -313,18 +314,16 @@ void SearchBox::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     const FieldLayout lay = MeasureSearchBox(rc, st, mx);
     PaintFieldFrame(g, rc, st.base, st.hasFocus, pal, mx);
     g.PushClip(Rect(rc.left + 1, rc.top + 1, rc.right - 1, rc.bottom - 1));
-    g.Text(lay.glyph, L"\xE721", FontRole::Icon,
-           st.base.disabled ? pal.textDisabled : pal.textSub, kCenterText);
+    g.Text(lay.glyph,L"\xE721", 1,FontRole::Icon,st.base.disabled ? pal.textDisabled : pal.textSub,kCenterText);
     const bool empty = st.text.empty();
     const std::wstring& shown = empty ? st.placeholder : st.text;
     const Color textCol = st.base.disabled ? pal.textDisabled
                         : empty ? pal.textFaint : pal.text;
-    g.Text(lay.text, shown, FontRole::Body, textCol, kLeftText);
+    g.Text(lay.text,(shown).c_str(), (shown).size(),FontRole::Body,textCol,kLeftText);
     if (lay.hasAction) {
         if (st.clearHover && !st.base.disabled)
             g.FillRound(lay.action, mx.radiusSm, pal.hover);
-        g.Text(lay.action, L"\u00D7", FontRole::Body,
-               st.base.disabled ? pal.textDisabled : pal.textSub, kCenterText);
+        g.Text(lay.action,L"\u00D7", 1,FontRole::Body,st.base.disabled ? pal.textDisabled : pal.textSub,kCenterText);
     }
     g.PopClip();
 }
@@ -362,12 +361,12 @@ void PasswordBox::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     else shown.assign(st.text.size(), L'\u2022');
     const Color textCol = st.base.disabled ? pal.textDisabled
                         : empty ? pal.textFaint : pal.text;
-    g.Text(lay.text, shown, FontRole::Body, textCol, kLeftText);
+    g.Text(lay.text,(shown).c_str(), (shown).size(),FontRole::Body,textCol,kLeftText);
     if (st.toggleHover && !st.base.disabled)
         g.FillRound(lay.action, mx.radiusSm, pal.hover);
     const Color revealCol = st.base.disabled ? pal.textDisabled
                           : st.revealed ? pal.primaryText : pal.textSub;
-    g.Text(lay.action, L"\xE890", FontRole::Icon, revealCol, kCenterText);
+    g.Text(lay.action,L"\xE890", 1,FontRole::Icon,revealCol,kCenterText);
     g.PopClip();
 }
 
@@ -388,11 +387,9 @@ void TextArea::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     if (inner.Empty()) return;
     g.PushClip(inner);
     if (st.text.empty())
-        g.Text(inner, st.placeholder, FontRole::Body,
-               st.base.disabled ? pal.textDisabled : pal.textFaint, kLeftText);
+        g.Text(inner,(st.placeholder).c_str(), (st.placeholder).size(),FontRole::Body,st.base.disabled ? pal.textDisabled : pal.textFaint,kLeftText);
     else
-        g.TextBlock(inner, st.text, FontRole::Body,
-                    BodyText(st.base, pal), (std::max)(1, st.maxLines));
+        g.TextBlock(inner,(st.text).c_str(), (st.text).size(),FontRole::Body,BodyText(st.base, pal),(std::max)(1, st.maxLines));
     g.PopClip();
 }
 
@@ -426,12 +423,11 @@ void NumberInput::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     const Color glyphCol = st.base.disabled ? pal.textDisabled : pal.textSub;
     if (st.minusHover && !st.base.disabled)
         g.FillRound(lay.minus, mx.radiusSm, pal.hover);
-    g.Text(lay.minus, L"\u2212", FontRole::Body, glyphCol, kCenterText);
+    g.Text(lay.minus,L"\u2212", 1,FontRole::Body,glyphCol,kCenterText);
     if (st.plusHover && !st.base.disabled)
         g.FillRound(lay.plus, mx.radiusSm, pal.hover);
-    g.Text(lay.plus, L"+", FontRole::Body, glyphCol, kCenterText);
-    g.Text(lay.value, std::to_wstring(st.value), FontRole::Body,
-           BodyText(st.base, pal), kCenterEllipsis);
+    g.Text(lay.plus,L"+", 1,FontRole::Body,glyphCol,kCenterText);
+    g.Text(lay.value,(std::to_wstring(st.value)).c_str(), (std::to_wstring(st.value)).size(),FontRole::Body,BodyText(st.base, pal),kCenterEllipsis);
     g.FillRect(Rect(lay.minus.right, rc.top,
                     lay.minus.right + 1, rc.bottom), pal.split);
     g.FillRect(Rect(lay.plus.left - 1, rc.top,
@@ -477,22 +473,21 @@ void DatePicker::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     g.PushClip(Rect(rc.left + 1, rc.top + 1, rc.right - 1, rc.bottom - 1));
     const std::wstring title = std::to_wstring(st.year) + L"\u5E74"
                              + std::to_wstring(st.month) + L"\u6708";
-    g.Text(lay.header, title, FontRole::Body,
-           st.base.disabled ? pal.textDisabled : pal.text, kCenterEllipsis);
+    g.Text(lay.header,(title).c_str(), (title).size(),FontRole::Body,st.base.disabled ? pal.textDisabled : pal.text,kCenterEllipsis);
     const Color navCol = st.base.disabled ? pal.textDisabled : pal.textSub;
     if (st.hoveredNav == 1 && !st.base.disabled)
         g.FillRound(lay.prev, mx.radiusSm, pal.hover);
-    g.Text(lay.prev, L"\u2039", FontRole::Body, navCol, kCenterText);
+    g.Text(lay.prev,L"\u2039", 1,FontRole::Body,navCol,kCenterText);
     if (st.hoveredNav == 2 && !st.base.disabled)
         g.FillRound(lay.next, mx.radiusSm, pal.hover);
-    g.Text(lay.next, L"\u203A", FontRole::Body, navCol, kCenterText);
+    g.Text(lay.next,L"\u203A", 1,FontRole::Body,navCol,kCenterText);
     const wchar_t* week[7] = { L"\u65E5", L"\u4E00", L"\u4E8C", L"\u4E09",
                                L"\u56DB", L"\u4E94", L"\u516D" };
     for (int c = 0; c < 7; ++c) {
         const Rect cell(lay.grid.left + c * lay.cellW, lay.weekdays.top,
                         lay.grid.left + (c + 1) * lay.cellW,
                         lay.weekdays.bottom);
-        g.Text(cell, week[c], FontRole::Meta, pal.textFaint, kCenterText);
+        g.Text(cell, week[c], wcslen(week[c]), FontRole::Meta, pal.textFaint, kCenterText);
     }
     // st.day doubles as the "today" marker: core carries no clock.
     const int first = FirstWeekday(st.year, st.month);
@@ -517,7 +512,7 @@ void DatePicker::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         const Color col = st.base.disabled ? pal.textDisabled
                         : sel ? pal.textInverse
                         : hov ? pal.primaryText : pal.text;
-        g.Text(cell, std::to_wstring(day), FontRole::Body, col, kCenterText);
+        g.Text(cell,(std::to_wstring(day)).c_str(), (std::to_wstring(day)).size(),FontRole::Body,col,kCenterText);
     }
     g.PopClip();
 }
@@ -560,8 +555,7 @@ void ColorPicker::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         g.StrokeRound(cell, mx.radiusSm, pal.split, 1);
         if (sel && !st.base.disabled) {
             g.StrokeRound(cell, mx.radiusSm, pal.primary, 2);
-            g.Text(cell, L"\u2713", FontRole::Body,
-                   pal.textInverse, kCenterText);
+            g.Text(cell,L"\u2713", 1,FontRole::Body,pal.textInverse,kCenterText);
         } else if (hov && !st.base.disabled) {
             g.StrokeRound(cell, mx.radiusSm, pal.selectRing, 2);
         }

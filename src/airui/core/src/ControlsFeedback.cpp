@@ -14,6 +14,7 @@
 #include "airui/ControlsExtra.h"
 
 #include <algorithm>
+#include <cwchar>
 #include <cmath>
 #include <cstddef>
 #include <string>
@@ -280,7 +281,7 @@ void Spinner::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
                            rc.right, rc.bottom);
         if (!labelRc.Empty()) {
             const Color c = st.base.disabled ? pal.textDisabled : pal.textSub;
-            g.Text(labelRc, st.label, FontRole::Meta, c, kCenterText);
+            g.Text(labelRc,(st.label).c_str(), (st.label).size(),FontRole::Meta,c,kCenterText);
         }
     }
 }
@@ -294,7 +295,7 @@ void Tooltip::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     (void)mx;
     if (client.Empty()) return;
     // Size the tooltip to its text so long hints are not ellipsised.
-    const int measured = g.MeasureText(st.text, FontRole::Body);
+    const int measured = g.MeasureText((st.text).c_str(), (st.text).size(),FontRole::Body);
     const int w = (std::min)(client.Width(),
                              (std::max)(mx.unit * 16, measured + mx.unit * 4));
     const int h = mx.rowH + mx.unit * 2;
@@ -307,7 +308,7 @@ void Tooltip::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     const Rect textRc(card.left + mx.unit, card.top,
                       card.right - mx.unit, card.bottom);
     if (!textRc.Empty())
-        g.Text(textRc, st.text, FontRole::Body, pal.text, kLeftText);
+        g.Text(textRc,(st.text).c_str(), (st.text).size(),FontRole::Body,pal.text,kLeftText);
 }
 
 void Popover::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
@@ -334,12 +335,12 @@ void Popover::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     const int right = card.right - pad;
     const Rect titleRc(left, card.top + pad, right, card.top + pad + mx.rowH);
     if (!titleRc.Empty())
-        g.Text(titleRc, st.title, FontRole::Title, pal.text, kLeftText);
+        g.Text(titleRc,(st.title).c_str(), (st.title).size(),FontRole::Title,pal.text,kLeftText);
     g.FillRect(Rect(left, titleRc.bottom, right, titleRc.bottom + 1), pal.split);
 
     const Rect bodyRc(left, titleRc.bottom + pad / 2, right, card.bottom - pad);
     if (!bodyRc.Empty())
-        g.TextBlock(bodyRc, st.body, FontRole::Body, pal.textSub, 3);
+        g.TextBlock(bodyRc,(st.body).c_str(), (st.body).size(),FontRole::Body,pal.textSub,3);
 
     g.PopClip();
 }
@@ -427,11 +428,11 @@ void Modal::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
                     lay.card.right - 1, lay.card.bottom - 1));
 
     if (!lay.titleRc.Empty())
-        g.Text(lay.titleRc, st.title, FontRole::Title, pal.text, kLeftText);
+        g.Text(lay.titleRc,(st.title).c_str(), (st.title).size(),FontRole::Title,pal.text,kLeftText);
     g.FillRect(Rect(lay.card.left + mx.unit, lay.titleRc.bottom,
                     lay.card.right - mx.unit, lay.titleRc.bottom + 1), pal.split);
     if (!lay.bodyRc.Empty())
-        g.TextBlock(lay.bodyRc, st.body, FontRole::Body, pal.textSub, 3);
+        g.TextBlock(lay.bodyRc,(st.body).c_str(), (st.body).size(),FontRole::Body,pal.textSub,3);
 
     // Keyboard focus and pointer hover share the highlight; a held button
     // is only visual, the action is taken on release by the host window.
@@ -512,17 +513,17 @@ void Drawer::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
                     lay.panel.right - 1, lay.panel.bottom - 1));
 
     if (!lay.titleRc.Empty())
-        g.Text(lay.titleRc, st.title, FontRole::Title, pal.text, kLeftText);
+        g.Text(lay.titleRc,(st.title).c_str(), (st.title).size(),FontRole::Title,pal.text,kLeftText);
     const int headerBottom = lay.panel.top + mx.unit + mx.rowH;
     g.FillRect(Rect(lay.panel.left + mx.unit, headerBottom,
                     lay.panel.right - mx.unit, headerBottom + 1), pal.split);
     if (!lay.bodyRc.Empty())
-        g.TextBlock(lay.bodyRc, st.body, FontRole::Body, pal.textSub, 4);
+        g.TextBlock(lay.bodyRc,(st.body).c_str(), (st.body).size(),FontRole::Body,pal.textSub,4);
 
     if (!lay.closeRc.Empty()) {
         g.FillRound(lay.closeRc, mx.radiusSm, pal.sunken);
         g.StrokeRound(lay.closeRc, mx.radiusSm, pal.split, 1);
-        g.Text(lay.closeRc, L"\u00D7", FontRole::Body, pal.textSub, kGlyphText);
+        g.Text(lay.closeRc,L"\u00D7", 1,FontRole::Body,pal.textSub,kGlyphText);
     }
 
     g.PopClip();
@@ -576,13 +577,13 @@ void Result::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 
     g.FillRound(gm.glyph, mx.radiusCard, colors.soft);
     g.StrokeRound(gm.glyph, mx.radiusCard, colors.accent, 1);
-    g.Text(gm.glyph, GlyphFor(st.kind), FontRole::Display,
-           colors.accent, kGlyphText);
+    g.Text(gm.glyph, GlyphFor(st.kind), wcslen(GlyphFor(st.kind)),
+           FontRole::Display, colors.accent, kGlyphText);
 
     if (!gm.title.Empty())
-        g.Text(gm.title, st.title, FontRole::Title, pal.text, kCenterText);
+        g.Text(gm.title,(st.title).c_str(), (st.title).size(),FontRole::Title,pal.text,kCenterText);
     if (!gm.detail.Empty())
-        g.Text(gm.detail, st.detail, FontRole::Body, pal.textSub, kCenterText);
+        g.Text(gm.detail,(st.detail).c_str(), (st.detail).size(),FontRole::Body,pal.textSub,kCenterText);
 
     ControlState btn;
     btn.hover = st.hoverAction;

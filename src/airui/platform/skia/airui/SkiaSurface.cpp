@@ -400,14 +400,14 @@ public:
     { m_frame->StrokeRound(r, radius, c, width); }
     void StrokeDashed(const Rect& r, Color c, int width, int dash) override
     { m_frame->StrokeDashed(r, c, width, dash); }
-    void Text(const Rect& r, const std::wstring& s,
+    void Text(const Rect& r, const wchar_t* s, size_t len,
               FontRole role, Color c, TextFormat fmt) override
-    { m_frame->Text(r, s, role, c, fmt); }
-    void TextBlock(const Rect& r, const std::wstring& s,
+    { m_frame->Text(r, s, len, role, c, fmt); }
+    void TextBlock(const Rect& r, const wchar_t* s, size_t len,
                    FontRole role, Color c, int maxLines) override
-    { m_frame->TextBlock(r, s, role, c, maxLines); }
-    int  MeasureText(const std::wstring& s, FontRole role) override
-    { return m_frame->MeasureText(s, role); }
+    { m_frame->TextBlock(r, s, len, role, c, maxLines); }
+    int  MeasureText(const wchar_t* s, size_t len, FontRole role) override
+    { return m_frame->MeasureText(s, len, role); }
     void PushClip(const Rect& r) override { m_frame->PushClip(r); }
     void PopClip() override               { m_frame->PopClip(); }
     void Translate(Point offset) override { m_frame->Translate(offset); }
@@ -470,17 +470,17 @@ void SkiaFrame::StrokeRound(const Rect& r, int radius, Color c, int width)
 void SkiaFrame::StrokeDashed(const Rect& r, Color c, int width, int dash)
 { AIRUI_SKIA_FORWARD(StrokeDashed(r, c, width, dash)); }
 
-void SkiaFrame::Text(const Rect& r, const std::wstring& s,
+void SkiaFrame::Text(const Rect& r, const wchar_t* s, size_t len,
                      FontRole role, Color c, TextFormat fmt)
-{ AIRUI_SKIA_FORWARD(Text(r, s, role, c, fmt)); }
+{ AIRUI_SKIA_FORWARD(Text(r, s, len, role, c, fmt)); }
 
-void SkiaFrame::TextBlock(const Rect& r, const std::wstring& s,
+void SkiaFrame::TextBlock(const Rect& r, const wchar_t* s, size_t len,
                           FontRole role, Color c, int maxLines)
-{ AIRUI_SKIA_FORWARD(TextBlock(r, s, role, c, maxLines)); }
+{ AIRUI_SKIA_FORWARD(TextBlock(r, s, len, role, c, maxLines)); }
 
-int SkiaFrame::MeasureText(const std::wstring& s, FontRole role)
+int SkiaFrame::MeasureText(const wchar_t* s, size_t len, FontRole role)
 {
-    return (m && m->painter) ? m->painter->MeasureText(s, role) : 0;
+    return (m && m->painter) ? m->painter->MeasureText(s, len, role) : 0;
 }
 
 void SkiaFrame::PushClip(const Rect& r)   { AIRUI_SKIA_FORWARD(PushClip(r)); }

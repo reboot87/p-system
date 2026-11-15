@@ -168,25 +168,29 @@ void PaintRecorder::StrokeDashed(const Rect& r, Color c, int width, int dash)
     m_ops.push_back(op);
 }
 
-void PaintRecorder::Text(const Rect& r, const std::wstring& s,
+void PaintRecorder::Text(const Rect& r, const wchar_t* s, size_t len,
                          FontRole role, Color c, TextFormat fmt)
 {
-    PaintOp op; op.kind = PaintOpKind::Text; op.rect = r; op.text = s;
+    PaintOp op; op.kind = PaintOpKind::Text; op.rect = r;
+    op.text.assign(s, len);
     op.role = role; op.color = c; op.format = fmt;
     m_ops.push_back(op);
 }
 
-void PaintRecorder::TextBlock(const Rect& r, const std::wstring& s,
+void PaintRecorder::TextBlock(const Rect& r, const wchar_t* s, size_t len,
                               FontRole role, Color c, int maxLines)
 {
-    PaintOp op; op.kind = PaintOpKind::TextBlock; op.rect = r; op.text = s;
+    PaintOp op; op.kind = PaintOpKind::TextBlock; op.rect = r;
+    op.text.assign(s, len);
     op.role = role; op.color = c; op.maxLines = maxLines;
     m_ops.push_back(op);
 }
 
-int PaintRecorder::MeasureText(const std::wstring& s, FontRole role)
+int PaintRecorder::MeasureText(const wchar_t* s, size_t len, FontRole role)
 {
-    PaintOp op; op.kind = PaintOpKind::MeasureText; op.text = s; op.role = role;
+    PaintOp op; op.kind = PaintOpKind::MeasureText;
+    op.text.assign(s, len);
+    op.role = role;
     m_ops.push_back(op);
     return op.measureResult;   // deterministic 0; core never depends on pixels
 }

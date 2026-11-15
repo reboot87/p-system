@@ -113,8 +113,8 @@ int main()
     all.FillRectAlpha(Rect{ 0, 0, 10, 10 }, MakeColor(1, 2, 3), 128);
     all.StrokeRound(Rect{ 1, 1, 9, 9 }, 3, MakeColor(4, 5, 6), 2);
     all.StrokeDashed(Rect{ 1, 1, 9, 9 }, MakeColor(7, 8, 9), 1, 4);
-    all.TextBlock(Rect{ 0, 0, 50, 50 }, L"block", FontRole::Body, 0, 3);
-    all.MeasureText(L"width", FontRole::Meta);
+    all.TextBlock(Rect{ 0, 0, 50, 50 },L"block", 5,FontRole::Body,0,3);
+    all.MeasureText(L"width", 5,FontRole::Meta);
     all.Translate(Point{ 7, -3 });
     all.PopClip();
     Check(all.Count(PaintOpKind::PushClip) == 1 &&

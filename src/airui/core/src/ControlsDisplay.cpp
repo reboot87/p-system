@@ -6,6 +6,7 @@
 #include "airui/ControlsExtra.h"
 #include <algorithm>
 #include <cstddef>
+#include <cwchar>
 #include <string>
 #include <utility>
 #include <vector>
@@ -58,7 +59,7 @@ void PaintArrow(IPainter& g, const Rect& rc, const wchar_t* glyph, bool hovered,
     const Color fill = st.disabled ? pal.sunken : hovered ? pal.primarySoft : pal.surface;
     g.FillRound(rc, mx.radiusSm, fill);
     g.StrokeRound(rc, mx.radiusSm, st.disabled ? pal.border : pal.split, 1);
-    g.Text(rc, glyph, FontRole::Title,
+    g.Text(rc, glyph, wcslen(glyph), FontRole::Title,
            st.disabled ? pal.textDisabled : pal.primaryText, kTextGlyph);
 }
 
@@ -261,14 +262,11 @@ void Timeline::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         g.FillRound(node, r, pal.surface);
         g.StrokeRound(node, r, accent, 1);
         g.FillRound(Inset(node, 3), (std::max)(1, r - 3), accent);
-        const int timeW = ev.time.empty() ? 0 : g.MeasureText(ev.time, FontRole::Meta) + pad;
-        g.Text(Rect(textLeft, y, rc.right - pad - timeW, y + half), ev.title,
-               FontRole::Body, BodyText(st.base, pal), kTextLeft);
-        g.Text(Rect(textLeft, y + half, rc.right - pad, y + eventH), ev.desc,
-               FontRole::Meta, st.base.disabled ? pal.textDisabled : pal.textSub, kTextLeft);
+        const int timeW = ev.time.empty() ? 0 : g.MeasureText((ev.time).c_str(), (ev.time).size(),FontRole::Meta) + pad;
+        g.Text(Rect(textLeft, y, rc.right - pad - timeW, y + half),(ev.title).c_str(), (ev.title).size(),FontRole::Body,BodyText(st.base, pal),kTextLeft);
+        g.Text(Rect(textLeft, y + half, rc.right - pad, y + eventH),(ev.desc).c_str(), (ev.desc).size(),FontRole::Meta,st.base.disabled ? pal.textDisabled : pal.textSub,kTextLeft);
         if (timeW > 0) {
-            g.Text(Rect(rc.right - pad - timeW, y, rc.right - pad, y + half), ev.time,
-                   FontRole::Meta, st.base.disabled ? pal.textDisabled : kc.text, kTextRight);
+            g.Text(Rect(rc.right - pad - timeW, y, rc.right - pad, y + half),(ev.time).c_str(), (ev.time).size(),FontRole::Meta,st.base.disabled ? pal.textDisabled : kc.text,kTextRight);
         }
     }
     g.PopClip();
@@ -321,11 +319,10 @@ void Steps::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         if (i > current || st.base.disabled) g.StrokeRound(node, r, pal.border, 1);
         const Color numTxt = st.base.disabled ? pal.textDisabled
                            : (i > current ? pal.textSub : pal.textInverse);
-        g.Text(node, std::to_wstring(i + 1), FontRole::Meta, numTxt, kTextGlyph);
+        g.Text(node,(std::to_wstring(i + 1)).c_str(), (std::to_wstring(i + 1)).size(),FontRole::Meta,numTxt,kTextGlyph);
         const Color lab = st.base.disabled ? pal.textDisabled
                         : (i == current ? pal.primaryText : pal.textSub);
-        g.Text(geo.labels[static_cast<std::size_t>(i)],
-               st.steps[static_cast<std::size_t>(i)], FontRole::Meta, lab, kTextCenter);
+        g.Text(geo.labels[static_cast<std::size_t>(i)],(st.steps[static_cast<std::size_t>(i)]).c_str(), (st.steps[static_cast<std::size_t>(i)]).size(),FontRole::Meta,lab,kTextCenter);
     }
     g.PopClip();
 }
@@ -382,8 +379,8 @@ void Calendar::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         for (int c = 0; c < 7; ++c) {
             const int x = lay.grid.left + c * lay.cellW;
             g.Text(Rect(x, rc.top + pad, x + lay.cellW, rc.top + pad + lay.headerH),
-                   WeekdayLabel(c), FontRole::Meta,
-                   st.base.disabled ? pal.textDisabled : pal.textFaint, kTextCenter);
+                   WeekdayLabel(c), wcslen(WeekdayLabel(c)),
+                   FontRole::Meta, st.base.disabled ? pal.textDisabled : pal.textFaint, kTextCenter);
         }
     }
     if (!lay.grid.Empty() && lay.cellW > 0 && lay.cellH > 0) {
@@ -412,7 +409,7 @@ void Calendar::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
                                 : selected ? pal.textInverse : pal.text;
                 Rect numRc = cell;
                 if (marked) numRc.bottom -= (dotR * 2 + 2);
-                g.Text(numRc, std::to_wstring(day), FontRole::Meta, txt, kTextCenter);
+                g.Text(numRc,(std::to_wstring(day)).c_str(), (std::to_wstring(day)).size(),FontRole::Meta,txt,kTextCenter);
                 if (marked) {
                     const int cx = (cell.left + cell.right) / 2;
                     const int cy = cell.bottom - dotR - 1;
@@ -442,8 +439,7 @@ void DescriptionList::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     PaintCardFrame(g, rc, pal, mx);
     g.PushClip(Inset(rc, 1));
     if (titleH > 0) {
-        g.Text(Rect(rc.left + pad, rc.top + pad, rc.right - pad, rc.top + pad + titleH),
-               st.title, FontRole::Title, BodyText(st.base, pal), kTextLeft);
+        g.Text(Rect(rc.left + pad, rc.top + pad, rc.right - pad, rc.top + pad + titleH),(st.title).c_str(), (st.title).size(),FontRole::Title,BodyText(st.base, pal),kTextLeft);
     }
     if (n > 0 && inner >= cols && rowH > 0) {
         const int slotW = inner / cols, keyW = slotW * 2 / 5;
@@ -462,12 +458,8 @@ void DescriptionList::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
                     const int index = r * cols + c;
                     if (index >= n) break;
                     const int x = rc.left + pad + c * slotW;
-                    g.Text(Rect(x, y, x + keyW, y + rowH),
-                           st.items[static_cast<std::size_t>(index)].first, FontRole::Meta,
-                           st.base.disabled ? pal.textDisabled : pal.textFaint, kTextRight);
-                    g.Text(Rect(x + keyW, y, x + slotW, y + rowH),
-                           st.items[static_cast<std::size_t>(index)].second, FontRole::Body,
-                           BodyText(st.base, pal), kTextLeft);
+                    g.Text(Rect(x, y, x + keyW, y + rowH),(st.items[static_cast<std::size_t>(index)].first).c_str(), (st.items[static_cast<std::size_t>(index)].first).size(),FontRole::Meta,st.base.disabled ? pal.textDisabled : pal.textFaint,kTextRight);
+                    g.Text(Rect(x + keyW, y, x + slotW, y + rowH),(st.items[static_cast<std::size_t>(index)].second).c_str(), (st.items[static_cast<std::size_t>(index)].second).size(),FontRole::Body,BodyText(st.base, pal),kTextLeft);
                 }
                 if (r + 1 < visibleRows) {
                     g.FillRect(Rect(rc.left + pad, y + rowH - 1, rc.right - pad, y + rowH), pal.split);
@@ -535,9 +527,8 @@ void StatCard::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     g.FillRound(rc, mx.radiusCard, highlight ? pal.primarySoft : pal.surface);
     g.StrokeRound(rc, mx.radiusCard, highlight ? pal.primary : pal.split, 1);
     g.PushClip(Inset(rc, 1));
-    g.Text(lay.titleRc, st.title, FontRole::Meta,
-           st.base.disabled ? pal.textDisabled : pal.textSub, kTextLeft);
-    g.Text(lay.valueRc, st.value, FontRole::Display, BodyText(st.base, pal), kTextLeft);
+    g.Text(lay.titleRc,(st.title).c_str(), (st.title).size(),FontRole::Meta,st.base.disabled ? pal.textDisabled : pal.textSub,kTextLeft);
+    g.Text(lay.valueRc,(st.value).c_str(), (st.value).size(),FontRole::Display,BodyText(st.base, pal),kTextLeft);
     if (!lay.deltaRc.Empty() && !st.delta.empty()) {
         Color pillFill = st.positive ? pal.okSoft : pal.errorSoft;
         Color pillText = st.positive ? pal.okText : pal.errorText;
@@ -552,7 +543,7 @@ void StatCard::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         }
         g.FillRound(lay.deltaRc, mx.radiusPill, pillFill);
         g.StrokeRound(lay.deltaRc, mx.radiusPill, pillStroke, 1);
-        g.Text(lay.deltaRc, st.delta, FontRole::Meta, pillText, kTextCenter);
+        g.Text(lay.deltaRc,(st.delta).c_str(), (st.delta).size(),FontRole::Meta,pillText,kTextCenter);
     }
     if (!lay.chartRc.Empty() && lay.barW > 0 && !st.bars.empty()) {
         g.FillRect(Rect(lay.chartRc.left, lay.chartRc.bottom - 1,
@@ -600,7 +591,7 @@ void Chart::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     PaintCardFrame(g, rc, pal, mx);
     g.PushClip(Inset(rc, 1));
     if (!st.title.empty()) {
-        g.Text(geo.titleBand, st.title, FontRole::Title, BodyText(st.base, pal), kTextLeft);
+        g.Text(geo.titleBand,(st.title).c_str(), (st.title).size(),FontRole::Title,BodyText(st.base, pal),kTextLeft);
     }
     if (geo.n > 0 && !geo.plot.Empty()) {
         const int midY = geo.plot.top + geo.plot.Height() / 2;
@@ -635,8 +626,7 @@ void Chart::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
             const std::wstring lab = (i < static_cast<int>(st.labels.size()))
                 ? st.labels[static_cast<std::size_t>(i)] : L"";
             if (!lab.empty()) {
-                g.Text(geo.labels[static_cast<std::size_t>(i)], lab, FontRole::Meta,
-                       st.base.disabled ? pal.textDisabled : pal.textFaint, kTextCenter);
+                g.Text(geo.labels[static_cast<std::size_t>(i)],(lab).c_str(), (lab).size(),FontRole::Meta,st.base.disabled ? pal.textDisabled : pal.textFaint,kTextCenter);
             }
         }
         if (st.kind == ChartKind::Line) {
@@ -694,9 +684,7 @@ void Carousel::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         g.FillRound(geo.card, mx.radiusMd, pal.surface);
         g.StrokeRound(geo.card, mx.radiusMd, pal.split, 1);
         g.FillRectAlpha(geo.card, pal.primary, 18);
-        g.TextBlock(Inset(geo.card, mx.unit * 2),
-                    st.slides[static_cast<std::size_t>(cur)], FontRole::Body,
-                    BodyText(st.base, pal), 3);
+        g.TextBlock(Inset(geo.card, mx.unit * 2),(st.slides[static_cast<std::size_t>(cur)]).c_str(), (st.slides[static_cast<std::size_t>(cur)]).size(),FontRole::Body,BodyText(st.base, pal),3);
         PaintArrow(g, geo.prev, L"\u2039", st.hovered == 1, st.base, pal, mx);
         PaintArrow(g, geo.next, L"\u203A", st.hovered == 2, st.base, pal, mx);
         const int r = (std::max)(1, geo.dotSize / 2);

@@ -1006,12 +1006,13 @@ void SkiaPainter::StrokeDashed(const Rect& r, Color c, int width, int dash)
     m->canvas->drawPath(path, p);
 }
 
-void SkiaPainter::Text(const Rect& r, const std::wstring& s,
+void SkiaPainter::Text(const Rect& r, const wchar_t* s, size_t len,
                        FontRole role, Color c, TextFormat fmt)
 {
-    if (!m->canvas || s.empty() || r.Empty()) return;
+    if (!m->canvas || !s || len == 0 || r.Empty()) return;
 
-    const std::string utf8 = skia::WideToUtf8(s);
+    const std::wstring w(s, len);
+    const std::string utf8 = skia::WideToUtf8(w);
     const TextLayout* lay = m->LayoutFor(role, utf8);
     if (!lay) return;
 
@@ -1049,11 +1050,12 @@ void SkiaPainter::Text(const Rect& r, const std::wstring& s,
              utf8);
 }
 
-void SkiaPainter::TextBlock(const Rect& r, const std::wstring& s,
+void SkiaPainter::TextBlock(const Rect& r, const wchar_t* s, size_t len,
                             FontRole role, Color c, int maxLines)
 {
-    if (!m->canvas || s.empty() || r.Empty()) return;
-    const std::string utf8 = skia::WideToUtf8(s);
+    if (!m->canvas || !s || len == 0 || r.Empty()) return;
+    const std::wstring w(s, len);
+    const std::string utf8 = skia::WideToUtf8(w);
     SkFont& primary = m->Font(role);
     const RoleMetrics& rm = m->roleM[m->Index(role)];
     // GDI breaks lines at tmHeight, not at Skia's typographic line box.
@@ -1094,10 +1096,11 @@ void SkiaPainter::TextBlock(const Rect& r, const std::wstring& s,
     }
 }
 
-int SkiaPainter::MeasureText(const std::wstring& s, FontRole role)
+int SkiaPainter::MeasureText(const wchar_t* s, size_t len, FontRole role)
 {
-    if (s.empty()) return 0;
-    const std::string utf8 = skia::WideToUtf8(s);
+    if (!s || len == 0) return 0;
+    const std::wstring w(s, len);
+    const std::string utf8 = skia::WideToUtf8(w);
     // Same per-codepoint fallback (and per-family size) as drawing, so
     // layout decisions match what actually gets painted.
     const TextLayout* lay = m->LayoutFor(role, utf8);

@@ -49,14 +49,14 @@ public:
     { m_rec.StrokeRound(r, rad, c, w); m_real.StrokeRound(r, rad, c, w); }
     void StrokeDashed(const Rect& r, Color c, int w, int d) override
     { m_rec.StrokeDashed(r, c, w, d); m_real.StrokeDashed(r, c, w, d); }
-    void Text(const Rect& r, const std::wstring& s,
+    void Text(const Rect& r, const wchar_t* s, size_t len,
               FontRole role, Color c, TextFormat fmt) override
-    { m_rec.Text(r, s, role, c, fmt); m_real.Text(r, s, role, c, fmt); }
-    void TextBlock(const Rect& r, const std::wstring& s,
+    { m_rec.Text(r,s,len,role,c,fmt); m_real.Text(r,s,len,role,c,fmt); }
+    void TextBlock(const Rect& r, const wchar_t* s, size_t len,
                    FontRole role, Color c, int lines) override
-    { m_rec.TextBlock(r, s, role, c, lines); m_real.TextBlock(r, s, role, c, lines); }
-    int MeasureText(const std::wstring& s, FontRole role) override
-    { return m_real.MeasureText(s, role); }
+    { m_rec.TextBlock(r,s,len,role,c,lines); m_real.TextBlock(r,s,len,role,c,lines); }
+    int MeasureText(const wchar_t* s, size_t len, FontRole role) override
+    { return m_real.MeasureText(s,len,role); }
     void PushClip(const Rect& r) override
     { m_rec.PushClip(r); m_real.PushClip(r); }
     void PopClip() override
@@ -84,11 +84,9 @@ void DrawScene(IPainter& p)
     p.StrokeRound(Rect{ 12, 12, 88, 38 }, 6, ink, 2);
     p.StrokeDashed(Rect{ 5, 5, 195, 95 }, border, 1, 4);
     p.PushClip(Rect{ 0, 0, 200, 50 });
-    p.Text(Rect{ 16, 14, 180, 36 }, L"AirUI Skia", FontRole::Title,
-           ink, dt::VCenter | dt::SingleLine);
+    p.Text(Rect{ 16, 14, 180, 36 },L"AirUI Skia", 10,FontRole::Title,ink,dt::VCenter | dt::SingleLine);
     p.PopClip();
-    p.TextBlock(Rect{ 16, 48, 180, 96 }, L"cross backend golden",
-                FontRole::Body, ink, 2);
+    p.TextBlock(Rect{ 16, 48, 180, 96 },L"cross backend golden", 20,FontRole::Body,ink,2);
     p.Translate(Point{ 2, 3 });
     p.FillRect(Rect{ 0, 0, 4, 4 }, ink);
 }

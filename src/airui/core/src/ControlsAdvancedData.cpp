@@ -257,15 +257,14 @@ void AvatarGroup::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
                       st.hovered == static_cast<int>(i) ? 2 : 1);
         const std::wstring label = st.items[i].text.empty()
                                  ? L"?" : st.items[i].text.substr(0, 1);
-        g.Text(cell, label, FontRole::Title, pal.textInverse, kCenter);
+        g.Text(cell,(label).c_str(), (label).size(),FontRole::Title,pal.textInverse,kCenter);
     }
     if (!geo.more.Empty()) {
         g.FillRound(geo.more, geo.diameter / 2, pal.sunken);
         g.StrokeRound(geo.more, geo.diameter / 2, pal.border, 1);
         const int extra = static_cast<int>(st.items.size()) -
                           static_cast<int>(geo.cells.size());
-        g.Text(geo.more, L"+" + std::to_wstring((std::max)(0, extra)),
-               FontRole::Meta, pal.textSub, kCenter);
+        g.Text(geo.more,(L"+" + std::to_wstring((std::max)(0, extra))).c_str(), (L"+" + std::to_wstring((std::max)(0, extra))).size(),FontRole::Meta,pal.textSub,kCenter);
     }
     g.PopClip();
 }
@@ -340,8 +339,7 @@ void Heatmap::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     g.StrokeRound(rc, mx.radiusMd, pal.split, 1);
     if (!st.title.empty()) {
         g.Text(Rect(rc.left + mx.unit, rc.top + mx.unit / 2,
-                    rc.right - mx.unit, rc.top + mx.unit / 2 + mx.rowH),
-               st.title, FontRole::Title, pal.text, kLeft);
+                    rc.right - mx.unit, rc.top + mx.unit / 2 + mx.rowH),(st.title).c_str(), (st.title).size(),FontRole::Title,pal.text,kLeft);
     }
     const int weeks = ClampI(st.weeks, 1, 60);
     for (int w = 0; w < weeks; ++w) {
@@ -364,8 +362,7 @@ void Heatmap::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     }
     if (!lay.legend.Empty()) {
         g.Text(Rect(lay.legend.left, lay.legend.top,
-                    lay.legend.left + mx.unit * 4, lay.legend.bottom),
-               L"少", FontRole::Meta, pal.textFaint, kLeft);
+                    lay.legend.left + mx.unit * 4, lay.legend.bottom),L"少", 1,FontRole::Meta,pal.textFaint,kLeft);
         int lx = lay.legend.left + mx.unit * 5;
         for (int i = 0; i < 5; ++i) {
             const Rect sw(lx, lay.legend.top + lay.legend.Height() / 2 - lay.cell / 2,
@@ -379,8 +376,7 @@ void Heatmap::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
             lx += lay.cell + (std::max)(2, mx.unit / 2);
         }
         g.Text(Rect(lx, lay.legend.top, (std::min)(lay.legend.right, lx + mx.unit * 4),
-                    lay.legend.bottom),
-               L"多", FontRole::Meta, pal.textFaint, kLeft);
+                    lay.legend.bottom),L"多", 1,FontRole::Meta,pal.textFaint,kLeft);
     }
     g.PopClip();
 }
@@ -427,13 +423,12 @@ void CodeBlock::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     g.FillRect(lay.header, pal.sunken);
     g.Text(Rect(lay.header.left + mx.unit, lay.header.top,
                 (std::max)(lay.header.left + mx.unit, lay.copy.left - mx.unit),
-                lay.header.bottom),
-           st.title, FontRole::Title, pal.textSub, kLeft);
+                lay.header.bottom),(st.title).c_str(), (st.title).size(),FontRole::Title,pal.textSub,kLeft);
     g.FillRound(lay.copy, mx.radiusSm,
                 st.copyHover ? pal.hover : pal.surface);
     g.StrokeRound(lay.copy, mx.radiusSm,
                   st.copyHover ? pal.hoverBorder : pal.chipBorder, 1);
-    g.Text(lay.copy, L"复制", FontRole::Meta, pal.textSub, kCenter);
+    g.Text(lay.copy,L"复制", 2,FontRole::Meta,pal.textSub,kCenter);
     g.PushClip(lay.body);
     const int gutter = st.lineNumbers ? mx.unit * 5 : 0;
     if (gutter > 0) {
@@ -449,13 +444,10 @@ void CodeBlock::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
             g.FillRect(line, pal.noteBg);
         }
         if (gutter > 0) {
-            g.Text(Rect(line.left, y, line.left + gutter - mx.unit / 2, y + lay.lineH),
-                   std::to_wstring(i + 1), FontRole::Meta, pal.textFaint, kRight);
+            g.Text(Rect(line.left, y, line.left + gutter - mx.unit / 2, y + lay.lineH),(std::to_wstring(i + 1)).c_str(), (std::to_wstring(i + 1)).size(),FontRole::Meta,pal.textFaint,kRight);
         }
         g.Text(Rect(line.left + gutter + mx.unit, y, line.right - mx.unit / 2,
-                    y + lay.lineH),
-               st.lines[static_cast<std::size_t>(i)], FontRole::Body,
-               pal.text, kLeft);
+                    y + lay.lineH),(st.lines[static_cast<std::size_t>(i)]).c_str(), (st.lines[static_cast<std::size_t>(i)]).size(),FontRole::Body,pal.text,kLeft);
     }
     g.PopClip();
     g.PopClip();
@@ -536,8 +528,7 @@ void Kanban::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         const auto& data = st.columns[c];
         const Rect head(col.left + mx.unit / 2, col.top,
                         col.right - mx.unit / 2, col.top + mx.rowH);
-        g.Text(head, data.title + L"  " + std::to_wstring(data.cards.size()),
-               FontRole::Title, pal.text, kLeft);
+        g.Text(head,(data.title + L"  " + std::to_wstring(data.cards.size())).c_str(), (data.title + L"  " + std::to_wstring(data.cards.size())).size(),FontRole::Title,pal.text,kLeft);
         g.PushClip(Rect(col.left, col.top + mx.rowH, col.right, col.bottom));
         const auto& rects = lay.cardRects[c];
         for (std::size_t k = 0; k < rects.size(); ++k) {
@@ -553,15 +544,14 @@ void Kanban::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
             const int tagW = item.tag.empty() ? 0 : mx.unit * 8;
             g.Text(Rect(card.left + mx.unit, card.top,
                         (std::max)(card.left + mx.unit, card.right - mx.unit - tagW),
-                        card.top + card.Height() / 2),
-                   item.title, FontRole::Body, pal.text, kLeft);
+                        card.top + card.Height() / 2),(item.title).c_str(), (item.title).size(),FontRole::Body,pal.text,kLeft);
             if (tagW > 0) {
                 const Rect tag(card.right - mx.unit - tagW,
                                card.top + card.Height() / 2 - mx.tagH / 2,
                                card.right - mx.unit,
                                card.top + card.Height() / 2 + mx.tagH / 2);
                 g.FillRound(tag, mx.radiusSm, kc.soft);
-                g.Text(tag, item.tag, FontRole::Meta, kc.text, kCenter);
+                g.Text(tag,(item.tag).c_str(), (item.tag).size(),FontRole::Meta,kc.text,kCenter);
             }
             g.FillRect(Rect(card.left + mx.unit, card.bottom - mx.unit,
                             card.left + mx.unit + card.Width() / 3,
@@ -624,8 +614,7 @@ void Gantt::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
                    pal.split);
         g.Text(Rect(x, geo.lay.header.top,
                     (std::min)(geo.lay.header.right, x + geo.lay.dayW * labelStep),
-                    geo.lay.header.bottom),
-               L"D" + std::to_wstring(d + 1), FontRole::Meta, pal.textFaint, kLeft);
+                    geo.lay.header.bottom),(L"D" + std::to_wstring(d + 1)).c_str(), (L"D" + std::to_wstring(d + 1)).size(),FontRole::Meta,pal.textFaint,kLeft);
     }
     g.PushClip(geo.lay.rows);
     for (int d = 0; d <= days; ++d) {
@@ -658,8 +647,7 @@ void Gantt::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         const Rect& row = geo.rowRects[i];
         if (row.top >= geo.lay.rows.bottom) break;
         g.Text(Rect(row.left + mx.unit / 2, row.top,
-                    geo.lay.labelArea.right - mx.unit / 2, row.bottom),
-               st.tasks[i].name, FontRole::Body, pal.text, kLeft);
+                    geo.lay.labelArea.right - mx.unit / 2, row.bottom),(st.tasks[i].name).c_str(), (st.tasks[i].name).size(),FontRole::Body,pal.text,kLeft);
     }
     g.PopClip();
     g.PopClip();

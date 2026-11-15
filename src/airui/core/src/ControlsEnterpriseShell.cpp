@@ -322,8 +322,7 @@ void Chat::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         g.FillRound(avatar, mx.radiusSm,
                     msg.outgoing ? pal.primarySoft : pal.iconTile);
         if (!msg.author.empty()) {
-            g.Text(avatar, msg.author.substr(0, 1), FontRole::Body,
-                   msg.outgoing ? pal.primaryText : pal.textSub, kCenter);
+            g.Text(avatar,(msg.author.substr(0, 1)).c_str(), (msg.author.substr(0, 1)).size(),FontRole::Body,msg.outgoing ? pal.primaryText : pal.textSub,kCenter);
         }
         g.FillRound(bubble, mx.radiusMd,
                     msg.outgoing ? pal.primarySoft : pal.sunken);
@@ -332,11 +331,10 @@ void Chat::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
                           : (msg.outgoing ? pal.primary : pal.split), 1);
         const Rect textRc = Inset(bubble, mx.unit / 2);
         if (!textRc.Empty()) {
-            g.TextBlock(textRc, msg.text, FontRole::Body, pal.text, 3);
+            g.TextBlock(textRc,(msg.text).c_str(), (msg.text).size(),FontRole::Body,pal.text,3);
         }
         if (!timeRc.Empty()) {
-            g.Text(timeRc, msg.time, FontRole::Meta, pal.textFaint,
-                   msg.outgoing ? kRight : kLeft);
+            g.Text(timeRc,(msg.time).c_str(), (msg.time).size(),FontRole::Meta,pal.textFaint,msg.outgoing ? kRight : kLeft);
         }
     }
     g.PopClip();
@@ -386,12 +384,10 @@ void MultiStatusBar::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     g.FillRect(Rect(band.left, band.top, band.right, band.top + 1), pal.split);
     g.PushClip(band);
     if (!lay.messageRc.Empty()) {
-        g.Text(Inset(lay.messageRc, mx.unit / 4), st.message,
-               FontRole::Meta, pal.textSub, kLeft);
+        g.Text(Inset(lay.messageRc, mx.unit / 4),(st.message).c_str(), (st.message).size(),FontRole::Meta,pal.textSub,kLeft);
     }
     if (!lay.trailingRc.Empty()) {
-        g.Text(Inset(lay.trailingRc, mx.unit / 4), st.trailing,
-               FontRole::Meta, pal.textFaint, kRight);
+        g.Text(Inset(lay.trailingRc, mx.unit / 4),(st.trailing).c_str(), (st.trailing).size(),FontRole::Meta,pal.textFaint,kRight);
     }
     for (std::size_t i = 0; i < lay.segments.size(); ++i) {
         const Rect& seg = lay.segments[i];
@@ -410,7 +406,7 @@ void MultiStatusBar::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         const Rect label(seg.left + mx.unit / 2 + dot + mx.unit / 4,
                          seg.top, seg.right, seg.bottom);
         if (!label.Empty()) {
-            g.Text(label, item.text, FontRole::Meta, pal.textSub, kLeft);
+            g.Text(label,(item.text).c_str(), (item.text).size(),FontRole::Meta,pal.textSub,kLeft);
         }
     }
     g.PopClip();
@@ -476,7 +472,7 @@ void Ribbon::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         }
         const Rect titleRc(groupRc.left, groupRc.bottom - titleH,
                            groupRc.right, groupRc.bottom);
-        g.Text(titleRc, group.title, FontRole::Meta, pal.textFaint, kCenter);
+        g.Text(titleRc,(group.title).c_str(), (group.title).size(),FontRole::Meta,pal.textFaint,kCenter);
         if (gi >= lay.buttons.size()) continue;
         for (std::size_t bi = 0; bi < lay.buttons[gi].size(); ++bi) {
             const Rect& btn = lay.buttons[gi][bi];
@@ -493,11 +489,8 @@ void Ribbon::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
                                    btn.top + glyphH);
                 const Rect labelRc(btn.left, glyphRc.bottom, btn.right,
                                    btn.bottom);
-                g.Text(glyphRc, item.glyph, FontRole::Body,
-                       item.disabled ? pal.textDisabled : pal.primaryText,
-                       kCenter);
-                g.Text(labelRc, item.label, FontRole::Meta,
-                       item.disabled ? pal.textDisabled : pal.text, kCenter);
+                g.Text(glyphRc,(item.glyph).c_str(), (item.glyph).size(),FontRole::Body,item.disabled ? pal.textDisabled : pal.primaryText,kCenter);
+                g.Text(labelRc,(item.label).c_str(), (item.label).size(),FontRole::Meta,item.disabled ? pal.textDisabled : pal.text,kCenter);
             } else {
                 const int box = (std::min)(mx.rowH - mx.unit, btn.Height());
                 const Rect glyphRc(btn.left + mx.unit / 2,
@@ -505,14 +498,11 @@ void Ribbon::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
                                    btn.left + mx.unit / 2 + box,
                                    btn.top + (btn.Height() + box) / 2);
                 g.FillRound(glyphRc, mx.radiusSm, pal.iconTile);
-                g.Text(glyphRc, item.glyph, FontRole::Meta,
-                       item.disabled ? pal.textDisabled : pal.primaryText,
-                       kCenter);
+                g.Text(glyphRc,(item.glyph).c_str(), (item.glyph).size(),FontRole::Meta,item.disabled ? pal.textDisabled : pal.primaryText,kCenter);
                 const Rect labelRc(glyphRc.right + mx.unit / 2, btn.top,
                                    btn.right, btn.bottom);
                 if (!labelRc.Empty()) {
-                    g.Text(labelRc, item.label, FontRole::Meta,
-                           item.disabled ? pal.textDisabled : pal.text, kLeft);
+                    g.Text(labelRc,(item.label).c_str(), (item.label).size(),FontRole::Meta,item.disabled ? pal.textDisabled : pal.text,kLeft);
                 }
             }
         }
@@ -569,15 +559,13 @@ void NoticeCenter::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
                            (std::max)(lay.header.left + mx.unit,
                                       lay.readAll.left - mx.unit),
                            lay.header.bottom);
-        g.Text(titleRc,
-               st.title + L"  ·  " +
-                   std::to_wstring(NoticeUnreadCount(st)) + L" 条未读",
-               FontRole::Section, pal.text, kLeft);
+        g.Text(titleRc,(st.title + L"  ·  " +
+                   std::to_wstring(NoticeUnreadCount(st)) + L" 条未读").c_str(), (st.title + L"  ·  " +
+                   std::to_wstring(NoticeUnreadCount(st)) + L" 条未读").size(),FontRole::Section,pal.text,kLeft);
         if (!lay.readAll.Empty()) {
             g.FillRound(Inset(lay.readAll, mx.unit / 4), mx.radiusSm,
                         st.readAllHover ? pal.primarySoft : pal.surface);
-            g.Text(lay.readAll, L"全部已读", FontRole::Meta,
-                   st.readAllHover ? pal.primaryText : pal.textSub, kCenter);
+            g.Text(lay.readAll,L"全部已读", 4,FontRole::Meta,st.readAllHover ? pal.primaryText : pal.textSub,kCenter);
         }
     }
     for (std::size_t i = 0; i < lay.rows.size(); ++i) {
@@ -607,15 +595,15 @@ void NoticeCenter::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         const Rect bodyRc(left, titleRc.bottom,
                           row.right - mx.unit, row.bottom);
         if (!titleRc.Empty()) {
-            g.Text(titleRc, item.title, FontRole::Body, pal.text, kLeft);
+            g.Text(titleRc,(item.title).c_str(), (item.title).size(),FontRole::Body,pal.text,kLeft);
         }
         if (!timeRc.Empty()) {
-            g.Text(timeRc, item.time, FontRole::Meta, pal.textFaint, kRight);
+            g.Text(timeRc,(item.time).c_str(), (item.time).size(),FontRole::Meta,pal.textFaint,kRight);
         }
         if (!bodyRc.Empty()) {
-            g.Text(bodyRc, item.body, FontRole::Meta, pal.textSub, kLeft);
+            g.Text(bodyRc,(item.body).c_str(), (item.body).size(),FontRole::Meta,pal.textSub,kLeft);
             if (!item.group.empty()) {
-                g.Text(bodyRc, item.group, FontRole::Meta, kc.text, kRight);
+                g.Text(bodyRc,(item.group).c_str(), (item.group).size(),FontRole::Meta,kc.text,kRight);
             }
         }
     }

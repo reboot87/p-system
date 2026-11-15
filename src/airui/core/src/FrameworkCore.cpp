@@ -69,8 +69,7 @@ void Control::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     g.FillRound(m_bounds, mx.radiusSm, fill);
     g.StrokeRound(m_bounds, mx.radiusSm, edge, 1);
     if (!m_name.empty()) {
-        g.Text(m_bounds, m_name, FontRole::Body,
-               m_enabled ? pal.text : pal.textDisabled, kCenterText);
+        g.Text(m_bounds,(m_name).c_str(), (m_name).size(),FontRole::Body,m_enabled ? pal.text : pal.textDisabled,kCenterText);
     }
 }
 
@@ -371,8 +370,8 @@ void PaintScrollbar(IPainter& g, const Rect& view, const ScrollState& st,
     g.FillRect(geo.track, pal.sunken);
     g.FillRect(geo.upBtn, pal.surface);
     g.FillRect(geo.downBtn, pal.surface);
-    g.Text(geo.upBtn, L"\u25B2", FontRole::Meta, pal.textSub, kCenterText);
-    g.Text(geo.downBtn, L"\u25BC", FontRole::Meta, pal.textSub, kCenterText);
+    g.Text(geo.upBtn,L"\u25B2", 1,FontRole::Meta,pal.textSub,kCenterText);
+    g.Text(geo.downBtn,L"\u25BC", 1,FontRole::Meta,pal.textSub,kCenterText);
     g.FillRound(geo.thumb, mx.radiusSm,
                 (st.dragging || st.thumbHovered) ? pal.primary : pal.scrollThumb);
 }
@@ -780,19 +779,19 @@ void PaintTextBox(IPainter& g, const Rect& rc, const TextBoxState& st,
     g.StrokeRound(rc, mx.radiusMd,
                   focused ? pal.primary : (st.base.hover ? pal.hoverBorder : pal.border), 1);
 
-    int charW = (std::max)(4, g.MeasureText(L"0", FontRole::Body));
+    int charW = (std::max)(4, g.MeasureText(L"0", 1,FontRole::Body));
     int left = rc.left + mx.unit;
     int right = rc.right - mx.unit;
     if (!st.prefix.empty()) {
         const Rect pre(rc.left + mx.unit, rc.top,
                        rc.left + mx.unit + mx.unit * 6, rc.bottom);
-        g.Text(pre, st.prefix, FontRole::Meta, pal.textSub, kLeftText);
+        g.Text(pre,(st.prefix).c_str(), (st.prefix).size(),FontRole::Meta,pal.textSub,kLeftText);
         left = pre.right + mx.unit / 2;
     }
     if (!st.suffix.empty()) {
         const int w = (std::max)(mx.unit * 4, 24);
         const Rect suf(rc.right - w, rc.top, rc.right, rc.bottom);
-        g.Text(suf, st.suffix, FontRole::Icon, pal.textSub, kCenterText);
+        g.Text(suf,(st.suffix).c_str(), (st.suffix).size(),FontRole::Icon,pal.textSub,kCenterText);
         right = suf.left - mx.unit / 2;
     }
     if (right <= left) return;
@@ -809,15 +808,13 @@ void PaintTextBox(IPainter& g, const Rect& rc, const TextBoxState& st,
         if (b > a) g.FillRect(Rect(a, rc.top + 2, b, rc.bottom - 2), pal.selectFill);
     }
     if (shown.empty() && edit.composition.empty()) {
-        g.Text(textRc, st.placeholder, FontRole::Body, pal.textFaint, kLeftText);
+        g.Text(textRc,(st.placeholder).c_str(), (st.placeholder).size(),FontRole::Body,pal.textFaint,kLeftText);
     } else {
         const int x = textRc.left - L.scrollX;
         const int textW = static_cast<int>(shown.size()) * charW + textRc.Width();
-        g.Text(Rect(x, rc.top, x + textW, rc.bottom),
-               shown, FontRole::Body, textColor, kLeftText);
+        g.Text(Rect(x, rc.top, x + textW, rc.bottom),(shown).c_str(), (shown).size(),FontRole::Body,textColor,kLeftText);
         if (!edit.composition.empty()) {
-            g.Text(Rect(L.caretX, rc.top, L.caretX + mx.unit * 8, rc.bottom),
-                   edit.composition, FontRole::Body, pal.primaryText, kLeftText);
+            g.Text(Rect(L.caretX, rc.top, L.caretX + mx.unit * 8, rc.bottom),(edit.composition).c_str(), (edit.composition).size(),FontRole::Body,pal.primaryText,kLeftText);
         }
     }
     if (focused && st.showCaret && st.edit.composition.empty()) {

@@ -360,7 +360,7 @@ void PaintFrame::GfxText(HFONT font, COLORREF color, const RECT& rc,
     if (PrimProfileEnabled() && s) Stats().textChars += (long long)wcslen(s);
     if (!s) return;
     if (m_backendOwnsText) {
-        m_backend->Text(Shift(ToUi(rc)), s, FontRoleOf(font),
+        m_backend->Text(Shift(ToUi(rc)), s, wcslen(s), FontRoleOf(font),
                         ToUi(color), static_cast<TextFormat>(format));
     } else {
         RecordText(font, color, rc, s, format);
@@ -406,43 +406,46 @@ void PaintFrame::StrokeDashed(const Rect& r, Color c, int width, int dash)
     m_backend->StrokeDashed(Shift(r), c, width, dash);
 }
 
-void PaintFrame::Text(const Rect& r, const std::wstring& s,
+void PaintFrame::Text(const Rect& r, const wchar_t* s, size_t len,
                       FontRole role, Color c, TextFormat fmt)
 {
     const bool ell = (static_cast<UINT>(fmt) & DT_END_ELLIPSIS) != 0;
     PrimScope _ps(ell ? Stats().textEll : Stats().textPlain);
-    if (PrimProfileEnabled()) Stats().textChars += (long long)s.size();
+    if (PrimProfileEnabled()) Stats().textChars += (long long)len;
     if (m_backendOwnsText) {
-        m_backend->Text(Shift(r), s, role, c, fmt);
+        m_backend->Text(Shift(r), s, len, role, c, fmt);
     } else {
-        RecordText(RoleFont(role), ToWin(c), ToWin(Shift(r)), s,
+        const std::wstring w(s, len);
+        RecordText(RoleFont(role), ToWin(c), ToWin(Shift(r)), w,
                    static_cast<UINT>(fmt));
     }
 }
 
-void PaintFrame::TextBlock(const Rect& r, const std::wstring& s,
+void PaintFrame::TextBlock(const Rect& r, const wchar_t* s, size_t len,
                            FontRole role, Color c, int maxLines)
 {
     PrimScope _ps(Stats().textBlock);
     if (m_backendOwnsText) {
-        m_backend->TextBlock(Shift(r), s, role, c, maxLines);
+        m_backend->TextBlock(Shift(r), s, len, role, c, maxLines);
     } else {
         // DrawTextW wraps and clips to rc by itself; maxLines only
         // matters for backends that lay out text manually.
-        RecordText(RoleFont(role), ToWin(c), ToWin(Shift(r)), s,
+        const std::wstring w(s, len);
+        RecordText(RoleFont(role), ToWin(c), ToWin(Shift(r)), w,
                    DT_LEFT | DT_WORDBREAK | DT_END_ELLIPSIS | DT_NOPREFIX);
     }
 }
 
-int PaintFrame::MeasureText(const std::wstring& s, FontRole role)
+int PaintFrame::MeasureText(const wchar_t* s, size_t len, FontRole role)
 {
     PrimScope _ps(Stats().measure);
     // Layout must agree with the glyphs that actually appear on screen.
     // In host-text mode those glyphs are GDI's, so measure with GDI too.
-    if (s.empty() || !m_dc) return 0;
+    if (!s || len == 0 || !m_dc) return 0;
+    const std::wstring w(s, len);
     HGDIOBJ old = SelectObject(m_dc, RoleFont(role));
     SIZE sz{};
-    GetTextExtentPoint32W(m_dc, s.c_str(), static_cast<int>(s.size()), &sz);
+    GetTextExtentPoint32W(m_dc, w.c_str(), static_cast<int>(w.size()), &sz);
     SelectObject(m_dc, old);
     return sz.cx;
 }

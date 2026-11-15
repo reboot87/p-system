@@ -52,12 +52,12 @@ public:
     void StrokeRect(const Rect& r, Color, int) override { Note(r); }
     void StrokeRound(const Rect& r, int, Color, int) override { Note(r); }
     void StrokeDashed(const Rect& r, Color, int, int) override { Note(r); }
-    void Text(const Rect& r, const std::wstring&, FontRole, Color,
+    void Text(const Rect& r, const wchar_t*, size_t, FontRole, Color,
               TextFormat) override { ++texts; Note(r); }
-    void TextBlock(const Rect& r, const std::wstring&, FontRole, Color,
+    void TextBlock(const Rect& r, const wchar_t*, size_t, FontRole, Color,
                    int) override { ++texts; Note(r); }
-    int MeasureText(const std::wstring& s, FontRole) override
-    { return static_cast<int>(s.size()) * 8; }
+    int MeasureText(const wchar_t* s, size_t len, FontRole) override
+    { return static_cast<int>(std::wstring(s, len).size()) * 8; }
     void PushClip(const Rect& r) override { ++clipDepth; Note(r); }
     void PopClip() override
     { --clipDepth; if (clipDepth < minClipDepth) minClipDepth = clipDepth; }

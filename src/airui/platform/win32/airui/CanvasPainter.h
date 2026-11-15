@@ -117,22 +117,22 @@ public:
     }
 
     // ---- text ----
-    void Text(const Rect& r, const std::wstring& s,
+    void Text(const Rect& r, const wchar_t* s, size_t len,
               FontRole role, Color c, TextFormat fmt) override
     {
-        m_canvas.Text(rect(r), s, role, c, fmt);
+        m_canvas.Text(rect(r), std::wstring(s, len), role, c, fmt);
     }
 
-    void TextBlock(const Rect& r, const std::wstring& s,
+    void TextBlock(const Rect& r, const wchar_t* s, size_t len,
                    FontRole role, Color c, int maxLines) override
     {
         (void)maxLines;   // Canvas::TextBlock already wraps + ellipsises
-        m_canvas.TextBlock(rect(r), s, role, c);
+        m_canvas.TextBlock(rect(r), std::wstring(s, len), role, c);
     }
 
-    int MeasureText(const std::wstring& s, FontRole role) override
+    int MeasureText(const wchar_t* s, size_t len, FontRole role) override
     {
-        return m_canvas.MeasureWidth(s, role);
+        return m_canvas.MeasureWidth(std::wstring(s, len), role);
     }
 
     // ---- clipping ----

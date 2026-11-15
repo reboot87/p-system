@@ -20,6 +20,17 @@
 
 namespace {
 
+// Static, process-lifetime description negotiated by the host before any
+// painter is created. size / abi / painterIfaceRev must all match what
+// the host expects (see PaintProviders.cpp LoadPlugin()); the host logs
+// and falls back to GDI on any mismatch.
+const AiruiPluginDesc g_desc = {
+    sizeof(AiruiPluginDesc),
+    AIRUI_PLUGIN_ABI,
+    AIRUI_CAP_WIDE_TEXT,
+    AIRUI_PAINTER_IFACE_REV,
+};
+
 // The handle is the IPainter subobject pointer produced by create().
 // SkiaFrame derives from IPainter by non-virtual single inheritance,
 // so this downcast is well defined for handles we created ourselves.
@@ -31,9 +42,10 @@ air::ui::SkiaFrame* FrameFrom(void* handle)
 
 } // namespace
 
-AIRUI_PLUGIN_EXPORT int AIRUI_SKIA_CALL airui_skia_abi()
+AIRUI_PLUGIN_EXPORT const AiruiPluginDesc* AIRUI_SKIA_CALL
+airui_skia_describe()
 {
-    return AIRUI_SKIA_PLUGIN_ABI;
+    return &g_desc;
 }
 
 AIRUI_PLUGIN_EXPORT void* AIRUI_SKIA_CALL airui_skia_create(

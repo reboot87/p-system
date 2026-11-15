@@ -15,6 +15,7 @@
 // ============================================================
 #include "airui/types.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -89,12 +90,16 @@ public:
     virtual void StrokeRound(const Rect& r, int radius, Color c, int width) = 0;
     virtual void StrokeDashed(const Rect& r, Color c, int width, int dash) = 0;
 
-    virtual void Text(const Rect& r, const std::wstring& s,
+    // Text takes a wide-character buffer plus its length (no std::wstring
+    // crosses the IPainter vtable, which the Skia plugin implements across
+    // a module/CRT boundary). Implementations build their own std::wstring
+    // from (s, len) when they need one.
+    virtual void Text(const Rect& r, const wchar_t* s, size_t len,
                       FontRole role, Color c, TextFormat fmt) = 0;
-    virtual void TextBlock(const Rect& r, const std::wstring& s,
+    virtual void TextBlock(const Rect& r, const wchar_t* s, size_t len,
                            FontRole role, Color c, int maxLines) = 0;
 
-    virtual int  MeasureText(const std::wstring& s, FontRole role) = 0;
+    virtual int  MeasureText(const wchar_t* s, size_t len, FontRole role) = 0;
 
     virtual void PushClip(const Rect& r) = 0;
     virtual void PopClip() = 0;

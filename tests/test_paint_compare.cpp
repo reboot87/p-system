@@ -33,6 +33,7 @@
 #include "airui/PaintFrame.h"
 
 #include <cmath>
+#include <cwchar>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -115,12 +116,13 @@ void DrawScene(IPainter& p)
     p.StrokeRect(Rect{ 12, 72, 208, 100 }, kInk, 1);
     p.StrokeDashed(Rect{ 12, 108, 208, 152 }, kInk, 1, 6);
 
-    p.Text(Rect{ 12, 158, 208, 182 }, L"Skia vs GDI 123",
-           FontRole::Body, kInk, dt::SingleLine | dt::VCenter);
+    p.Text(Rect{ 12, 158, 208, 182 },L"Skia vs GDI 123", 15,FontRole::Body,kInk,dt::SingleLine | dt::VCenter);
     p.TextBlock(Rect{ 12, 186, 208, 232 },
-                L"The quick brown fox jumps over the lazy dog. "
-                L"Second line wraps here, third one is clipped.",
-                FontRole::Meta, kInk, 2);
+            L"The quick brown fox jumps over the lazy dog. "
+            L"Second line wraps here, third one is clipped.",
+            wcslen(L"The quick brown fox jumps over the lazy dog. "
+                   L"Second line wraps here, third one is clipped."),
+            FontRole::Meta, kInk, 2);
 
     // Clip: the fill is deliberately much larger than the clip.
     p.PushClip(Rect{ 212, 108, 308, 176 });

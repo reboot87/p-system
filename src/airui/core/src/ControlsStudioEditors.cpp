@@ -4,6 +4,7 @@
 #include "airui/ControlsStudio.h"
 
 #include <algorithm>
+#include <cwchar>
 #include <cstddef>
 #include <string>
 #include <vector>
@@ -291,9 +292,8 @@ void JsonTree::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     if (rc.Empty()) return;
     const JsonTreeLayout o = GeoJson(rc, st, mx);
     if (o.header.Empty()) return;
-    g.Text(o.header, st.root, FontRole::Section, pal.text, kLeft);
-    g.Text(o.header, std::to_wstring(st.nodes.size()) + L" 个节点",
-           FontRole::Meta, pal.textFaint, kRight);
+    g.Text(o.header,(st.root).c_str(), (st.root).size(),FontRole::Section,pal.text,kLeft);
+    g.Text(o.header,(std::to_wstring(st.nodes.size()) + L" 个节点").c_str(), (std::to_wstring(st.nodes.size()) + L" 个节点").size(),FontRole::Meta,pal.textFaint,kRight);
     if (o.body.Empty()) return;
 
     g.PushClip(o.body);
@@ -313,19 +313,19 @@ void JsonTree::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
                                  : toggle.right + mx.unit / 2;
         if (!toggle.Empty()) {
             g.FillRound(toggle, mx.radiusSm, pal.iconTile);
-            g.Text(toggle, node.expanded ? L"-" : L"+", FontRole::Meta,
-                   pal.primaryText, kCenter);
+            g.Text(toggle, node.expanded ? L"-" : L"+",
+               wcslen(node.expanded ? L"-" : L"+"),
+               FontRole::Meta, pal.primaryText, kCenter);
         }
         const int valueW = (std::min)(mx.unit * 12, row.Width() / 2);
         const Rect keyRc(textLeft, row.top,
                          (std::max)(textLeft, row.right - valueW), row.bottom);
         const Rect valRc(row.right - valueW, row.top, row.right, row.bottom);
         if (!keyRc.Empty()) {
-            g.Text(keyRc, node.key, FontRole::Body,
-                   node.expandable ? pal.primaryText : pal.text, kLeft);
+            g.Text(keyRc,(node.key).c_str(), (node.key).size(),FontRole::Body,node.expandable ? pal.primaryText : pal.text,kLeft);
         }
         if (!valRc.Empty() && !node.value.empty()) {
-            g.Text(valRc, node.value, FontRole::Meta, pal.textSub, kRight);
+            g.Text(valRc,(node.value).c_str(), (node.value).size(),FontRole::Meta,pal.textSub,kRight);
         }
         g.FillRect(Rect(row.left, row.bottom - 1, row.right, row.bottom),
                    pal.split);
@@ -370,13 +370,11 @@ void LogViewer::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     const Rect titleRc(o.header.left, o.header.top,
                        o.filterRc.left, o.header.bottom);
     if (!titleRc.Empty()) {
-        g.Text(titleRc, st.title, FontRole::Section, pal.text, kLeft);
+        g.Text(titleRc,(st.title).c_str(), (st.title).size(),FontRole::Section,pal.text,kLeft);
     }
     if (!o.filterRc.Empty()) {
         g.FillRound(o.filterRc, mx.radiusSm, pal.sunken);
-        g.Text(Inset(o.filterRc, mx.unit / 2),
-               st.filter.empty() ? L"全部级别" : L"过滤：" + st.filter,
-               FontRole::Meta, pal.textSub, kLeft);
+        g.Text(Inset(o.filterRc, mx.unit / 2),(st.filter.empty() ? L"全部级别" : L"过滤：" + st.filter).c_str(), (st.filter.empty() ? L"全部级别" : L"过滤：" + st.filter).size(),FontRole::Meta,pal.textSub,kLeft);
     }
     if (o.body.Empty()) return;
 
@@ -403,7 +401,7 @@ void LogViewer::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         const Rect timeRc(x, row.top, (std::min)(x + timeW, row.right),
                           row.bottom);
         if (!timeRc.Empty()) {
-            g.Text(timeRc, e.time, FontRole::Meta, pal.textFaint, kLeft);
+            g.Text(timeRc,(e.time).c_str(), (e.time).size(),FontRole::Meta,pal.textFaint,kLeft);
         }
         x = (std::min)(x + timeW, row.right);
         const Rect levelRc(x, row.top + mx.unit / 4,
@@ -411,18 +409,19 @@ void LogViewer::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
                            (std::min)(row.bottom - mx.unit / 4, row.bottom));
         if (!levelRc.Empty()) {
             g.FillRound(levelRc, mx.radiusSm, lc.soft);
-            g.Text(levelRc, lc.label, FontRole::Meta, lc.text, kCenter);
+            g.Text(levelRc, lc.label, wcslen(lc.label),
+               FontRole::Meta, lc.text, kCenter);
         }
         x = (std::min)(x + levelW, row.right);
         const Rect srcRc(x, row.top, (std::min)(x + srcW, row.right),
                          row.bottom);
         if (!srcRc.Empty()) {
-            g.Text(srcRc, e.source, FontRole::Meta, pal.textSub, kLeft);
+            g.Text(srcRc,(e.source).c_str(), (e.source).size(),FontRole::Meta,pal.textSub,kLeft);
         }
         x = (std::min)(x + srcW, row.right);
         const Rect textRc(x, row.top, row.right, row.bottom);
         if (!textRc.Empty()) {
-            g.Text(textRc, e.text, FontRole::Body, pal.text, kLeft);
+            g.Text(textRc,(e.text).c_str(), (e.text).size(),FontRole::Body,pal.text,kLeft);
         }
     }
     g.PopClip();
@@ -471,9 +470,10 @@ void CronEditor::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     if (rc.Empty()) return;
     const CronEditorLayout o = GeoCron(rc, st, mx);
     if (o.header.Empty()) return;
-    g.Text(o.header, st.title, FontRole::Section, pal.text, kLeft);
-    g.Text(o.header, st.focused ? L"编辑中" : L"已保存", FontRole::Meta,
-           st.focused ? pal.primaryText : pal.textFaint, kRight);
+    g.Text(o.header,(st.title).c_str(), (st.title).size(),FontRole::Section,pal.text,kLeft);
+    g.Text(o.header, st.focused ? L"编辑中" : L"已保存",
+              wcslen(st.focused ? L"编辑中" : L"已保存"),
+              FontRole::Meta, st.focused ? pal.primaryText : pal.textFaint, kRight);
 
     const std::vector<std::wstring> defaultCaptions =
         {L"分", L"时", L"日", L"月", L"周"};
@@ -491,18 +491,17 @@ void CronEditor::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         const Rect capRc(f.left, f.bottom - mx.tagH, f.right, f.bottom);
         if (!valueRc.Empty()) {
             const std::wstring& v = i < st.fields.size() ? st.fields[i] : L"*";
-            g.Text(valueRc, v, FontRole::Body, pal.text, kCenter);
+            g.Text(valueRc,(v).c_str(), (v).size(),FontRole::Body,pal.text,kCenter);
         }
         if (!capRc.Empty()) {
             const std::wstring& cap =
                 i < st.captions.size() ? st.captions[i]
                     : (i < defaultCaptions.size() ? defaultCaptions[i] : L"");
-            g.Text(capRc, cap, FontRole::Meta, pal.textFaint, kCenter);
+            g.Text(capRc,(cap).c_str(), (cap).size(),FontRole::Meta,pal.textFaint,kCenter);
         }
     }
     if (!o.descriptionRc.Empty()) {
-        g.Text(o.descriptionRc, st.description, FontRole::Meta,
-               pal.textSub, kLeft);
+        g.Text(o.descriptionRc,(st.description).c_str(), (st.description).size(),FontRole::Meta,pal.textSub,kLeft);
     }
     for (std::size_t i = 0; i < o.presets.size(); ++i) {
         const Rect& p = o.presets[i];
@@ -514,8 +513,7 @@ void CronEditor::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
                     chosen ? pal.primary : (hover ? pal.hover : pal.sunken));
         g.StrokeRound(p, mx.radiusSm,
                       chosen ? pal.primary : pal.split, 1);
-        g.Text(p, st.presets[i], FontRole::Meta,
-               chosen ? pal.textInverse : pal.textSub, kCenter);
+        g.Text(p,(st.presets[i]).c_str(), (st.presets[i]).size(),FontRole::Meta,chosen ? pal.textInverse : pal.textSub,kCenter);
     }
 }
 
@@ -569,10 +567,9 @@ void MentionInput::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
                       o.input.right - mx.unit * 3, o.input.bottom);
     if (!textRc.Empty()) {
         if (st.text.empty()) {
-            g.Text(textRc, st.placeholder, FontRole::Body,
-                   pal.textFaint, kLeft);
+            g.Text(textRc,(st.placeholder).c_str(), (st.placeholder).size(),FontRole::Body,pal.textFaint,kLeft);
         } else {
-            g.Text(textRc, st.text, FontRole::Body, pal.text, kLeft);
+            g.Text(textRc,(st.text).c_str(), (st.text).size(),FontRole::Body,pal.text,kLeft);
         }
     }
     if (st.focused) {
@@ -587,7 +584,7 @@ void MentionInput::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     const Rect atRc(o.input.right - mx.unit * 3, o.input.top,
                     o.input.right, o.input.bottom);
     if (!atRc.Empty()) {
-        g.Text(atRc, L"@", FontRole::Body, pal.primaryText, kCenter);
+        g.Text(atRc,L"@", 1,FontRole::Body,pal.primaryText,kCenter);
     }
     if (o.list.Empty()) return;
 
@@ -609,11 +606,10 @@ void MentionInput::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         const Rect noteRc(row.right - noteW, row.top,
                           row.right - mx.unit / 2, row.bottom);
         if (!nameRc.Empty()) {
-            g.Text(nameRc, L"@" + c.name, FontRole::Body,
-                   pal.text, kLeft);
+            g.Text(nameRc,(L"@" + c.name).c_str(), (L"@" + c.name).size(),FontRole::Body,pal.text,kLeft);
         }
         if (!noteRc.Empty()) {
-            g.Text(noteRc, c.note, FontRole::Meta, pal.textFaint, kRight);
+            g.Text(noteRc,(c.note).c_str(), (c.note).size(),FontRole::Meta,pal.textFaint,kRight);
         }
     }
     g.PopClip();

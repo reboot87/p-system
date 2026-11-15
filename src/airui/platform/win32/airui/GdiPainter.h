@@ -133,35 +133,38 @@ public:
     }
 
     // Font selected per FontRole so text matches the design system.
-    void Text(const Rect& r, const std::wstring& s, FontRole role, Color c, TextFormat fmt) override {
-        if (!m_dc || s.empty()) return;
+    void Text(const Rect& r, const wchar_t* s, size_t len, FontRole role, Color c, TextFormat fmt) override {
+        if (!m_dc || !s || len == 0) return;
+        const std::wstring w(s, len);
         HFONT f = FontFor(role);
         HGDIOBJ old = f ? SelectObject(m_dc, f) : nullptr;
         SetTextColor(m_dc, c);
         SetBkMode(m_dc, TRANSPARENT);
         RECT rc = ToRect(r);
-        DrawTextW(m_dc, s.c_str(), -1, &rc, (UINT)fmt);
+        DrawTextW(m_dc, w.c_str(), -1, &rc, (UINT)fmt);
         if (f) SelectObject(m_dc, old);
     }
 
-    void TextBlock(const Rect& r, const std::wstring& s, FontRole role, Color c, int maxLines) override {
+    void TextBlock(const Rect& r, const wchar_t* s, size_t len, FontRole role, Color c, int maxLines) override {
         (void)maxLines;
-        if (!m_dc || s.empty()) return;
+        if (!m_dc || !s || len == 0) return;
+        const std::wstring w(s, len);
         HFONT f = FontFor(role);
         HGDIOBJ old = f ? SelectObject(m_dc, f) : nullptr;
         SetTextColor(m_dc, c);
         SetBkMode(m_dc, TRANSPARENT);
         RECT rc = ToRect(r);
-        DrawTextW(m_dc, s.c_str(), -1, &rc, DT_WORDBREAK | DT_END_ELLIPSIS | DT_NOPREFIX);
+        DrawTextW(m_dc, w.c_str(), -1, &rc, DT_WORDBREAK | DT_END_ELLIPSIS | DT_NOPREFIX);
         if (f) SelectObject(m_dc, old);
     }
 
-    int MeasureText(const std::wstring& s, FontRole role) override {
-        if (!m_dc || s.empty()) return 0;
+    int MeasureText(const wchar_t* s, size_t len, FontRole role) override {
+        if (!m_dc || !s || len == 0) return 0;
+        const std::wstring w(s, len);
         HFONT f = FontFor(role);
         HGDIOBJ old = f ? SelectObject(m_dc, f) : nullptr;
         SIZE sz{};
-        GetTextExtentPoint32W(m_dc, s.c_str(), (int)s.size(), &sz);
+        GetTextExtentPoint32W(m_dc, w.c_str(), (int)w.size(), &sz);
         if (f) SelectObject(m_dc, old);
         return sz.cx;
     }

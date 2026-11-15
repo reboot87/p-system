@@ -47,9 +47,9 @@ struct RecordingPainter : IPainter
     void StrokeRect(const Rect&, Color, int) override { ++strokes; }
     void StrokeRound(const Rect&, int, Color, int) override { ++strokes; }
     void StrokeDashed(const Rect&, Color, int, int) override { ++strokes; }
-    void Text(const Rect&, const std::wstring&, FontRole, Color, TextFormat) override { ++texts; }
-    void TextBlock(const Rect&, const std::wstring&, FontRole, Color, int) override { ++texts; }
-    int  MeasureText(const std::wstring&, FontRole) override { return 0; }
+    void Text(const Rect&, const wchar_t*, size_t, FontRole, Color, TextFormat) override { ++texts; }
+    void TextBlock(const Rect&, const wchar_t*, size_t, FontRole, Color, int) override { ++texts; }
+    int  MeasureText(const wchar_t*, size_t, FontRole) override { return 0; }
     void PushClip(const Rect&) override {}
     void PopClip() override {}
     void Translate(Point) override {}

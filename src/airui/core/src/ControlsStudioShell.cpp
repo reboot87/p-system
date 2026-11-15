@@ -4,6 +4,7 @@
 #include "airui/ControlsStudio.h"
 
 #include <algorithm>
+#include <cwchar>
 #include <cstddef>
 #include <string>
 #include <vector>
@@ -392,12 +393,10 @@ void OrgChart::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         const Rect roleRc(box.left + mx.unit / 2, nameRc.bottom,
                           box.right - mx.unit / 2, box.bottom);
         if (!nameRc.Empty()) {
-            g.Text(nameRc, st.nodes[i].name, FontRole::Body,
-                   root ? pal.primaryText : pal.text, kCenter);
+            g.Text(nameRc,(st.nodes[i].name).c_str(), (st.nodes[i].name).size(),FontRole::Body,root ? pal.primaryText : pal.text,kCenter);
         }
         if (!roleRc.Empty()) {
-            g.Text(roleRc, st.nodes[i].role, FontRole::Meta,
-                   pal.textFaint, kCenter);
+            g.Text(roleRc,(st.nodes[i].role).c_str(), (st.nodes[i].role).size(),FontRole::Meta,pal.textFaint,kCenter);
         }
     }
     g.PopClip();
@@ -436,9 +435,8 @@ void Leaderboard::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     if (rc.Empty()) return;
     const LeaderboardLayout o = GeoLeaders(rc, st, mx);
     if (o.header.Empty()) return;
-    g.Text(o.header, st.title, FontRole::Section, pal.text, kLeft);
-    g.Text(o.header, std::to_wstring(st.rows.size()) + L" 位成员",
-           FontRole::Meta, pal.textFaint, kRight);
+    g.Text(o.header,(st.title).c_str(), (st.title).size(),FontRole::Section,pal.text,kLeft);
+    g.Text(o.header,(std::to_wstring(st.rows.size()) + L" 位成员").c_str(), (std::to_wstring(st.rows.size()) + L" 位成员").size(),FontRole::Meta,pal.textFaint,kRight);
     if (o.body.Empty()) return;
 
     double best = 1.0;
@@ -463,8 +461,7 @@ void Leaderboard::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         if (!rankRc.Empty()) {
             const Color fill = idx < 3 ? pal.primarySoft : pal.sunken;
             g.FillRound(rankRc, mx.radiusSm, fill);
-            g.Text(rankRc, std::to_wstring(idx + 1), FontRole::Body,
-                   idx < 3 ? pal.primaryText : pal.textSub, kCenter);
+            g.Text(rankRc,(std::to_wstring(idx + 1)).c_str(), (std::to_wstring(idx + 1)).size(),FontRole::Body,idx < 3 ? pal.primaryText : pal.textSub,kCenter);
         }
         const int textLeft = rankRc.right + mx.unit / 2;
         const int textRight = (std::max)(textLeft,
@@ -474,22 +471,20 @@ void Leaderboard::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         const Rect noteRc(textLeft, nameRc.bottom, textRight,
                           (std::max)(nameRc.bottom, row.bottom - mx.unit));
         if (!nameRc.Empty()) {
-            g.Text(nameRc, item.name, FontRole::Body, pal.text, kLeft);
+            g.Text(nameRc,(item.name).c_str(), (item.name).size(),FontRole::Body,pal.text,kLeft);
         }
         if (!noteRc.Empty()) {
-            g.Text(noteRc, item.note, FontRole::Meta, pal.textFaint, kLeft);
+            g.Text(noteRc,(item.note).c_str(), (item.note).size(),FontRole::Meta,pal.textFaint,kLeft);
         }
         const Rect scoreRc(row.right - scoreW - deltaW, row.top,
                            row.right - deltaW, row.bottom);
         const Rect deltaRc(row.right - deltaW, row.top,
                            row.right, row.bottom);
         if (!scoreRc.Empty()) {
-            g.Text(scoreRc, Whole(item.score), FontRole::Body,
-                   pal.text, kRight);
+            g.Text(scoreRc,(Whole(item.score)).c_str(), (Whole(item.score)).size(),FontRole::Body,pal.text,kRight);
         }
         if (!deltaRc.Empty()) {
-            g.Text(deltaRc, DeltaText(item.delta), FontRole::Meta,
-                   DeltaColor(item.delta, pal), kRight);
+            g.Text(deltaRc,(DeltaText(item.delta)).c_str(), (DeltaText(item.delta)).size(),FontRole::Meta,DeltaColor(item.delta, pal),kRight);
         }
         const int barW = static_cast<int>(
             (std::max)(0.0, (std::min)(1.0, item.score / best)) *
@@ -545,9 +540,8 @@ void ActivityFeed::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     for (const ActivityItem& item : st.items) {
         if (item.unread) ++unread;
     }
-    g.Text(o.header, st.title, FontRole::Section, pal.text, kLeft);
-    g.Text(o.header, std::to_wstring(unread) + L" 条未读",
-           FontRole::Meta, pal.textFaint, kRight);
+    g.Text(o.header,(st.title).c_str(), (st.title).size(),FontRole::Section,pal.text,kLeft);
+    g.Text(o.header,(std::to_wstring(unread) + L" 条未读").c_str(), (std::to_wstring(unread) + L" 条未读").size(),FontRole::Meta,pal.textFaint,kRight);
     if (o.rows.empty()) return;
 
     const Rect inner = Inset(rc, mx.unit / 2);
@@ -564,9 +558,7 @@ void ActivityFeed::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         const Rect& av = o.avatars[i];
         if (!av.Empty()) {
             g.FillRound(av, mx.radiusSm, kc.soft);
-            g.Text(av,
-                   item.actor.empty() ? L"?" : std::wstring(1, item.actor[0]),
-                   FontRole::Body, kc.text, kCenter);
+            g.Text(av,(item.actor.empty() ? L"?" : std::wstring(1, item.actor[0])).c_str(), (item.actor.empty() ? L"?" : std::wstring(1, item.actor[0])).size(),FontRole::Body,kc.text,kCenter);
         }
         const int textLeft = av.right + mx.unit / 2;
         const Rect titleRc(textLeft, row.top,
@@ -578,18 +570,18 @@ void ActivityFeed::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         const std::wstring line = item.actor + L" " + item.action + L" " +
                                   item.target;
         if (!titleRc.Empty()) {
-            g.Text(titleRc, line, FontRole::Body,
-                   item.unread ? pal.text : pal.textSub, kLeft);
+            g.Text(titleRc,(line).c_str(), (line).size(),FontRole::Body,item.unread ? pal.text : pal.textSub,kLeft);
         }
         if (!detailRc.Empty()) {
-            g.Text(detailRc, item.kind == AlertKind::Error
+            g.Text(detailRc,(item.kind == AlertKind::Error
                                  ? L"需要关注 · " + item.action
-                                 : L"活动记录 · " + item.action,
-                   FontRole::Meta, pal.textFaint, kLeft);
+                                 : L"活动记录 · " + item.action).c_str(), (item.kind == AlertKind::Error
+                                 ? L"需要关注 · " + item.action
+                                 : L"活动记录 · " + item.action).size(),FontRole::Meta,pal.textFaint,kLeft);
         }
         const Rect timeRc(row.right - timeW, row.top, row.right, row.bottom);
         if (!timeRc.Empty()) {
-            g.Text(timeRc, item.time, FontRole::Meta, pal.textFaint, kRight);
+            g.Text(timeRc,(item.time).c_str(), (item.time).size(),FontRole::Meta,pal.textFaint,kRight);
         }
         if (item.unread && !titleRc.Empty()) {
             const int dot = (std::max)(3, mx.unit / 2);
@@ -648,14 +640,14 @@ void AudioWaveform::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     const WaveformLayout o = GeoWave(rc, st, mx);
     if (o.header.Empty()) return;
     const double pos = ClampD(st.position, 0.0, 1.0);
-    g.Text(o.header, st.title, FontRole::Section, pal.text, kLeft);
-    g.Text(o.header, Clock(st.duration), FontRole::Meta,
-           pal.textFaint, kRight);
+    g.Text(o.header,(st.title).c_str(), (st.title).size(),FontRole::Section,pal.text,kLeft);
+    g.Text(o.header,(Clock(st.duration)).c_str(), (Clock(st.duration)).size(),FontRole::Meta,pal.textFaint,kRight);
 
     if (!o.playBtn.Empty()) {
         g.FillRound(o.playBtn, mx.radiusMd, pal.primary);
-        g.Text(o.playBtn, st.playing ? L"停" : L"播", FontRole::Body,
-               pal.textInverse, kCenter);
+        g.Text(o.playBtn, st.playing ? L"停" : L"播",
+              wcslen(st.playing ? L"停" : L"播"),
+              FontRole::Body, pal.textInverse, kCenter);
     }
     if (o.track.Empty()) return;
     g.FillRect(o.track, pal.sunken);
@@ -675,12 +667,11 @@ void AudioWaveform::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     if (!o.playhead.Empty()) g.FillRect(o.playhead, pal.error);
     g.PopClip();
     if (!o.timeRc.Empty()) {
-        g.Text(o.timeRc, Clock(st.duration * pos), FontRole::Meta,
-               pal.primaryText, kLeft);
+        g.Text(o.timeRc,(Clock(st.duration * pos)).c_str(), (Clock(st.duration * pos)).size(),FontRole::Meta,pal.primaryText,kLeft);
         g.Text(o.timeRc, st.playing ? L"播放中" : L"已暂停",
-               FontRole::Meta, pal.textSub, kCenter);
-        g.Text(o.timeRc, Clock(st.duration), FontRole::Meta,
-               pal.textFaint, kRight);
+              wcslen(st.playing ? L"播放中" : L"已暂停"),
+              FontRole::Meta, pal.textSub, kCenter);
+        g.Text(o.timeRc,(Clock(st.duration)).c_str(), (Clock(st.duration)).size(),FontRole::Meta,pal.textFaint,kRight);
     }
 }
 

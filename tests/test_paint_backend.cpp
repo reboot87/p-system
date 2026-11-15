@@ -35,11 +35,11 @@ public:
     void StrokeRect(const Rect&, Color, int) override { ++calls; }
     void StrokeRound(const Rect&, int, Color, int) override { ++calls; }
     void StrokeDashed(const Rect&, Color, int, int) override { ++calls; }
-    void Text(const Rect&, const std::wstring&, FontRole, Color,
+    void Text(const Rect&, const wchar_t*, size_t, FontRole, Color,
               TextFormat) override { ++calls; }
-    void TextBlock(const Rect&, const std::wstring&, FontRole, Color,
+    void TextBlock(const Rect&, const wchar_t*, size_t, FontRole, Color,
                    int) override { ++calls; }
-    int  MeasureText(const std::wstring&, FontRole) override { return 0; }
+    int  MeasureText(const wchar_t*, size_t, FontRole) override { return 0; }
     void PushClip(const Rect&) override { ++calls; }
     void PopClip() override { ++calls; }
     void Translate(Point) override { ++calls; }

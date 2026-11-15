@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cwchar>
 #include <string>
 #include <vector>
 
@@ -118,7 +119,7 @@ void PaintTransferBox(IPainter& g, const Rect& box,
     const Rect inner(box.left + 1, box.top + 1, box.right - 1, box.bottom - 1);
     if (inner.Empty()) return;
     if (items.empty()) {
-        g.Text(inner, L"暂无数据", FontRole::Meta, pal.textFaint, kCenterText);
+        g.Text(inner,L"暂无数据", 4,FontRole::Meta,pal.textFaint,kCenterText);
         return;
     }
 
@@ -148,7 +149,7 @@ void PaintTransferButton(IPainter& g, const Rect& rc, const wchar_t* glyph,
     if (rc.Empty()) return;
     g.FillRound(rc, mx.radiusSm, enabled ? pal.surface : pal.sunken);
     g.StrokeRound(rc, mx.radiusSm, pal.border, 1);
-    g.Text(rc, glyph, FontRole::Body,
+    g.Text(rc, glyph, wcslen(glyph), FontRole::Body,
            enabled ? pal.primaryText : pal.textDisabled, kCenterText);
 }
 
@@ -310,12 +311,9 @@ void Dropdown::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     const Color txt = st.base.disabled ? pal.textDisabled
         : (!st.text.empty() || hasSelection) ? pal.text : pal.textFaint;
     g.Text(Rect(lay.field.left + pad, lay.field.top,
-                lay.field.right - pad - mx.rowH, lay.field.bottom),
-           label, FontRole::Body, txt, kLeftEllip);
+                lay.field.right - pad - mx.rowH, lay.field.bottom),(label).c_str(), (label).size(),FontRole::Body,txt,kLeftEllip);
     g.Text(Rect(lay.field.right - mx.rowH, lay.field.top,
-                lay.field.right, lay.field.bottom),
-           L"\u25BE", FontRole::Body,
-           st.base.disabled ? pal.textDisabled : pal.textSub, kCenterText);
+                lay.field.right, lay.field.bottom),L"\u25BE", 1,FontRole::Body,st.base.disabled ? pal.textDisabled : pal.textSub,kCenterText);
 
     if (lay.list.Empty()) return;
 
@@ -338,9 +336,7 @@ void Dropdown::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 
         const Color c = (i == st.selected || i == st.hovered)
                             ? pal.primaryText : pal.text;
-        g.Text(Rect(rowRc.left + pad, y, rowRc.right - pad, y + lay.optionH),
-               st.options[static_cast<std::size_t>(i)],
-               FontRole::Body, c, kLeftEllip);
+        g.Text(Rect(rowRc.left + pad, y, rowRc.right - pad, y + lay.optionH),(st.options[static_cast<std::size_t>(i)]).c_str(), (st.options[static_cast<std::size_t>(i)]).size(),FontRole::Body,c,kLeftEllip);
     }
     g.PopClip();
 }
@@ -419,20 +415,15 @@ void Menu::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         const Color meta = off ? pal.textDisabled : pal.textFaint;
 
         if (item.checked) {
-            g.Text(Rect(glyphLeft, y, glyphRight, y + h), L"\u2713",
-                   FontRole::Body, off ? pal.textDisabled : pal.primary,
-                   kCenterText);
+            g.Text(Rect(glyphLeft, y, glyphRight, y + h),L"\u2713", 1,FontRole::Body,off ? pal.textDisabled : pal.primary,kCenterText);
         } else if (!item.glyph.empty()) {
-            g.Text(Rect(glyphLeft, y, glyphRight, y + h), item.glyph,
-                   FontRole::Icon, meta, kCenterText);
+            g.Text(Rect(glyphLeft, y, glyphRight, y + h),(item.glyph).c_str(), (item.glyph).size(),FontRole::Icon,meta,kCenterText);
         }
 
-        g.Text(Rect(textLeft, y, textRight, y + h), item.text,
-               FontRole::Body, main, kLeftEllip);
+        g.Text(Rect(textLeft, y, textRight, y + h),(item.text).c_str(), (item.text).size(),FontRole::Body,main,kLeftEllip);
 
         if (!item.shortcut.empty() && scLeft < scRight) {
-            g.Text(Rect(scLeft, y, scRight, y + h), item.shortcut,
-                   FontRole::Meta, meta, kRightEllip);
+            g.Text(Rect(scLeft, y, scRight, y + h),(item.shortcut).c_str(), (item.shortcut).size(),FontRole::Meta,meta,kRightEllip);
         }
 
         y += h;
@@ -456,7 +447,7 @@ void ContextMenu::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     int textW = 0;
     for (const MenuItemState& item : st.menu.items) {
         if (item.separator) continue;
-        textW = (std::max)(textW, g.MeasureText(item.text, FontRole::Body));
+        textW = (std::max)(textW, g.MeasureText((item.text).c_str(), (item.text).size(),FontRole::Body));
     }
 
     int w = gm.pad * 2 + gm.glyphW + gm.gap + textW + gm.gap + gm.shortcutW;
@@ -511,7 +502,7 @@ void MultiSelect::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     const Rect inner(rc.left + 1, rc.top + 1, rc.right - 1, rc.bottom - 1);
     if (inner.Empty()) return;
     if (st.options.empty()) {
-        g.Text(inner, L"暂无数据", FontRole::Meta, pal.textFaint, kCenterText);
+        g.Text(inner,L"暂无数据", 4,FontRole::Meta,pal.textFaint,kCenterText);
         return;
     }
 

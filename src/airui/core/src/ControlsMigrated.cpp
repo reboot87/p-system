@@ -124,8 +124,7 @@ void PaintStatusTagColored(IPainter& g, const Rect& rc,
         g.FillRound(dot, d / 2, colors.dot);
     }
     const int inset = showDot ? mx.unit * 2 : mx.unit;
-    g.Text(Rect(rc.left + inset, rc.top, rc.right - mx.unit, rc.bottom),
-           text, FontRole::Meta, colors.text, kLeftText);
+    g.Text(Rect(rc.left + inset, rc.top, rc.right - mx.unit, rc.bottom),(text).c_str(), (text).size(),FontRole::Meta,colors.text,kLeftText);
 }
 
 
@@ -304,27 +303,25 @@ void Card::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     const Color iconFg = st.iconColor ? st.iconColor : pal.primary;
     const int iconRadius = st.iconRadius > 0 ? st.iconRadius : mx.radiusMd;
     g.FillRound(L.iconRc, iconRadius, st.base.disabled ? pal.sunken : iconBg);
-    g.Text(L.iconRc, st.glyph, FontRole::IconLarge,
-           st.base.disabled ? pal.textDisabled : iconFg, kCenterText);
+    g.Text(L.iconRc,(st.glyph).c_str(), (st.glyph).size(),FontRole::IconLarge,st.base.disabled ? pal.textDisabled : iconFg,kCenterText);
 
     if (!st.badge.empty()) {
         const Color bg = st.badgeOk ? pal.okSoft : pal.sunken;
         const Color fg = st.badgeOk ? pal.okText : pal.textSub;
         g.FillRound(L.badgeRc, mx.radiusPill, bg);
-        g.Text(L.badgeRc, st.badge, FontRole::Meta, fg, kCenterText);
+        g.Text(L.badgeRc,(st.badge).c_str(), (st.badge).size(),FontRole::Meta,fg,kCenterText);
     }
 
     const Color text = st.base.disabled ? pal.textDisabled : pal.text;
     const Color sub  = st.base.disabled ? pal.textDisabled : pal.textFaint;
-    g.Text(L.titleRc, st.title, FontRole::Title, text, kLeftText);
-    g.Text(L.descRc, st.desc, FontRole::Meta, sub, kLeftText);
+    g.Text(L.titleRc,(st.title).c_str(), (st.title).size(),FontRole::Title,text,kLeftText);
+    g.Text(L.descRc,(st.desc).c_str(), (st.desc).size(),FontRole::Meta,sub,kLeftText);
     if (!st.number.empty()) {
-        g.Text(L.numberRc, st.number, FontRole::Display, text, kLeftText);
-        if (!st.unit.empty()) g.Text(L.unitRc, st.unit, FontRole::Meta, sub, kLeftText);
+        g.Text(L.numberRc,(st.number).c_str(), (st.number).size(),FontRole::Display,text,kLeftText);
+        if (!st.unit.empty()) g.Text(L.unitRc,(st.unit).c_str(), (st.unit).size(),FontRole::Meta,sub,kLeftText);
     }
     if (!st.linkText.empty()) {
-        g.Text(L.linkRc, st.linkText, FontRole::Button,
-               st.base.disabled ? pal.textDisabled : pal.primaryText, kLeftText);
+        g.Text(L.linkRc,(st.linkText).c_str(), (st.linkText).size(),FontRole::Button,st.base.disabled ? pal.textDisabled : pal.primaryText,kLeftText);
     }
 }
 
@@ -347,8 +344,7 @@ void EmptyView::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
                         (std::min)(rc.right, cx + box / 2), cy);
         if (!icon.Empty()) {
             g.FillRound(icon, mx.radiusLg, pal.sunken);
-            g.Text(icon, st.glyph, FontRole::IconLarge,
-                   pal.textFaint, kCenterText);
+            g.Text(icon,(st.glyph).c_str(), (st.glyph).size(),FontRole::IconLarge,pal.textFaint,kCenterText);
         }
     }
     // Keep every text line inside the bounds at any DPI or small size.
@@ -360,7 +356,7 @@ void EmptyView::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     for (int i = 0; i < 3; ++i) {
         const Rect r(rc.left, y, rc.right, (std::min)(y + lineH, rc.bottom));
         if (r.Empty()) break;
-        g.Text(r, *lines[i], roles[i], colors[i], kCenterText);
+        g.Text(r,(*lines[i]).c_str(), (*lines[i]).size(),roles[i],colors[i],kCenterText);
         y += lineH;
     }
 }
@@ -394,9 +390,8 @@ void KbdChip::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     const Rect key(rc.left, rc.top, rc.left + keyW, rc.bottom);
     g.FillRound(key, mx.radiusSm, pal.chipBg);
     g.StrokeRound(key, mx.radiusSm, pal.chipBorder, 1);
-    g.Text(key, st.key, FontRole::Meta, pal.textSub, kCenterText);
-    g.Text(Rect(key.right + mx.unit, rc.top, rc.right, rc.bottom),
-           st.label, FontRole::Meta, pal.textFaint, kLeftText);
+    g.Text(key,(st.key).c_str(), (st.key).size(),FontRole::Meta,pal.textSub,kCenterText);
+    g.Text(Rect(key.right + mx.unit, rc.top, rc.right, rc.bottom),(st.label).c_str(), (st.label).size(),FontRole::Meta,pal.textFaint,kLeftText);
 }
 
 ToolbarLayout Toolbar::Measure(const Metrics& mx) const
@@ -468,12 +463,11 @@ void Toolbar::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         if (st.hoveredCrumb == static_cast<int>(i))
             g.FillRound(L.crumbs[i], mx.radiusSm, pal.hover);
         const bool last = (i + 1 == L.crumbs.size());
-        g.Text(L.crumbs[i], st.crumbs[i], FontRole::Body,
-               last ? pal.text : pal.textSub, kCenterText);
+        g.Text(L.crumbs[i],(st.crumbs[i]).c_str(), (st.crumbs[i]).size(),FontRole::Body,last ? pal.text : pal.textSub,kCenterText);
         if (!last) {
             const Rect sep(L.crumbs[i].right, rc.top,
                            L.crumbs[i].right + mx.unit * 2, rc.bottom);
-            g.Text(sep, L"\u203A", FontRole::Meta, pal.textFaint, kCenterText);
+            g.Text(sep,L"\u203A", 1,FontRole::Meta,pal.textFaint,kCenterText);
         }
     }
 
@@ -483,9 +477,7 @@ void Toolbar::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         const std::wstring shown = st.searchText.empty()
             ? st.searchPlaceholder : st.searchText;
         g.Text(Rect(L.search.left + mx.unit, L.search.top,
-                    L.search.right - mx.unit, L.search.bottom),
-               shown, FontRole::Body,
-               st.searchText.empty() ? pal.textFaint : pal.text, kLeftText);
+                    L.search.right - mx.unit, L.search.bottom),(shown).c_str(), (shown).size(),FontRole::Body,st.searchText.empty() ? pal.textFaint : pal.text,kLeftText);
     }
 
     for (size_t i = 0; i < L.actions.size(); ++i) {
@@ -552,7 +544,7 @@ void Form::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         const FormField& f = st.fields[i];
         std::wstring label = f.label;
         if (f.required) label = L"* " + label;
-        g.Text(L.labels[i], label, FontRole::Body, pal.text, kLeftText);
+        g.Text(L.labels[i],(label).c_str(), (label).size(),FontRole::Body,pal.text,kLeftText);
 
         const bool focused = (st.focusedField == static_cast<int>(i));
         g.FillRound(L.inputs[i], mx.radiusMd, pal.surface);
@@ -560,12 +552,9 @@ void Form::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
                       f.invalid ? pal.error : (focused ? pal.primary : pal.border), 1);
         const std::wstring shown = f.value.empty() ? f.placeholder : f.value;
         g.Text(Rect(L.inputs[i].left + mx.unit, L.inputs[i].top,
-                    L.inputs[i].right - mx.unit, L.inputs[i].bottom),
-               shown, FontRole::Body,
-               f.value.empty() ? pal.textFaint : pal.text, kLeftText);
+                    L.inputs[i].right - mx.unit, L.inputs[i].bottom),(shown).c_str(), (shown).size(),FontRole::Body,f.value.empty() ? pal.textFaint : pal.text,kLeftText);
         if (f.invalid) {
-            g.Text(L.errors[i], f.error.empty() ? L"此项为必填" : f.error,
-                   FontRole::Meta, pal.errorText, kLeftText);
+            g.Text(L.errors[i],(f.error.empty() ? L"此项为必填" : f.error).c_str(), (f.error.empty() ? L"此项为必填" : f.error).size(),FontRole::Meta,pal.errorText,kLeftText);
         }
     }
     ControlState cs;
@@ -660,8 +649,7 @@ void DataGrid::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         if (static_cast<int>(i) == st.sortColumn)
             text += st.sortAscending ? L" \u25B2" : L" \u25BC";
         g.Text(Rect(L.columns[i].left + mx.unit, header.top,
-                    L.columns[i].right - mx.unit, header.bottom),
-               text, FontRole::Body, pal.textSub, kLeftText);
+                    L.columns[i].right - mx.unit, header.bottom),(text).c_str(), (text).size(),FontRole::Body,pal.textSub,kLeftText);
     }
 
     const auto rows = DataGridVisibleRows(st);
@@ -681,14 +669,11 @@ void DataGrid::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
             const std::wstring value = c < rows[static_cast<size_t>(r)].size()
                 ? rows[static_cast<size_t>(r)][c] : L"";
             g.Text(Rect(L.columns[c].left + mx.unit, y,
-                        L.columns[c].right - mx.unit, y + L.rowH),
-                   value, FontRole::Body,
-                   r == st.selected ? pal.textInverse : pal.text, kLeftText);
+                        L.columns[c].right - mx.unit, y + L.rowH),(value).c_str(), (value).size(),FontRole::Body,r == st.selected ? pal.textInverse : pal.text,kLeftText);
         }
     }
     if (rows.empty()) {
-        g.Text(Rect(rc.left, L.rowTop, rc.right, rc.bottom),
-               L"暂无数据", FontRole::Meta, pal.textFaint, kCenterText);
+        g.Text(Rect(rc.left, L.rowTop, rc.right, rc.bottom),L"暂无数据", 4,FontRole::Meta,pal.textFaint,kCenterText);
     }
     g.PopClip();
 
@@ -733,7 +718,7 @@ void ListData::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     if (rc.Empty()) return;
     PaintFrame(g, rc, pal, mx, false);
     if (st.rows.empty()) {
-        g.Text(rc, st.emptyText, FontRole::Meta, pal.textFaint, kCenterText);
+        g.Text(rc,(st.emptyText).c_str(), (st.emptyText).size(),FontRole::Meta,pal.textFaint,kCenterText);
         return;
     }
 
@@ -760,17 +745,15 @@ void ListData::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         const int badgeW = row.badge.empty() ? 0 : mx.unit * 8;
         const Rect textRc(rc.left + pad, y, rc.right - pad - badgeW,
                           y + (row.subtitle.empty() ? h : h / 2));
-        g.Text(textRc, row.title, FontRole::Body,
-               row.disabled ? pal.textDisabled : pal.text, kLeftText);
+        g.Text(textRc,(row.title).c_str(), (row.title).size(),FontRole::Body,row.disabled ? pal.textDisabled : pal.text,kLeftText);
         if (!row.subtitle.empty()) {
-            g.Text(Rect(rc.left + pad, y + h / 2, rc.right - pad - badgeW, y + h),
-                   row.subtitle, FontRole::Meta, pal.textFaint, kLeftText);
+            g.Text(Rect(rc.left + pad, y + h / 2, rc.right - pad - badgeW, y + h),(row.subtitle).c_str(), (row.subtitle).size(),FontRole::Meta,pal.textFaint,kLeftText);
         }
         if (badgeW > 0) {
             const Rect badge(rc.right - badgeW - pad, y + h / 2 - mx.tagH / 2,
                              rc.right - pad, y + h / 2 + mx.tagH / 2);
             g.FillRound(badge, mx.radiusPill, pal.primarySoft);
-            g.Text(badge, row.badge, FontRole::Meta, pal.primaryText, kCenterText);
+            g.Text(badge,(row.badge).c_str(), (row.badge).size(),FontRole::Meta,pal.primaryText,kCenterText);
         }
         g.FillRect(Rect(rowRc.left, y + h - 1, rowRc.right, y + h), pal.split);
         y += h;
@@ -810,8 +793,7 @@ void Custom::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         }
     }
     g.PopClip();
-    g.Text(rc, st.label, FontRole::Meta,
-           st.base.disabled ? pal.textDisabled : pal.textSub, kCenterText);
+    g.Text(rc,(st.label).c_str(), (st.label).size(),FontRole::Meta,st.base.disabled ? pal.textDisabled : pal.textSub,kCenterText);
 }
 
 } // namespace widgets

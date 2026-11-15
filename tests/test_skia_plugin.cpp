@@ -55,9 +55,7 @@ int main()
     if (painter) {
         painter->FillRect(Rect{ 0, 0, 64, 48 }, MakeColor(0xDD, 0x00, 0x00));
         painter->FillRound(Rect{ 2, 2, 30, 20 }, 4, MakeColor(0xFF, 0xFF, 0xFF));
-        painter->Text(Rect{ 4, 4, 60, 24 }, L"airui plugin",
-                      FontRole::Body, MakeColor(0x11, 0x22, 0x33),
-                      dt::SingleLine);
+        painter->Text(Rect{ 4, 4, 60, 24 },L"airui plugin", 12,FontRole::Body,MakeColor(0x11, 0x22, 0x33),dt::SingleLine);
         painter.reset();   // flushes the frame inside the DLL
     }
 
@@ -124,8 +122,7 @@ int main()
                 void* h = c5(nullptr, 0, 0, 32, 32);
                 if (!h) return -1;
                 IPainter* pt = reinterpret_cast<IPainter*>(h);
-                pt->Text(Rect{ 2, 2, 28, 28 }, s, FontRole::Body,
-                         MakeColor(0xFF, 0xFF, 0xFF), dt::SingleLine);
+                pt->Text(Rect{ 2, 2, 28, 28 },(s).c_str(), (s).size(),FontRole::Body,MakeColor(0xFF, 0xFF, 0xFF),dt::SingleLine);
                 const unsigned char* px =
                     static_cast<const unsigned char*>(p5(h));
                 const uint64_t stride = r5(h);

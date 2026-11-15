@@ -1,5 +1,6 @@
 #include "airui/WidgetControls.h"
 #include "airui/ControlsCore.h"
+#include <cwchar>
 
 namespace air {
 namespace ui {
@@ -99,7 +100,7 @@ void Button::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         else if (st.hover)    fill = pal.primaryHover;
 
         g.FillRound(rc, mx.radiusMd, fill);
-        g.Text(rc, text, FontRole::Button, pal.textInverse, kButtonText);
+        g.Text(rc,(text).c_str(), (text).size(),FontRole::Button,pal.textInverse,kButtonText);
         break;
     }
     case ButtonStyle::Secondary: {
@@ -112,11 +113,9 @@ void Button::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 
         g.FillRound(rc, mx.radiusMd, fill);
         g.StrokeRound(rc, mx.radiusMd, st.disabled ? pal.border : line, 1);
-        g.Text(rc, text, FontRole::Button,
-               st.disabled ? pal.textDisabled
+        g.Text(rc,(text).c_str(), (text).size(),FontRole::Button,st.disabled ? pal.textDisabled
                            : ((st.hover || st.pressed) ? pal.primaryText
-                                                       : pal.textSub),
-               kButtonText);
+                                                       : pal.textSub),kButtonText);
         break;
     }
     case ButtonStyle::Danger: {
@@ -129,16 +128,14 @@ void Button::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
                                   : ((st.hover || st.pressed) ? pal.error
                                                               : pal.errorBorder),
                       1);
-        g.Text(rc, text, FontRole::Button,
-               st.disabled ? pal.textDisabled : pal.errorText, kButtonText);
+        g.Text(rc,(text).c_str(), (text).size(),FontRole::Button,st.disabled ? pal.textDisabled : pal.errorText,kButtonText);
         break;
     }
     case ButtonStyle::Ghost: {
         if (st.hover) {
             g.FillRound(rc, mx.radiusMd, pal.primarySoft);
         }
-        g.Text(rc, text, FontRole::Button,
-               st.disabled ? pal.textDisabled : pal.primaryText, kButtonText);
+        g.Text(rc,(text).c_str(), (text).size(),FontRole::Button,st.disabled ? pal.textDisabled : pal.primaryText,kButtonText);
         break;
     }
     }
@@ -160,11 +157,9 @@ void Checkbox::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     g.StrokeRound(box, kBoxRadius, pal.border, 1);
 
     if (st.checked) {
-        g.Text(box, L"\u2713", FontRole::Body,
-               st.disabled ? pal.textDisabled : pal.primary, kGlyphText);
+        g.Text(box,L"\u2713", 1,FontRole::Body,st.disabled ? pal.textDisabled : pal.primary,kGlyphText);
     }
-    g.Text(OptionLabel(rc), text, FontRole::Body,
-           st.disabled ? pal.textDisabled : pal.text, kLabelText);
+    g.Text(OptionLabel(rc),(text).c_str(), (text).size(),FontRole::Body,st.disabled ? pal.textDisabled : pal.text,kLabelText);
 }
 
 void Radio::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
@@ -188,8 +183,7 @@ void Radio::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         g.FillRound(dot, kDotR,
                     st.disabled ? pal.textDisabled : pal.primary);
     }
-    g.Text(OptionLabel(rc), text, FontRole::Body,
-           st.disabled ? pal.textDisabled : pal.text, kLabelText);
+    g.Text(OptionLabel(rc),(text).c_str(), (text).size(),FontRole::Body,st.disabled ? pal.textDisabled : pal.text,kLabelText);
 }
 
 void ProgressBar::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
@@ -306,7 +300,7 @@ void TextField::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     const std::wstring& txt = st.text.empty() ? st.placeholder : st.text;
     Color txtCol = st.base.disabled ? pal.textDisabled :
                    st.text.empty() ? pal.textDisabled : pal.text;
-    g.Text(inner, txt, FontRole::Body, txtCol, dt::SingleLine | dt::Left | dt::VCenter);
+    g.Text(inner,(txt).c_str(), (txt).size(),FontRole::Body,txtCol,dt::SingleLine | dt::Left | dt::VCenter);
 }
 
 void Segmented::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
@@ -332,8 +326,7 @@ void Segmented::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         g.StrokeRound(seg, mx.radiusMd, br, 1);
         Color txtCol = st.base.disabled ? pal.textDisabled :
                        selected ? pal.textInverse : pal.text;
-        g.Text(seg, st.items[i], FontRole::Body, txtCol,
-               dt::SingleLine | dt::Center | dt::VCenter);
+        g.Text(seg,(st.items[i]).c_str(), (st.items[i]).size(),FontRole::Body,txtCol,dt::SingleLine | dt::Center | dt::VCenter);
     }
 }
 
@@ -353,10 +346,10 @@ void ComboBox::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 
     Rect textR{rc.left + 8, rc.top, rc.right - 20, rc.bottom};
     Color txtCol = st.base.disabled ? pal.textDisabled : pal.text;
-    g.Text(textR, st.text, FontRole::Body, txtCol, dt::SingleLine | dt::Left | dt::VCenter);
+    g.Text(textR,(st.text).c_str(), (st.text).size(),FontRole::Body,txtCol,dt::SingleLine | dt::Left | dt::VCenter);
 
     Rect arrowR{rc.right - 18, rc.top + 4, rc.right - 4, rc.bottom - 4};
-    g.Text(arrowR, L"\u25BE", FontRole::Body, txtCol, dt::SingleLine | dt::Center | dt::VCenter);
+    g.Text(arrowR,L"\u25BE", 1,FontRole::Body,txtCol,dt::SingleLine | dt::Center | dt::VCenter);
 }
 
 void Tag::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
@@ -375,7 +368,7 @@ void Tag::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     g.StrokeRound(rc, mx.radiusPill, border, 1);
     Color txtCol = st.base.disabled ? pal.textDisabled :
                    st.selected ? pal.primaryText : pal.text;
-    g.Text(rc, st.text, FontRole::Body, txtCol, dt::SingleLine | dt::Center | dt::VCenter);
+    g.Text(rc,(st.text).c_str(), (st.text).size(),FontRole::Body,txtCol,dt::SingleLine | dt::Center | dt::VCenter);
 }
 
 void Rating::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
@@ -394,7 +387,7 @@ void Rating::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         Rect star{rc.left + i*w, rc.top, rc.left + (i+1)*w, rc.bottom};
         Color col = st.base.disabled ? pal.textDisabled :
                     i < st.rating ? pal.primary : pal.border;
-        g.Text(star, L"\u2605", FontRole::Body, col, dt::SingleLine | dt::Center | dt::VCenter);
+        g.Text(star,L"\u2605", 1,FontRole::Body,col,dt::SingleLine | dt::Center | dt::VCenter);
     }
 }
 
@@ -420,17 +413,17 @@ void Stepper::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     // left button
     g.FillRound(leftBtn, mx.radiusMd, st.minusHover ? pal.active : pal.surface);
     g.StrokeRound(leftBtn, mx.radiusMd, pal.border, 1);
-    g.Text(leftBtn, L"\u2212", FontRole::Body, st.base.disabled ? pal.textDisabled : pal.text, dt::SingleLine | dt::Center | dt::VCenter);
+    g.Text(leftBtn,L"\u2212", 1,FontRole::Body,st.base.disabled ? pal.textDisabled : pal.text,dt::SingleLine | dt::Center | dt::VCenter);
 
     // right button
     g.FillRound(rightBtn, mx.radiusMd, st.plusHover ? pal.active : pal.surface);
     g.StrokeRound(rightBtn, mx.radiusMd, pal.border, 1);
-    g.Text(rightBtn, L"+", FontRole::Body, st.base.disabled ? pal.textDisabled : pal.text, dt::SingleLine | dt::Center | dt::VCenter);
+    g.Text(rightBtn,L"+", 1,FontRole::Body,st.base.disabled ? pal.textDisabled : pal.text,dt::SingleLine | dt::Center | dt::VCenter);
 
     // value
     std::wstring val = std::to_wstring(st.value);
     Color txtCol = st.base.disabled ? pal.textDisabled : pal.text;
-    g.Text(mid, val, FontRole::Body, txtCol, dt::SingleLine | dt::Center | dt::VCenter);
+    g.Text(mid,(val).c_str(), (val).size(),FontRole::Body,txtCol,dt::SingleLine | dt::Center | dt::VCenter);
 }
 
 void ProgressRing::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
@@ -466,7 +459,7 @@ void Badge::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     Color bg = st.base.disabled ? pal.border : pal.errorText;
     g.FillRound(rc, mx.radiusPill, bg);
     Color txtCol = pal.textInverse;
-    g.Text(rc, st.text, FontRole::Meta, txtCol, dt::SingleLine | dt::Center | dt::VCenter);
+    g.Text(rc,(st.text).c_str(), (st.text).size(),FontRole::Meta,txtCol,dt::SingleLine | dt::Center | dt::VCenter);
 }
 
 void Alert::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
@@ -501,7 +494,8 @@ void Alert::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 
     // 图标
     Rect iconRc{rc.left + 12, rc.top, rc.left + 36, rc.bottom};
-    g.Text(iconRc, icon, FontRole::Icon, txt, dt::SingleLine | dt::Center | dt::VCenter);
+    g.Text(iconRc, icon, wcslen(icon), FontRole::Icon, txt,
+           dt::SingleLine | dt::Center | dt::VCenter);
 
     // 文本区
     const bool twoLine = !st.message.empty();
@@ -511,13 +505,12 @@ void Alert::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         int half = (textRc.bottom - textRc.top) / 2;
         Rect t{textRc.left, textRc.top, textRc.right, textRc.top + half};
         Rect m{textRc.left, textRc.top + half, textRc.right, textRc.bottom};
-        g.Text(t, st.title, FontRole::Body, txt, dt::SingleLine | dt::Left | dt::VCenter);
-        g.Text(m, st.message, FontRole::Meta, st.base.disabled ? pal.textDisabled : pal.textSub,
-               dt::SingleLine | dt::Left | dt::VCenter);
+        g.Text(t,(st.title).c_str(), (st.title).size(),FontRole::Body,txt,dt::SingleLine | dt::Left | dt::VCenter);
+        g.Text(m,(st.message).c_str(), (st.message).size(),FontRole::Meta,st.base.disabled ? pal.textDisabled : pal.textSub,dt::SingleLine | dt::Left | dt::VCenter);
     }
     else
     {
-        g.Text(textRc, st.title, FontRole::Body, txt, dt::SingleLine | dt::Left | dt::VCenter);
+        g.Text(textRc,(st.title).c_str(), (st.title).size(),FontRole::Body,txt,dt::SingleLine | dt::Left | dt::VCenter);
     }
 }
 
@@ -548,8 +541,7 @@ void Tabs::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 
         Color txt = st.base.disabled ? pal.textDisabled
                   : sel ? pal.primaryText : pal.textSub;
-        g.Text(tab, st.tabs[i], FontRole::Body, txt,
-               dt::SingleLine | dt::Center | dt::VCenter);
+        g.Text(tab,(st.tabs[i]).c_str(), (st.tabs[i]).size(),FontRole::Body,txt,dt::SingleLine | dt::Center | dt::VCenter);
 
         if (sel)
         {
@@ -579,8 +571,7 @@ void Avatar::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     if (!st.base.disabled) g.StrokeRound(box, d / 2, pal.primary, 1);
 
     const Color txt = st.base.disabled ? pal.textDisabled : pal.primaryText;
-    g.Text(box, st.text, FontRole::Body, txt,
-           dt::SingleLine | dt::Center | dt::VCenter);
+    g.Text(box,(st.text).c_str(), (st.text).size(),FontRole::Body,txt,dt::SingleLine | dt::Center | dt::VCenter);
 }
 
 void Skeleton::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
@@ -624,9 +615,9 @@ void RatingBar::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     for (int i = 0; i < max; ++i) {
         Rect star(rc.left + i * cell, rc.top, rc.left + (i + 1) * cell, rc.bottom);
         const bool on = i < value;
-        g.Text(star, on ? L"\u2605" : L"\u2606", FontRole::Body,
-               on ? pal.primary : pal.textSub,
-               dt::Center | dt::VCenter | dt::NoPrefix);
+        g.Text(star, on ? L"\u2605" : L"\u2606", wcslen(on ? L"\u2605" : L"\u2606"),
+           FontRole::Body, on ? pal.primary : pal.textSub,
+           dt::Center | dt::VCenter | dt::NoPrefix);
     }
 }
 
@@ -639,9 +630,7 @@ void IconButton::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     Button::Paint(g, pal, mx);                 // reuse Button's full look
     if (icon.empty()) return;
     const Rect& rc = Bounds();
-    g.Text(Rect(rc.left + 4, rc.top, rc.left + 28, rc.bottom),
-           icon, FontRole::Button, pal.textInverse,
-           dt::Center | dt::VCenter | dt::NoPrefix);
+    g.Text(Rect(rc.left + 4, rc.top, rc.left + 28, rc.bottom),(icon).c_str(), (icon).size(),FontRole::Button,pal.textInverse,dt::Center | dt::VCenter | dt::NoPrefix);
 }
 
 } // namespace widgets

@@ -57,12 +57,12 @@ public:
     { ops.push_back({OpType::StrokeRound, r, c, w}); }
     void StrokeDashed(const Rect& r, Color c, int w, int dash) override
     { ops.push_back({OpType::StrokeDashed, r, c, w + dash}); }
-    void Text(const Rect& r, const std::wstring&, FontRole, Color c, TextFormat) override
+    void Text(const Rect& r, const wchar_t*, size_t, FontRole, Color c, TextFormat) override
     { ops.push_back({OpType::Text, r, c, 0}); }
-    void TextBlock(const Rect& r, const std::wstring&, FontRole, Color c, int lines) override
+    void TextBlock(const Rect& r, const wchar_t*, size_t, FontRole, Color c, int lines) override
     { ops.push_back({OpType::TextBlock, r, c, lines}); }
-    int MeasureText(const std::wstring& s, FontRole) override
-    { return static_cast<int>(s.size()) * 8; }
+    int MeasureText(const wchar_t* s, size_t len, FontRole) override
+    { return static_cast<int>(std::wstring(s, len).size()) * 8; }
     void PushClip(const Rect& r) override
     { ++clipDepth; ops.push_back({OpType::Clip, r, 0, 0}); }
     void PopClip() override

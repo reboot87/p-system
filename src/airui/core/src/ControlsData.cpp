@@ -13,6 +13,7 @@
 #include "airui/ControlsCore.h"
 
 #include <algorithm>
+#include <cwchar>
 #include <cstddef>
 #include <string>
 #include <vector>
@@ -329,8 +330,7 @@ void Table::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     g.PushClip(Rect(rc.left + 1, rc.top + 1, rc.right - 1, rc.bottom - 1));
 
     if (lay.titleH > 0) {
-        g.Text(Rect(rc.left + pad, rc.top, rc.right - pad, rc.top + lay.titleH),
-               st.title, FontRole::Title, text, kLeftText);
+        g.Text(Rect(rc.left + pad, rc.top, rc.right - pad, rc.top + lay.titleH),(st.title).c_str(), (st.title).size(),FontRole::Title,text,kLeftText);
         g.FillRect(Rect(rc.left, lay.headerTop - 1, rc.right, lay.headerTop), pal.split);
     }
 
@@ -345,8 +345,7 @@ void Table::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
                       : static_cast<int>(i) == st.sortColumn ? pal.primaryText
                       : pal.textSub;
         g.Text(Rect(lay.columns[i].left + cellPad, lay.headerTop,
-                    lay.columns[i].right - cellPad, lay.rowTop),
-               label, FontRole::Body, c, kLeftText);
+                    lay.columns[i].right - cellPad, lay.rowTop),(label).c_str(), (label).size(),FontRole::Body,c,kLeftText);
     }
     g.FillRect(Rect(rc.left, lay.rowTop - 1, rc.right, lay.rowTop), pal.split);
 
@@ -370,15 +369,13 @@ void Table::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
                 (c < st.rows[static_cast<std::size_t>(r)].size())
                     ? st.rows[static_cast<std::size_t>(r)][c] : L"";
             g.Text(Rect(lay.columns[c].left + cellPad, y,
-                        lay.columns[c].right - cellPad, y + lay.rowH),
-                   value, FontRole::Body, text, kLeftText);
+                        lay.columns[c].right - cellPad, y + lay.rowH),(value).c_str(), (value).size(),FontRole::Body,text,kLeftText);
         }
         g.FillRect(Rect(rc.left, y + lay.rowH - 1, rc.right, y + lay.rowH), pal.split);
     }
 
     if (st.rows.empty()) {
-        g.Text(Rect(rc.left, lay.rowTop, rc.right, rc.bottom),
-               L"暂无数据", FontRole::Meta, pal.textFaint, kCenterText);
+        g.Text(Rect(rc.left, lay.rowTop, rc.right, rc.bottom),L"暂无数据", 4,FontRole::Meta,pal.textFaint,kCenterText);
     }
 
     g.PopClip();
@@ -417,8 +414,7 @@ void List::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     g.PushClip(Rect(rc.left + 1, rc.top + 1, rc.right - 1, rc.bottom - 1));
 
     if (st.items.empty()) {
-        g.Text(InflateX(rc, pad), st.emptyText, FontRole::Meta,
-               pal.textFaint, kCenterText);
+        g.Text(InflateX(rc, pad),(st.emptyText).c_str(), (st.emptyText).size(),FontRole::Meta,pal.textFaint,kCenterText);
         g.PopClip();
         return;
     }
@@ -453,14 +449,13 @@ void List::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
             if (highlighted) {
                 g.StrokeRound(iconRc, mx.radiusSm, pal.primary, 1);
             }
-            g.Text(iconRc, item.glyph, FontRole::Icon,
-                   item.disabled ? pal.textDisabled : pal.primaryText, kCenterText);
+            g.Text(iconRc,(item.glyph).c_str(), (item.glyph).size(),FontRole::Icon,item.disabled ? pal.textDisabled : pal.primaryText,kCenterText);
             textLeft += iconSize + pad;
         }
 
         int textRight = rc.right - pad;
         if (!item.badge.empty()) {
-            const int measured = g.MeasureText(item.badge, FontRole::Meta);
+            const int measured = g.MeasureText((item.badge).c_str(), (item.badge).size(),FontRole::Meta);
             const int badgeW = std::max(44, measured + 16);
             const int badgeH = mx.tagH;
             const Rect badgeRc(rc.right - pad - badgeW,
@@ -473,22 +468,17 @@ void List::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
             if (highlighted) {
                 g.StrokeRound(badgeRc, mx.radiusPill, pal.primary, 1);
             }
-            g.Text(badgeRc, item.badge, FontRole::Meta,
-                   item.disabled ? pal.textDisabled : pal.primaryText, kCenterText);
+            g.Text(badgeRc,(item.badge).c_str(), (item.badge).size(),FontRole::Meta,item.disabled ? pal.textDisabled : pal.primaryText,kCenterText);
             textRight = badgeRc.left - pad;
         }
 
         const Color main = item.disabled ? pal.textDisabled : pal.text;
         if (item.subtitle.empty()) {
-            g.Text(Rect(textLeft, y, textRight, y + rowH), item.title,
-                   FontRole::Body, main, kLeftText);
+            g.Text(Rect(textLeft, y, textRight, y + rowH),(item.title).c_str(), (item.title).size(),FontRole::Body,main,kLeftText);
         } else {
             const int half = rowH / 2;
-            g.Text(Rect(textLeft, y, textRight, y + half), item.title,
-                   FontRole::Body, main, kLeftText);
-            g.Text(Rect(textLeft, y + half, textRight, y + rowH), item.subtitle,
-                   FontRole::Meta, item.disabled ? pal.textDisabled : pal.textFaint,
-                   kLeftText);
+            g.Text(Rect(textLeft, y, textRight, y + half),(item.title).c_str(), (item.title).size(),FontRole::Body,main,kLeftText);
+            g.Text(Rect(textLeft, y + half, textRight, y + rowH),(item.subtitle).c_str(), (item.subtitle).size(),FontRole::Meta,item.disabled ? pal.textDisabled : pal.textFaint,kLeftText);
         }
 
         if (st.dividers && i + 1 < visible) {
@@ -567,21 +557,17 @@ void Tree::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         const int arrowLeft = rc.left + pad + std::max(0, node.depth) * 16;
         if (node.hasChildren) {
             g.Text(Rect(arrowLeft, y, arrowLeft + 16, y + rowH),
-                   node.expanded ? L"\u25BE" : L"\u25B8",
-                   FontRole::Meta,
-                   node.disabled ? pal.textDisabled : pal.textSub,
-                   kCenterText);
+              node.expanded ? L"\u25BE" : L"\u25B8",
+              wcslen(node.expanded ? L"\u25BE" : L"\u25B8"),
+              FontRole::Meta, node.disabled ? pal.textDisabled : pal.textSub, kCenterText);
         }
 
         const int textLeft = arrowLeft + 18;
-        g.Text(Rect(textLeft, y, rc.right - pad, y + rowH), node.text,
-               FontRole::Body,
-               node.disabled ? pal.textDisabled : pal.text, kLeftText);
+        g.Text(Rect(textLeft, y, rc.right - pad, y + rowH),(node.text).c_str(), (node.text).size(),FontRole::Body,node.disabled ? pal.textDisabled : pal.text,kLeftText);
     }
 
     if (visible.empty()) {
-        g.Text(InflateX(rc, pad), L"暂无数据", FontRole::Meta,
-               pal.textFaint, kCenterText);
+        g.Text(InflateX(rc, pad),L"暂无数据", 4,FontRole::Meta,pal.textFaint,kCenterText);
     }
 
     g.PopClip();
@@ -616,16 +602,14 @@ void Breadcrumb::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
                         mx.radiusSm, pal.hover);
         }
         if (i > 0) {
-            g.Text(Rect(cell.left, rc.top, cell.left + 16, rc.bottom),
-                   L"\u203A", FontRole::Meta, pal.textFaint, kCenterText);
+            g.Text(Rect(cell.left, rc.top, cell.left + 16, rc.bottom),L"\u203A", 1,FontRole::Meta,pal.textFaint,kCenterText);
         }
 
         Color c = st.base.disabled ? pal.textDisabled
                 : i == active ? pal.primaryText
                 : i == st.hovered ? pal.primary
                 : pal.textSub;
-        g.Text(Rect(cell.left + 16, rc.top, cell.right - 4, rc.bottom),
-               st.items[static_cast<std::size_t>(i)], FontRole::Body, c, kLeftText);
+        g.Text(Rect(cell.left + 16, rc.top, cell.right - 4, rc.bottom),(st.items[static_cast<std::size_t>(i)]).c_str(), (st.items[static_cast<std::size_t>(i)]).size(),FontRole::Body,c,kLeftText);
     }
 }
 
@@ -708,8 +692,7 @@ void Pagination::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
                            || (code == -1 && page >= st.pageCount);
 
         if (code == 0) {
-            g.Text(slot.rect, L"\u2026", FontRole::Body,
-                   pal.textFaint, kCenterText);
+            g.Text(slot.rect,L"\u2026", 1,FontRole::Body,pal.textFaint,kCenterText);
             continue;
         }
 
@@ -730,7 +713,7 @@ void Pagination::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         const Color c = disabled ? pal.textDisabled
                       : current ? pal.textInverse
                       : pal.textSub;
-        g.Text(slot.rect, label, FontRole::Body, c, kCenterText);
+        g.Text(slot.rect,(label).c_str(), (label).size(),FontRole::Body,c,kCenterText);
     }
 }
 
@@ -753,7 +736,8 @@ void Toast::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
 
     const Color iconColor = st.base.disabled ? pal.textDisabled : colors.text;
     g.Text(Rect(rc.left + pad, rc.top, rc.left + pad + 28, rc.bottom),
-           GlyphFor(st.kind), FontRole::Icon, iconColor, kCenterText);
+           GlyphFor(st.kind), wcslen(GlyphFor(st.kind)),
+           FontRole::Icon, iconColor, kCenterText);
 
     int textRight = rc.right - pad;
     if (st.closable) {
@@ -764,22 +748,17 @@ void Toast::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         if (st.hoveredClose) {
             g.FillRound(closeRc, mx.radiusSm, pal.hover);
         }
-        g.Text(closeRc, L"\u00D7", FontRole::Body,
-               st.base.disabled ? pal.textDisabled : pal.textSub, kCenterText);
+        g.Text(closeRc,L"\u00D7", 1,FontRole::Body,st.base.disabled ? pal.textDisabled : pal.textSub,kCenterText);
         textRight = closeRc.left - pad;
     }
 
     const int textLeft = rc.left + pad + 32;
     if (st.message.empty()) {
-        g.Text(Rect(textLeft, rc.top, textRight, rc.bottom), st.title,
-               FontRole::Body, BodyText(st.base, pal), kLeftText);
+        g.Text(Rect(textLeft, rc.top, textRight, rc.bottom),(st.title).c_str(), (st.title).size(),FontRole::Body,BodyText(st.base, pal),kLeftText);
     } else {
         const int half = rc.Height() / 2;
-        g.Text(Rect(textLeft, rc.top, textRight, rc.top + half), st.title,
-               FontRole::Body, BodyText(st.base, pal), kLeftText);
-        g.Text(Rect(textLeft, rc.top + half, textRight, rc.bottom), st.message,
-               FontRole::Meta, st.base.disabled ? pal.textDisabled : pal.textSub,
-               kLeftText);
+        g.Text(Rect(textLeft, rc.top, textRight, rc.top + half),(st.title).c_str(), (st.title).size(),FontRole::Body,BodyText(st.base, pal),kLeftText);
+        g.Text(Rect(textLeft, rc.top + half, textRight, rc.bottom),(st.message).c_str(), (st.message).size(),FontRole::Meta,st.base.disabled ? pal.textDisabled : pal.textSub,kLeftText);
     }
 }
 

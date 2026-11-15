@@ -30,11 +30,12 @@ namespace {
 struct PluginApi
 {
     HMODULE               module   = nullptr;
-    AiruiSkiaAbiFn        abi      = nullptr;
+    AiruiSkiaDescribeFn   describe = nullptr;
     AiruiSkiaCreateFn     create   = nullptr;
     AiruiSkiaDestroyFn    destroy  = nullptr;
     AiruiSkiaPixelsFn     pixels   = nullptr;
     AiruiSkiaRowBytesFn   rowBytes = nullptr;
+    const AiruiPluginDesc* desc    = nullptr;   // valid once LoadPlugin() succeeds
     bool                  ready    = false;
     bool                  attempted = false;
 };
@@ -69,14 +70,56 @@ bool LoadPlugin()
     HMODULE module = LoadLibraryW(path);
     if (!module) return false;
     a.module   = module;
-    a.abi      = Resolve<AiruiSkiaAbiFn>(module, AIRUI_SKIA_FN_ABI);
+    a.describe = Resolve<AiruiSkiaDescribeFn>(module, AIRUI_SKIA_FN_DESCRIBE);
     a.create   = Resolve<AiruiSkiaCreateFn>(module, AIRUI_SKIA_FN_CREATE);
     a.destroy  = Resolve<AiruiSkiaDestroyFn>(module, AIRUI_SKIA_FN_DESTROY);
     a.pixels   = Resolve<AiruiSkiaPixelsFn>(module, AIRUI_SKIA_FN_PIXELS);
     a.rowBytes = Resolve<AiruiSkiaRowBytesFn>(module, AIRUI_SKIA_FN_ROW_BYTES);
 
-    if (!a.abi || !a.create || !a.destroy) return false;
-    if (a.abi() != AIRUI_SKIA_PLUGIN_ABI) return false;
+    if (!a.describe || !a.create || !a.destroy) {
+        a.describe = nullptr; a.create = nullptr; a.destroy = nullptr;
+        a.pixels = nullptr; a.rowBytes = nullptr;
+        // No painter was ever created: the live vtable constraint does not
+        // apply yet, so the failed module can be released.
+        FreeLibrary(module);
+        a.module = nullptr;
+        return false;
+    }
+
+    const AiruiPluginDesc* desc = a.describe();
+    if (!desc) {
+        a.describe = nullptr; a.create = nullptr; a.destroy = nullptr;
+        a.pixels = nullptr; a.rowBytes = nullptr;
+        FreeLibrary(module);
+        a.module = nullptr;
+        return false;
+    }
+
+    // Negotiate the ABI: the C function shapes, the struct layout and the
+    // cross-module IPainter vtable revision must ALL match, otherwise a
+    // stale plugin would be loaded as compatible and crash opaquely.
+    if (desc->abi != AIRUI_PLUGIN_ABI ||
+        desc->size < sizeof(AiruiPluginDesc) ||
+        desc->painterIfaceRev != AIRUI_PAINTER_IFACE_REV) {
+        wchar_t why[160] = {};
+        _snwprintf_s(why, _TRUNCATE,
+                     L"airui-skia ABI mismatch: abi=%u want=%u size=%u want>=%u "
+                     L"ifaceRev=%u want=%u caps=0x%x",
+                     (unsigned)desc->abi, (unsigned)AIRUI_PLUGIN_ABI,
+                     (unsigned)desc->size, (unsigned)sizeof(AiruiPluginDesc),
+                     (unsigned)desc->painterIfaceRev,
+                     (unsigned)AIRUI_PAINTER_IFACE_REV, (unsigned)desc->caps);
+        OutputDebugStringW(why);
+        a.describe = nullptr; a.create = nullptr; a.destroy = nullptr;
+        a.pixels = nullptr; a.rowBytes = nullptr;
+        // Still no live painter: safe to unload the stale module.
+        FreeLibrary(module);
+        a.module = nullptr;
+        return false;
+    }
+
+    a.desc = desc;
+    OutputDebugStringW(L"airui-skia plugin loaded");
     a.ready = true;
     return true;
 }
@@ -109,14 +152,14 @@ public:
     { m_raw->StrokeRound(r, radius, c, width); }
     void StrokeDashed(const Rect& r, Color c, int width, int dash) override
     { m_raw->StrokeDashed(r, c, width, dash); }
-    void Text(const Rect& r, const std::wstring& s,
+    void Text(const Rect& r, const wchar_t* s, size_t len,
               FontRole role, Color c, TextFormat fmt) override
-    { m_raw->Text(r, s, role, c, fmt); }
-    void TextBlock(const Rect& r, const std::wstring& s,
+    { m_raw->Text(r, s, len, role, c, fmt); }
+    void TextBlock(const Rect& r, const wchar_t* s, size_t len,
                    FontRole role, Color c, int lines) override
-    { m_raw->TextBlock(r, s, role, c, lines); }
-    int MeasureText(const std::wstring& s, FontRole role) override
-    { return m_raw->MeasureText(s, role); }
+    { m_raw->TextBlock(r, s, len, role, c, lines); }
+    int MeasureText(const wchar_t* s, size_t len, FontRole role) override
+    { return m_raw->MeasureText(s, len, role); }
     void PushClip(const Rect& r) override  { m_raw->PushClip(r); }
     void PopClip() override                { m_raw->PopClip(); }
     void Translate(Point offset) override { m_raw->Translate(offset); }
@@ -220,38 +263,13 @@ bool SkiaPluginSupportsWideText()
         if (_wcsicmp(override, L"backend") == 0) { cached = 1; return true; }
     }
 
+    // Negotiated capability: the plugin advertises AIRUI_CAP_WIDE_TEXT in
+    // its AiruiPluginDesc, replacing the old "draw a han and count opaque
+    // pixels" probe. A plugin that predates caps negotiation simply does
+    // not set the bit, and the host falls back to GDI text.
     PluginApi& a = Api();
-    if (!LoadPlugin() || !a.pixels || !a.rowBytes || !a.create || !a.destroy)
-        return false;
-
-    void* handle = a.create(nullptr, 0, 0, 32, 32);
-    if (!handle) return false;
-
-    // The opaque handle is an IPainter* created inside the plugin. MSVC
-    // vtable/CRT layout matches across toolsets (PluginPainter already
-    // relies on it), so a direct virtual call is safe here.
-    IPainter* painter = reinterpret_cast<IPainter*>(handle);
-    painter->Text(Rect(0, 0, 32, 32), L"\u4E2D", FontRole::Body,
-                  MakeColor(0, 0, 0),
-                  dt::Top | dt::Left | dt::SingleLine);
-
-    const unsigned char* pixels =
-        static_cast<const unsigned char*>(a.pixels(handle));
-    const uint64_t stride = a.rowBytes(handle);
-    int ink = 0;
-    if (pixels && stride >= 32u * 4u) {
-        for (int y = 0; y < 32; ++y) {
-            for (int x = 0; x < 32; ++x) {
-                // BGRA, premultiplied: byte 3 is coverage.
-                if (pixels[static_cast<size_t>(y) * stride +
-                           static_cast<size_t>(x) * 4u + 3u] > 8)
-                    ++ink;
-            }
-        }
-    }
-    a.destroy(handle);   // off-screen frame: Present() is a no-op
-
-    cached = (ink > 4) ? 1 : 0;
+    if (!LoadPlugin() || !a.desc) return false;
+    cached = (a.desc->caps & AIRUI_CAP_WIDE_TEXT) ? 1 : 0;
     return cached != 0;
 }
 

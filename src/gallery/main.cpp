@@ -1,6 +1,7 @@
 ﻿#include "windows.h"
 #include "windowsx.h"
 #include <algorithm>
+#include <cwchar>
 #include <memory>
 #include <string>
 #include <vector>
@@ -875,7 +876,7 @@ private:
         case OverlayKind::Popover:
         case OverlayKind::Tooltip:
             g.TextBlock(c, L"由 OverlayStack 按 z 序绘制；点击外部或按 Esc 关闭。",
-                        FontRole::Body, p.textSub, 3);
+                        37, FontRole::Body, p.textSub, 3);
             break;
         case OverlayKind::Dropdown: {
             const wchar_t* opts[] = {L"复制到剪贴板", L"导出为 CSV", L"查看详情"};
@@ -885,7 +886,7 @@ private:
                 if (i == m_overlayHoverOption ||
                     (m_overlayCtl.ActiveGroup() > 0 && m_overlayCtl.FocusedId() == fid))
                     g.FillRound(lr.rows[i], mx.radiusSm, p.hover);
-                g.Text(lr.rows[i], opts[i], FontRole::Body, p.text, kText);
+                g.Text(lr.rows[i], opts[i], wcslen(opts[i]), FontRole::Body, p.text, kText);
             }
             break;
         }
@@ -894,7 +895,7 @@ private:
             msg.bottom = c.top + mx.rowH * 2;
             g.TextBlock(msg,
                 L"模态层拦截所有外部点击；Tab 只在层内循环，关闭后焦点回到打开前的控件。",
-                FontRole::Body, p.textSub, 3);
+                37, FontRole::Body, p.textSub, 3);
             const LayerItemRects lr = LayerRectsFor(layer);
             ControlState stOk, stCancel;
             stOk.hover = (m_overlayCtl.FocusedId() == kModalOk);

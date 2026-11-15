@@ -50,11 +50,11 @@ struct RecordingPainter : IPainter
     { ops.push_back("strokeRound"); }
     void StrokeDashed(const Rect&, Color, int, int) override
     { ops.push_back("strokeDashed"); }
-    void Text(const Rect&, const std::wstring&, FontRole, Color, TextFormat) override
+    void Text(const Rect&, const wchar_t*, size_t, FontRole, Color, TextFormat) override
     { ops.push_back("text"); }
-    void TextBlock(const Rect&, const std::wstring&, FontRole, Color, int) override
+    void TextBlock(const Rect&, const wchar_t*, size_t, FontRole, Color, int) override
     { ops.push_back("textBlock"); }
-    int  MeasureText(const std::wstring&, FontRole) override { return 42; }
+    int  MeasureText(const wchar_t*, size_t, FontRole) override { return 42; }
     void PushClip(const Rect&) override { ops.push_back("pushClip"); }
     void PopClip() override             { ops.push_back("popClip"); }
     void Translate(Point) override      { ops.push_back("translate"); }
@@ -177,8 +177,7 @@ int main()
               DT_SINGLELINE | DT_LEFT | DT_TOP | DT_NOPREFIX);
     Check(mock.Count("text") == 0,
           "host-text mode keeps text away from the backend");
-    frame.Text(Rect(2, 2, 60, 28), L"\u4E2D\u6587", FontRole::Body,
-               MakeColor(0, 0, 0), dt::Top | dt::Left | dt::SingleLine);
+    frame.Text(Rect(2, 2, 60, 28),L"\u4E2D\u6587", 2,FontRole::Body,MakeColor(0, 0, 0),dt::Top | dt::Left | dt::SingleLine);
     Check(mock.Count("text") == 0,
           "IPainter::Text uses the same host-text policy");
     frame.FillRectAlpha(Rect(0, 0, 64, 32), MakeColor(0, 0, 0), 128);

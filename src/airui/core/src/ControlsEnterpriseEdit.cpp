@@ -4,6 +4,7 @@
 #include "airui/ControlsEnterprise.h"
 
 #include <algorithm>
+#include <cwchar>
 #include <cmath>
 #include <cstddef>
 #include <string>
@@ -354,11 +355,10 @@ void QueryBuilder::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     const Rect inner = Inset(rc, mx.unit);
     if (inner.Empty() || lay.header.Empty()) return;
     g.PushClip(inner);
-    g.Text(lay.header, st.title, FontRole::Section, pal.text, kPlain);
+    g.Text(lay.header,(st.title).c_str(), (st.title).size(),FontRole::Section,pal.text,kPlain);
     const Rect countRc(lay.header.left, lay.header.top,
                        lay.header.right, lay.header.bottom);
-    g.Text(countRc, L"共 " + std::to_wstring(st.conditions.size()) + L" 条",
-           FontRole::Meta, pal.textFaint, kRight);
+    g.Text(countRc,(L"共 " + std::to_wstring(st.conditions.size()) + L" 条").c_str(), (L"共 " + std::to_wstring(st.conditions.size()) + L" 条").size(),FontRole::Meta,pal.textFaint,kRight);
     const Color textColor = disabled ? pal.textDisabled : pal.text;
     for (std::size_t i = 0; i < lay.rows.size(); ++i) {
         const QueryRowLayout& r = lay.rows[i];
@@ -369,9 +369,7 @@ void QueryBuilder::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         const bool where = i == 0;
         g.FillRound(r.logic, mx.radiusSm,
                     where ? pal.sunken : pal.chipBg);
-        g.Text(r.logic, where ? L"WHERE" : c.logic,
-               FontRole::Meta,
-               where ? pal.textFaint : pal.primaryText, kCenter);
+        g.Text(r.logic,(where ? L"WHERE" : c.logic).c_str(), (where ? L"WHERE" : c.logic).size(),FontRole::Meta,where ? pal.textFaint : pal.primaryText,kCenter);
         const Rect cells[3] = {r.field, r.op, r.value};
         const std::wstring texts[3] = {c.field, c.op, c.value};
         for (int k = 0; k < 3; ++k) {
@@ -382,20 +380,18 @@ void QueryBuilder::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
             const Rect textRc = Inset(cells[k], mx.unit / 2);
             if (!textRc.Empty()) {
                 const bool blank = texts[k].empty() && k == 2;
-                g.Text(textRc, blank ? L"输入值" : texts[k], FontRole::Body,
-                       blank ? pal.textFaint : textColor, kLeft);
+                g.Text(textRc,(blank ? L"输入值" : texts[k]).c_str(), (blank ? L"输入值" : texts[k]).size(),FontRole::Body,blank ? pal.textFaint : textColor,kLeft);
             }
         }
         g.FillRound(r.remove, mx.radiusSm,
                     rowHover ? pal.iconTileHover : pal.sunken);
-        g.Text(r.remove, L"\x00D7", FontRole::Body, pal.textSub, kCenter);
+        g.Text(r.remove,L"\x00D7", 1,FontRole::Body,pal.textSub,kCenter);
     }
     if (!lay.add.Empty()) {
         g.FillRound(lay.add, mx.radiusSm,
                     st.addHover ? pal.primarySoft : pal.chipBg);
         g.StrokeRound(lay.add, mx.radiusSm, pal.chipBorder, 1);
-        g.Text(lay.add, L"+ 添加条件", FontRole::Button,
-               disabled ? pal.textDisabled : pal.primaryText, kCenter);
+        g.Text(lay.add,L"+ 添加条件", 6,FontRole::Button,disabled ? pal.textDisabled : pal.primaryText,kCenter);
     }
     g.PopClip();
 }
@@ -464,8 +460,7 @@ void PropertyGrid::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
                     break;
                 }
             }
-            g.Text(Inset(r.row, mx.unit / 2), label, FontRole::Meta,
-                   pal.textSub, kPlain);
+            g.Text(Inset(r.row, mx.unit / 2),(label).c_str(), (label).size(),FontRole::Meta,pal.textSub,kPlain);
             continue;
         }
         const PropertyItem& item = st.items[static_cast<std::size_t>((std::max)(0, r.item))];
@@ -478,8 +473,7 @@ void PropertyGrid::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         g.FillRect(Rect(r.name.right, r.row.top, r.name.right + 1, r.row.bottom),
                    pal.split);
         const Color labelColor = item.enabled ? pal.textSub : pal.textDisabled;
-        g.Text(Inset(r.name, mx.unit / 2), item.name, FontRole::Body,
-               labelColor, kLeft);
+        g.Text(Inset(r.name, mx.unit / 2),(item.name).c_str(), (item.name).size(),FontRole::Body,labelColor,kLeft);
         const Rect valueRc = Inset(r.value, mx.unit / 2);
         if (valueRc.Empty()) continue;
         if (item.kind == PropertyKind::Bool) {
@@ -492,17 +486,16 @@ void PropertyGrid::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
             g.StrokeRound(check, mx.radiusSm, pal.border, 1);
             g.Text(Rect(check.right + mx.unit / 2, valueRc.top,
                         valueRc.right, valueRc.bottom),
-                   item.value == L"true" ? L"已启用" : L"已关闭",
-                   FontRole::Meta, labelColor, kLeft);
+              item.value == L"true" ? L"已启用" : L"已关闭",
+              wcslen(item.value == L"true" ? L"已启用" : L"已关闭"),
+              FontRole::Meta, labelColor, kLeft);
         } else if (item.kind == PropertyKind::Choice) {
-            g.Text(valueRc, item.value, FontRole::Body, labelColor, kLeft);
+            g.Text(valueRc,(item.value).c_str(), (item.value).size(),FontRole::Body,labelColor,kLeft);
             const Rect arrow(valueRc.right - mx.unit * 2, valueRc.top,
                              valueRc.right, valueRc.bottom);
-            g.Text(arrow, L"\x203A", FontRole::Body, pal.textFaint, kRight);
+            g.Text(arrow,L"\x203A", 1,FontRole::Body,pal.textFaint,kRight);
         } else {
-            g.Text(valueRc, item.value, FontRole::Body,
-                   item.enabled ? pal.text : pal.textDisabled,
-                   item.kind == PropertyKind::Number ? kRight : kLeft);
+            g.Text(valueRc,(item.value).c_str(), (item.value).size(),FontRole::Body,item.enabled ? pal.text : pal.textDisabled,item.kind == PropertyKind::Number ? kRight : kLeft);
         }
     }
     g.PopClip();
@@ -563,9 +556,7 @@ void Schedule::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
             const Rect label(lay.timeCol.left, y,
                              lay.timeCol.right,
                              (std::min)(y + lay.hourH, lay.timeCol.bottom));
-            g.Text(Inset(label, mx.unit / 4),
-                   std::to_wstring(st.startHour + h) + L":00",
-                   FontRole::Meta, pal.textFaint, kRight);
+            g.Text(Inset(label, mx.unit / 4),(std::to_wstring(st.startHour + h) + L":00").c_str(), (std::to_wstring(st.startHour + h) + L":00").size(),FontRole::Meta,pal.textFaint,kRight);
         }
     }
     // day columns
@@ -575,9 +566,7 @@ void Schedule::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
             g.FillRect(Rect(x, lay.grid.top, x + 1, lay.grid.bottom), pal.split);
         }
         const Rect cell(x, lay.header.top, x + lay.colW, lay.header.bottom);
-        g.Text(Inset(cell, mx.unit / 4), st.days[static_cast<std::size_t>(d)],
-               FontRole::Body,
-               d == st.today ? pal.primaryText : pal.textSub, kCenter);
+        g.Text(Inset(cell, mx.unit / 4),(st.days[static_cast<std::size_t>(d)]).c_str(), (st.days[static_cast<std::size_t>(d)]).size(),FontRole::Body,d == st.today ? pal.primaryText : pal.textSub,kCenter);
     }
     // event blocks
     for (std::size_t i = 0; i < lay.bars.size(); ++i) {
@@ -593,8 +582,7 @@ void Schedule::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         const Rect textRc(bar.left + mx.unit / 2, bar.top,
                           bar.right - mx.unit / 4, bar.bottom);
         if (!textRc.Empty()) {
-            g.Text(textRc, ev.title, FontRole::Meta,
-                   hot ? pal.textInverse : kc.text, kLeft);
+            g.Text(textRc,(ev.title).c_str(), (ev.title).size(),FontRole::Meta,hot ? pal.textInverse : kc.text,kLeft);
         }
     }
     g.PopClip();
@@ -653,9 +641,8 @@ void FileDropZone::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
                        lay.drop.right - mx.unit, lay.drop.top + titleH);
     const Rect hintRc(lay.drop.left + mx.unit, titleRc.bottom,
                       lay.drop.right - mx.unit, lay.drop.bottom);
-    g.Text(titleRc, st.title, FontRole::Button,
-           st.dragOver ? pal.primaryText : pal.text, kCenter);
-    g.Text(hintRc, st.hint, FontRole::Meta, pal.textFaint, kCenter);
+    g.Text(titleRc,(st.title).c_str(), (st.title).size(),FontRole::Button,st.dragOver ? pal.primaryText : pal.text,kCenter);
+    g.Text(hintRc,(st.hint).c_str(), (st.hint).size(),FontRole::Meta,pal.textFaint,kCenter);
     for (std::size_t i = 0; i < lay.rows.size(); ++i) {
         const Rect& row = lay.rows[i];
         const UploadFile& f = st.files[i];
@@ -675,11 +662,11 @@ void FileDropZone::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
                                     noteRc.left - mx.unit),
                          (std::min)(row.bottom - 1, nameRc.bottom + mx.unit / 2));
         if (!nameRc.Empty()) {
-            g.Text(nameRc, f.name, FontRole::Body, pal.text, kLeft);
+            g.Text(nameRc,(f.name).c_str(), (f.name).size(),FontRole::Body,pal.text,kLeft);
         }
         const KindColors kc = ColorsFor(f.kind, pal);
         if (!noteRc.Empty()) {
-            g.Text(noteRc, f.note, FontRole::Meta, kc.text, kRight);
+            g.Text(noteRc,(f.note).c_str(), (f.note).size(),FontRole::Meta,kc.text,kRight);
         }
         if (!track.Empty()) {
             g.FillRect(track, pal.sunken);
@@ -692,7 +679,7 @@ void FileDropZone::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
             }
         }
         if (!removeRc.Empty()) {
-            g.Text(removeRc, L"\x00D7", FontRole::Body, pal.textFaint, kCenter);
+            g.Text(removeRc,L"\x00D7", 1,FontRole::Body,pal.textFaint,kCenter);
         }
     }
     g.PopClip();

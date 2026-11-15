@@ -4,6 +4,7 @@
 #include "airui/ControlsEnterprise.h"
 
 #include <algorithm>
+#include <cwchar>
 #include <cstddef>
 #include <string>
 #include <vector>
@@ -331,13 +332,11 @@ void TreeMap::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         g.StrokeRound(tile, mx.radiusSm, sc.edge, hot ? 2 : 1);
         const Rect textRc = Inset(tile, mx.unit / 2);
         if (textRc.Empty()) continue;
-        g.Text(textRc, item.label, FontRole::Body,
-               hot ? pal.textInverse : sc.text, kCenter);
+        g.Text(textRc,(item.label).c_str(), (item.label).size(),FontRole::Body,hot ? pal.textInverse : sc.text,kCenter);
         if (textRc.Height() >= mx.rowH) {
             const Rect weightRc(textRc.left, textRc.bottom - mx.rowH / 2,
                                 textRc.right, textRc.bottom);
-            g.Text(weightRc, std::to_wstring((std::max)(0, item.weight)),
-                   FontRole::Meta, hot ? pal.textInverse : sc.text, kCenter);
+            g.Text(weightRc,(std::to_wstring((std::max)(0, item.weight))).c_str(), (std::to_wstring((std::max)(0, item.weight))).size(),FontRole::Meta,hot ? pal.textInverse : sc.text,kCenter);
         }
     }
     g.PopClip();
@@ -382,7 +381,7 @@ void Funnel::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     if (inner.Empty()) return;
     g.PushClip(inner);
     if (!lay.titleRc.Empty()) {
-        g.Text(lay.titleRc, st.title, FontRole::Section, pal.text, kLeft);
+        g.Text(lay.titleRc,(st.title).c_str(), (st.title).size(),FontRole::Section,pal.text,kLeft);
     }
     const int first = st.stages.empty() ? 0 : st.stages[0].value;
     for (std::size_t i = 0; i < lay.bars.size(); ++i) {
@@ -395,10 +394,8 @@ void Funnel::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         g.StrokeRound(bar, mx.radiusSm, sc.edge, 1);
         const Rect labelRc = Inset(bar, mx.unit / 2);
         if (!labelRc.Empty()) {
-            g.Text(labelRc, stage.label, FontRole::Body,
-                   hot ? pal.textInverse : sc.text, kLeft);
-            g.Text(labelRc, std::to_wstring(stage.value), FontRole::Body,
-                   hot ? pal.textInverse : sc.text, kRight);
+            g.Text(labelRc,(stage.label).c_str(), (stage.label).size(),FontRole::Body,hot ? pal.textInverse : sc.text,kLeft);
+            g.Text(labelRc,(std::to_wstring(stage.value)).c_str(), (std::to_wstring(stage.value)).size(),FontRole::Body,hot ? pal.textInverse : sc.text,kRight);
         }
         if (!st.showRate || i >= lay.rates.size()) continue;
         const Rect& rateRc = lay.rates[i];
@@ -408,8 +405,7 @@ void Funnel::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
                                          static_cast<long long>(stage.value) *
                                          100 / first), 0, 100)
                             : 0;
-        g.Text(rateRc, std::to_wstring(pct) + L"%", FontRole::Meta,
-               i == 0 ? pal.textFaint : pal.textSub, kLeft);
+        g.Text(rateRc,(std::to_wstring(pct) + L"%").c_str(), (std::to_wstring(pct) + L"%").size(),FontRole::Meta,i == 0 ? pal.textFaint : pal.textSub,kLeft);
     }
     g.PopClip();
 }
@@ -454,18 +450,16 @@ void Diff::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     g.PushClip(inner);
     if (!lay.header.Empty()) {
         g.FillRect(lay.header, pal.sunken);
-        g.Text(Inset(lay.header, mx.unit / 2), st.file, FontRole::Body,
-               pal.textSub, kLeft);
+        g.Text(Inset(lay.header, mx.unit / 2),(st.file).c_str(), (st.file).size(),FontRole::Body,pal.textSub,kLeft);
         int added = 0;
         int removed = 0;
         for (const DiffLine& line : st.lines) {
             if (line.kind == DiffKind::Added) ++added;
             if (line.kind == DiffKind::Removed) ++removed;
         }
-        g.Text(Inset(lay.header, mx.unit / 2),
-               L"+" + std::to_wstring(added) + L"  \x2212" +
-                   std::to_wstring(removed),
-               FontRole::Meta, pal.textFaint, kRight);
+        g.Text(Inset(lay.header, mx.unit / 2),(L"+" + std::to_wstring(added) + L"  \x2212" +
+                   std::to_wstring(removed)).c_str(), (L"+" + std::to_wstring(added) + L"  \x2212" +
+                   std::to_wstring(removed)).size(),FontRole::Meta,pal.textFaint,kRight);
     }
     const int numW = mx.unit * 4;
     int oldNo = st.firstOld;
@@ -490,19 +484,18 @@ void Diff::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         const Color bodyColor = add ? pal.okText
                                     : (del ? pal.errorText : pal.text);
         if (!add) {
-            g.Text(oldRc, std::to_wstring(oldNo), FontRole::Meta,
-                   pal.textFaint, kRight);
+            g.Text(oldRc,(std::to_wstring(oldNo)).c_str(), (std::to_wstring(oldNo)).size(),FontRole::Meta,pal.textFaint,kRight);
             ++oldNo;
         }
         if (!del) {
-            g.Text(newRc, std::to_wstring(newNo), FontRole::Meta,
-                   pal.textFaint, kRight);
+            g.Text(newRc,(std::to_wstring(newNo)).c_str(), (std::to_wstring(newNo)).size(),FontRole::Meta,pal.textFaint,kRight);
             ++newNo;
         }
         g.Text(signRc, add ? L"+" : (del ? L"\x2212" : L" "),
-               FontRole::Body, numColor, kCenter);
+              wcslen(add ? L"+" : (del ? L"\x2212" : L" ")),
+              FontRole::Body, numColor, kCenter);
         if (!textRc.Empty()) {
-            g.Text(textRc, line.text, FontRole::Body, bodyColor, kLeft);
+            g.Text(textRc,(line.text).c_str(), (line.text).size(),FontRole::Body,bodyColor,kLeft);
         }
     }
     g.PopClip();
@@ -550,15 +543,13 @@ void Score::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         const Rect scoreRc(lay.summary.left, lay.summary.top,
                            lay.summary.left + mx.unit * 12,
                            lay.summary.bottom);
-        g.Text(scoreRc, OneDecimal(st.average), FontRole::Display,
-               pal.primaryText, kLeft);
+        g.Text(scoreRc,(OneDecimal(st.average)).c_str(), (OneDecimal(st.average)).size(),FontRole::Display,pal.primaryText,kLeft);
         const Rect infoRc((std::min)(scoreRc.right, lay.summary.right),
                           lay.summary.top, lay.summary.right,
                           lay.summary.bottom);
         if (!infoRc.Empty()) {
-            g.Text(infoRc, st.title, FontRole::Section, pal.text, kLeft);
-            g.Text(infoRc, L"共 " + std::to_wstring(st.total) + L" 条评价",
-                   FontRole::Meta, pal.textFaint, kRight);
+            g.Text(infoRc,(st.title).c_str(), (st.title).size(),FontRole::Section,pal.text,kLeft);
+            g.Text(infoRc,(L"共 " + std::to_wstring(st.total) + L" 条评价").c_str(), (L"共 " + std::to_wstring(st.total) + L" 条评价").size(),FontRole::Meta,pal.textFaint,kRight);
         }
     }
     int maxCount = 1;
@@ -570,8 +561,7 @@ void Score::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
         if (track.Empty()) continue;
         const Rect labelRc = i < lay.labels.size() ? lay.labels[i] : Rect{};
         if (!labelRc.Empty()) {
-            g.Text(labelRc, std::to_wstring(5 - static_cast<int>(i)) + L" 星",
-                   FontRole::Meta, pal.textSub, kLeft);
+            g.Text(labelRc,(std::to_wstring(5 - static_cast<int>(i)) + L" 星").c_str(), (std::to_wstring(5 - static_cast<int>(i)) + L" 星").size(),FontRole::Meta,pal.textSub,kLeft);
         }
         const int barH = (std::max)(2, mx.unit);
         const Rect bar(track.left,
@@ -595,8 +585,7 @@ void Score::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
                                                  st.counts[i]) * 100 /
                                              st.total), 0, 100)
                                 : 0;
-            g.Text(pctRc, std::to_wstring(pct) + L"%", FontRole::Meta,
-                   pal.textFaint, kRight);
+            g.Text(pctRc,(std::to_wstring(pct) + L"%").c_str(), (std::to_wstring(pct) + L"%").size(),FontRole::Meta,pal.textFaint,kRight);
         }
     }
     g.PopClip();

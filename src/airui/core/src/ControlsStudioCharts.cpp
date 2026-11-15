@@ -4,6 +4,7 @@
 #include "airui/ControlsStudio.h"
 
 #include <algorithm>
+#include <cwchar>
 #include <cstddef>
 #include <string>
 #include <vector>
@@ -415,14 +416,12 @@ void Sparkline::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     const TrendColors tc = Trend(st.change, pal);
     const bool disabled = st.base.disabled;
 
-    g.Text(o.header, st.title, FontRole::Section, pal.textSub, kLeft);
-    g.Text(o.header, SignedPercent(st.change), FontRole::Body,
-           disabled ? pal.textDisabled : tc.text, kRight);
+    g.Text(o.header,(st.title).c_str(), (st.title).size(),FontRole::Section,pal.textSub,kLeft);
+    g.Text(o.header,(SignedPercent(st.change)).c_str(), (SignedPercent(st.change)).size(),FontRole::Body,disabled ? pal.textDisabled : tc.text,kRight);
 
     if (!st.values.empty()) {
         const double last = st.values.back();
-        g.Text(o.valueRc, st.unit + Whole(last), FontRole::Display,
-               disabled ? pal.textDisabled : pal.text, kLeft);
+        g.Text(o.valueRc,(st.unit + Whole(last)).c_str(), (st.unit + Whole(last)).size(),FontRole::Display,disabled ? pal.textDisabled : pal.text,kLeft);
     }
 
     if (o.plot.Empty()) return;
@@ -498,7 +497,7 @@ void Waterfall::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     const WaterfallLayout o = GeoWaterfall(rc, st, mx);
     if (o.titleRc.Empty()) return;
     const bool disabled = st.base.disabled;
-    g.Text(o.titleRc, st.title, FontRole::Section, pal.text, kLeft);
+    g.Text(o.titleRc,(st.title).c_str(), (st.title).size(),FontRole::Section,pal.text,kLeft);
     if (o.plot.Empty()) return;
 
     g.FillRect(Rect(o.plot.left, o.zeroY, o.plot.right,
@@ -522,8 +521,7 @@ void Waterfall::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     g.PopClip();
     for (std::size_t i = 0; i < o.labels.size(); ++i) {
         if (o.labels[i].Empty()) continue;
-        g.Text(o.labels[i], st.bars[i].label, FontRole::Meta,
-               pal.textFaint, kCenter);
+        g.Text(o.labels[i],(st.bars[i].label).c_str(), (st.bars[i].label).size(),FontRole::Meta,pal.textFaint,kCenter);
     }
 }
 
@@ -568,7 +566,7 @@ void StackedBar::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     if (rc.Empty()) return;
     const StackedBarLayout o = GeoStacked(rc, st, mx);
     if (o.header.Empty()) return;
-    g.Text(o.header, st.title, FontRole::Section, pal.text, kLeft);
+    g.Text(o.header,(st.title).c_str(), (st.title).size(),FontRole::Section,pal.text,kLeft);
 
     if (!o.legendRc.Empty() && !st.legend.empty()) {
         g.PushClip(o.legendRc);
@@ -586,7 +584,7 @@ void StackedBar::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
             if (!dot.Empty()) g.FillRound(dot, mx.radiusSm,
                                           SeriesColor(static_cast<int>(i), pal));
             if (!text.Empty()) {
-                g.Text(text, st.legend[i], FontRole::Meta, pal.textSub, kLeft);
+                g.Text(text,(st.legend[i]).c_str(), (st.legend[i]).size(),FontRole::Meta,pal.textSub,kLeft);
             }
         }
         g.PopClip();
@@ -595,8 +593,7 @@ void StackedBar::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     g.PushClip(o.body);
     for (std::size_t i = 0; i < o.rowRects.size(); ++i) {
         if (!o.labels[i].Empty()) {
-            g.Text(o.labels[i], st.rows[i].label, FontRole::Body,
-                   pal.textSub, kLeft);
+            g.Text(o.labels[i],(st.rows[i].label).c_str(), (st.rows[i].label).size(),FontRole::Body,pal.textSub,kLeft);
         }
         for (std::size_t j = 0; j < o.segments[i].size(); ++j) {
             const Rect& seg = o.segments[i][j];
@@ -617,8 +614,7 @@ void StackedBar::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
                     (std::max)(0.0, st.rows[i].values[j]);
                 const int pct = total > 0.0
                     ? static_cast<int>(part / total * 100.0 + 0.5) : 0;
-                g.Text(seg, std::to_wstring(pct) + L"%", FontRole::Meta,
-                       pal.surface, kCenter);
+                g.Text(seg,(std::to_wstring(pct) + L"%").c_str(), (std::to_wstring(pct) + L"%").size(),FontRole::Meta,pal.surface,kCenter);
             }
         }
     }
@@ -664,12 +660,11 @@ void Gauge::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     const bool over = value >= st.warnAt;
     const bool disabled = st.base.disabled;
 
-    g.Text(o.header, st.title, FontRole::Section, pal.text, kLeft);
-    g.Text(o.valueRc, Whole(value) + L" " + st.unit, FontRole::Display,
-           disabled ? pal.textDisabled : (over ? pal.errorText : pal.text),
-           kLeft);
-    g.Text(o.valueRc, over ? L"已超过阈值" : L"运行正常", FontRole::Meta,
-           over ? pal.errorText : pal.okText, kRight);
+    g.Text(o.header,(st.title).c_str(), (st.title).size(),FontRole::Section,pal.text,kLeft);
+    g.Text(o.valueRc,(Whole(value) + L" " + st.unit).c_str(), (Whole(value) + L" " + st.unit).size(),FontRole::Display,disabled ? pal.textDisabled : (over ? pal.errorText : pal.text),kLeft);
+    g.Text(o.valueRc, over ? L"已超过阈值" : L"运行正常",
+              wcslen(over ? L"已超过阈值" : L"运行正常"),
+              FontRole::Meta, over ? pal.errorText : pal.okText, kRight);
 
     if (o.band.Empty()) return;
     g.PushClip(o.band);
@@ -693,10 +688,9 @@ void Gauge::Paint(IPainter& g, const Palette& pal, const Metrics& mx)
     if (!o.threshold.Empty()) g.FillRect(o.threshold, pal.warn);
     g.PopClip();
     if (!o.scale.Empty()) {
-        g.Text(o.scale, Whole(st.min), FontRole::Meta, pal.textFaint, kLeft);
-        g.Text(o.scale, L"阈值 " + Whole(st.warnAt), FontRole::Meta,
-               pal.warnText, kCenter);
-        g.Text(o.scale, Whole(st.max), FontRole::Meta, pal.textFaint, kRight);
+        g.Text(o.scale,(Whole(st.min)).c_str(), (Whole(st.min)).size(),FontRole::Meta,pal.textFaint,kLeft);
+        g.Text(o.scale,(L"阈值 " + Whole(st.warnAt)).c_str(), (L"阈值 " + Whole(st.warnAt)).size(),FontRole::Meta,pal.warnText,kCenter);
+        g.Text(o.scale,(Whole(st.max)).c_str(), (Whole(st.max)).size(),FontRole::Meta,pal.textFaint,kRight);
     }
 }
 

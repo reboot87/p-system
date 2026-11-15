@@ -9,13 +9,16 @@
 // IPainter* created and destroyed INSIDE the plugin, so ownership
 // never crosses a CRT boundary.
 //
-// Bump AIRUI_SKIA_PLUGIN_ABI whenever a function shape changes;
-// the loader refuses a DLL with a different ABI instead of crashing.
+// The generic versioned description struct (AiruiPluginDesc with
+// size / abi / caps / painterIfaceRev) lives in src/pluginapi and is
+// the contract negotiated through airui_skia_describe. Bump the C ABI
+// number and the painter interface revision together whenever the
+// cross-module IPainter vtable changes; the loader refuses a DLL that
+// does not match instead of crashing.
 // ============================================================
+#include "pluginapi/airui_plugin_abi.h"
 #include <stddef.h>
 #include <stdint.h>
-
-#define AIRUI_SKIA_PLUGIN_ABI 1
 
 #ifdef _WIN32
 #define AIRUI_SKIA_CALL __cdecl
@@ -28,7 +31,7 @@
 #endif
 
 // Exported symbol names (GetProcAddress / dlsym).
-#define AIRUI_SKIA_FN_ABI       "airui_skia_abi"
+#define AIRUI_SKIA_FN_DESCRIBE "airui_skia_describe"
 #define AIRUI_SKIA_FN_CREATE    "airui_skia_create"
 #define AIRUI_SKIA_FN_DESTROY   "airui_skia_destroy"
 #define AIRUI_SKIA_FN_PIXELS    "airui_skia_pixels"
@@ -36,8 +39,9 @@
 
 extern "C" {
 
-// Returns AIRUI_SKIA_PLUGIN_ABI.
-typedef int (AIRUI_SKIA_CALL *AiruiSkiaAbiFn)();
+// Returns a pointer to the plugin's static AiruiPluginDesc, negotiated
+// by the host (abi / size / painterIfaceRev must all match).
+typedef AiruiPluginDescribeFn AiruiSkiaDescribeFn;
 
 // surface: opaque native drawing surface, or nullptr for an off-screen
 // frame. (l,t,r,b): frame bounds in logical pixels.
