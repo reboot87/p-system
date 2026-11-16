@@ -382,6 +382,7 @@
 
 ### P3-1 测试资产整理
 
+- **状态（P3-1 已完成）**：11 个孤儿测试已按上述分类处理（8 个移到 `tools/diagnostics/`，3 个删除）；`test_font_lab` 已注明为手动排版诊断工具，未注册 ctest；`test_maximize.cpp` 的 FAIL 分支已返回非零；`CMakeLists.txt` 的 ctest 循环已改为对缺失目标报 `FATAL_ERROR`（Skia 条件目标白名单）。`ctest -N` 与 `ctest -C Release` 全绿。
 - **证据**：`tests/` 下 37 个 `test_*.cpp`，其中 **11 个完全不被 CMake 引用**（`test_flash_screen` / `test_gallery_page_regression` / `test_gallery_shellcore_drawcalls` / `test_max_frames` / `test_maximize` / `test_restore_frames` / `test_scroll_diff` / `test_scroll_frames` / `test_shell_core` / `test_shell_gdi` / `test_win32_hal_integration`）；`test_font_lab` 在 `CMakeLists.txt:600` 被编译却不在 `:729` 的 ctest 列表里；`tests/test_maximize.cpp:84-85` 打印 `FAIL` 后恒 `return 0`；`:730` 的 `if(TARGET ${_t})` 会静默跳过不存在的目标，用例数悄悄减少。
 - **改法**：11 个孤儿二选一——**移到 `tools/diagnostics/` 并加 README 说明启动前提**，或删除；`test_font_lab` 注册 ctest 或补注释说明为何是手动工具；`test_maximize.cpp:85` 改 `return failed ? 1 : 0;`；把 `:729` 的硬编码列表改成注册函数，或在循环末尾加 `if(NOT TARGET ${_t}) message(FATAL_ERROR "test target missing: ${_t}")`（Win32 / Skia 条件目标单独白名单）。
 - **验收**：`ctest -N` 列出的用例数与预期一致；新增一个测试只需改一处；`git grep` 无未被引用的 `test_*.cpp`。

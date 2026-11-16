@@ -81,6 +81,7 @@ int main(void)
         Sleep(400);
     }
 
-    printf(g_black * 100 / (g_total ? g_total : 1) < 2 ? "PASS\n" : "FAIL\n");
-    return 0;
+    int failed = g_black * 100 / (g_total ? g_total : 1) < 2 ? 0 : 1;
+    printf(failed ? "FAIL\n" : "PASS\n");
+    return failed ? 1 : 0;
 }

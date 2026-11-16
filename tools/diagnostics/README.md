@@ -1,0 +1,44 @@
+# tools/diagnostics — manual / ad-hoc diagnostics
+
+These sources are **not** part of the automated test suite: they are manual,
+interactive diagnostics used during development to observe window animation,
+frame capture and gallery draw-call behaviour. They are not built by CMake and
+are not registered as ctest cases.
+
+To use one, add it to a build target by hand (or compile directly), start a
+**running `airecord.exe`** first when a diagnostic looks up the `AireRecordWnd`
+window, and interpret the printed numbers yourself — most of these tools print
+measurements (black-pixel %, frame diff %, op counts) rather than a
+pass/fail verdict that a machine can assert on.
+
+## Window-animation / frame-forensics tools
+
+These require a running `airecord.exe` window (`FindWindowW(L"AireRecordWnd")`).
+
+- `test_flash_screen.cpp` — screen-level (real user-visible) near-black
+  coverage during the maximize/restore animation. Startup: `airecord.exe`
+  running and visible.
+- `test_maximize.cpp` — client-area frame capture during the maximize/restore
+  animation, reports worst-frame black %. Startup: `airecord.exe` running.
+- `test_max_frames.cpp` — captures frames to BMP while sending SC_MAXIMIZE.
+  Startup: `airecord.exe` running.
+- `test_restore_frames.cpp` — captures frames to BMP while sending SC_RESTORE.
+  Startup: `airecord.exe` running.
+- `test_scroll_frames.cpp` — captures window-region frames to BMP while
+  sending `WM_VSCROLL` to the clipboard list. Startup: `airecord.exe` running,
+  on the clipboard page.
+- `test_scroll_diff.cpp` — analyses the captured `scroll_*.bmp` frames
+  (written by `test_scroll_frames`) for inter-frame churn. Run *after*
+  `test_scroll_frames` has produced frames in the temp dir.
+
+## Gallery draw-call tools
+
+These are platform-free (ShellCore + a recording IPainter) but write a small
+draw-call dump to `gallery_page_drawcalls_*.txt` for manual diffing; they are
+kept here because their output is a human inspection artifact, not an
+assertion.
+
+- `test_gallery_page_regression.cpp` — captures enabled vs disabled gallery
+  page draw calls to `gallery_page_drawcalls_enabled/disabled.txt`.
+- `test_gallery_shellcore_drawcalls.cpp` — prints the ShellCore draw op count
+  (asserts an expected count of 13, so it can fail) and lists the first ops.

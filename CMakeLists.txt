@@ -616,6 +616,9 @@ if(WIN32)
     # and prints the raster as ASCII plus coverage statistics, so a
     # "these two fonts look different" report can be turned into named
     # causes (weight, subpixel phase, baseline, advance grid).
+    # NOTE: this is a MANUAL diagnostic tool, not an assertion-based test:
+    # it always exits 0 (pure measurement/print) and therefore is NOT
+    # registered in the ctest foreach list below.
     add_executable(test_font_lab tests/test_font_lab.cpp)
     target_link_libraries(test_font_lab PRIVATE airui-win32 airui-core)
     set_target_properties(test_font_lab PROPERTIES
@@ -740,6 +743,13 @@ endif()
 # (window lookup + IPC), so it is not registered as a ctest case.
 enable_testing()
 foreach(_t test_core_layout test_controls_core test_hot_state test_shell_hal test_paint_recorder test_paint_backend test_paint_runtime test_paint_frame test_paint_compare test_skia_types test_skia_backend test_skia_plugin test_data_controls test_overlay_core test_framework_extra test_advanced_controls test_enterprise_controls test_studio_controls test_control_classes test_theme_manager test_draw_calls test_locale test_component_gallery test_ipc_pipe)
+    # test_skia_* targets are conditionally defined (AIRUI_WITH_SKIA / WIN32),
+    # so allow them to be absent in a GDI-only build, but treat any other
+    # missing target as a hard error (typo / orphan) instead of silently
+    # shrinking the test count.
+    if(NOT TARGET ${_t} AND NOT ${_t} MATCHES "skia")
+        message(FATAL_ERROR "test target missing from build: ${_t}")
+    endif()
     if(TARGET ${_t})
         add_test(NAME ${_t} COMMAND ${_t})
     endif()
