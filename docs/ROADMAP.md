@@ -1,7 +1,7 @@
 # p-system / AirUI 路线图与未实现清单
 
 > 目的：把当前"已交付"与"未实现"的边界写清楚，避免把阶段路线图误当成遗漏的 bug。
-> 最后更新：2026-11-07。基线：`phase0-baseline`（034bdc2），Phase 0 验收见 `phase0-signoff.md`。
+> 最后更新：2026-11-16。基线：`phase0-baseline`（034bdc2），Phase 0 验收见 `phase0-signoff.md`。
 >
 > **当前版本快照**：`docs/v0.8-baseline.md`（tag `v0.8`，2026-11-09）记录单体态的
 > 完整功能清单、进程模型、架构分层与设计契约；工具箱化后续路线见
@@ -16,10 +16,10 @@
 - **AirUI 核心平台无关化**：`airui-core`（STATIC）可在 Linux 用 CMake + Unix Makefiles 编译并烟测（`scripts/check-core-linux-smoke.sh`），core 层零平台头（由 `scripts/check-core-clean.{ps1,sh}` 门禁保证）。
 - **控件 HAL 定稿（Phase 0）**：`ButtonStyle` + `ControlState` + `PaintButton/PaintCheckbox/PaintRadio` 全部在 core，Win32 后端经 `CanvasPainter` 适配。
 - **构建工具链固化**：
-  - Windows：唯一官方 = CMake + Visual Studio 2017（`build.bat`）。
+  - Windows：本地推荐 = CMake + Visual Studio 2017（`build.bat`）；CI 与 Skia 路径为 VS2022。
   - Linux：CMake + Unix Makefiles/Ninja，**仅构建 `airui-core`**（`build.sh`）。
   - 绝不使用 MinGW 构建完整项目（g++ 仅用于核心 CI 冒烟）。
-- **测试**：`ctest -C Release` **17/17 通过**（含 `test_shell_hal`、平台无关金样 `test_paint_recorder`、Skia 值映射 `test_skia_types`）；`test_ui` 为端到端脚本，仍需手工跑。
+- **测试**：`ctest -C Release` **22/22 通过**（含 `test_shell_hal`、平台无关金样 `test_paint_recorder`、Skia 值映射 `test_skia_types`）；`test_ui` 为端到端脚本，仍需手工跑。
 
 ---
 
@@ -98,7 +98,7 @@
 - 不做 Web / WASM 移植。
 - 不替换 p-system 业务层的 Win32 代码（那是 App 的事，AirUI 只管 UI）。
 
-> 与本文件配套：构建约定见 `README.md` 与项目 skill `p-system-build`；控件设计模式见 `docs/design-patterns.md`；跨平台设计见 `docs/cross-platform.md`。
+> 与本文件配套：构建约定见 `README.md` 与 `docs/build-conventions.md`；控件设计模式见 `docs/design-patterns.md`；跨平台设计见 `docs/cross-platform.md`。
 
 ---
 

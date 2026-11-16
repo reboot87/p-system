@@ -409,4 +409,4 @@ manifest 由 `airui_tool_manifest()` 返回，示例（**前台页面 + 后台�
 - `service` 上下文代码路径零 UI 依赖、零模态弹窗；`background` 加载的 `create()` 不碰 UI 线程资源。
 - 任何宿主能力都经 `AiruiHostApi` 表取得；前台插件不得直连数据库。
 - 增删工具不重编主程序；`ToolRegistry` 的降级与 `LastError()` 行为与 `PainterRegistry` 一致。
-- 每个版本合入前：三平台 CI 全绿、`ctest -C Release` 全绿、`check-core-clean.sh` PASSED、`check-tool-abi.sh` PASSED。
+- 每个版本合入前：三平台 CI 全绿、`ctest -C Release` 全绿、`check-core-clean.sh` PASSED；插件 ABI 以 P0-3 交付的 `src/pluginapi/airui_plugin_abi.h`（ABI v2，`size` / `caps` / `painterIfaceRev`）为契约，跨 DLL 字符串表示见 `docs/adr/0004-plugin-abi-v2.md`。

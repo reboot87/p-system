@@ -13,8 +13,7 @@
 `Metrics` 等抽象类型，绝不 `#include` `windows.h`、绝不链接 `user32` /
 `gdi32`。平台相关逻辑全部收口到 `src/airui/platform/win32` 薄后端。
 
-这一边界由 `scripts/check-core-clean.{ps1,sh}` 在 CI 中强制校验（扫描
-`#include` 与导入库）。任何新代码都要先问一句：**它属于 core 还是平台层？**
+这一边界由 CI 的 **Core cleanliness gate** 步骤调用 `scripts/check-core-clean.{sh,ps1}` 强制校验（扫描平台标识符字面量）。编译层隔离见 P2-1（已合入）。任何新代码都要先问一句：**它属于 core 还是平台层？**
 
 ### 1.1 两个 `core` 的边界
 

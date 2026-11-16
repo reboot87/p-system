@@ -396,6 +396,8 @@
 
 ### P3-3 文档修订清单（逐条）
 
+- **状态（P3-3 已完成）**：本表逐条修订已在本批合入——`README.md` 定位与工具链措辞改为当前现实（本地推荐 VS2017 / CI 与 Skia 为 VS2022 / MSVC-only 禁 MinGW）、`-B build` → `-B build-cmake`、位数改为 x64、补注 `skia-windows` 非阻塞；硬性约定搬进 `docs/build-conventions.md`；`ROADMAP.md` 日期与 `ctest` 计数更新；`design-patterns.md` / `cross-platform.md` / `v0.8-baseline.md` / `toolbox-plugin-plan.md` 的事实修订落地；本表各「改为」列已与实际文档一致。
+
 | 位置 | 现状 | 改为 |
 |---|---|---|
 | `README.md:3` | 「Windows 桌面性能录制与分析工具」（`docs/v0.8-baseline.md:23` 已判定过时） | 按当前定位改写：自绘 UI 框架 + 剪贴板工具箱宿主 |

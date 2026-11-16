@@ -1,14 +1,14 @@
 # AireRecord / AirUI
 
-Windows 桌面性能录制与分析工具。UI 层 `AirUI`（`src/airui/`）为自研 owner-draw 自绘 UI 库。
+自研 owner-draw 自绘 UI 框架 `AirUI`（`src/airui/`）+ 剪贴板工具箱宿主 `AireRecord`。
 
 ## 构建（Build）
 
-**唯一支持的构建方式：CMake + Visual Studio 2017（MSVC）。**
-不支持 MinGW 或 g++ 作为构建工具链；`g++` 仅用于平台无关核心的可选 CI 冒烟测试（见 `scripts/check-core-linux-smoke.sh`），**不是**官方构建方式。
+**构建约定：本地推荐 CMake + Visual Studio 2017（MSVC）；CI 与 Skia 路径为 VS2022；完整应用需 MSVC，禁止 MinGW。**
+**不支持** MinGW 或 g++ 作为构建工具链；`g++` 仅用于平台无关核心的可选 CI 冒烟测试（见 `scripts/check-core-linux-smoke.sh`），**不是**官方构建方式。详见 `docs/build-conventions.md`。
 
 ### 前提条件
-- **Visual Studio 2017**（15.9+，安装「使用 C++ 的桌面开发」工作负载，含 MSVC 19.16 与 Windows SDK）
+- **Visual Studio 2017**（本地推荐，15.9+，安装「使用 C++ 的桌面开发」工作负载，含 MSVC 19.16 与 Windows SDK）
 - **CMake 3.15+**
 
 > VS2017 在本机可能安装在非默认路径（如 `C:\2017\Community`）。只要 `vswhere` 能找到，CMake 会自动定位，无需手动设置路径。
@@ -34,10 +34,10 @@ build.bat clean test   # 清空 + 构建 + 测试
 
 ### 手动构建（Windows）
 ```
-cmake -S . -B build -G "Visual Studio 15 2017" -A x64
-cmake --build build --config Release
+cmake -S . -B build-cmake -G "Visual Studio 15 2017" -A x64
+cmake --build build-cmake --config Release
 ```
-> ⚠️ 完整应用**必须**用 `Visual Studio 15 2017`（即 VS2017）生成器。**不要**在 Windows 上使用 `MinGW Makefiles` 构建本项目。
+> ⚠️ 完整应用**必须**用 MSVC 生成器（本地推荐 `Visual Studio 15 2017`，CI / Skia 路径用 VS2022）。**不要**在 Windows 上使用 `MinGW Makefiles` 构建本项目。
 
 ### 交叉验证 / Skia 可选路径：本机 VS2022
 `vswhere` 实测本机同时装有 VS2017（`C:\2017\Community`）与 **VS2022 Professional 17.14（`C:\2022`，MSVC 14.44）**。**官方产物仍由 `build.bat`（VS2017）生成**；VS2022 只用于 Skia 可选后端与交叉编译验证：
@@ -83,7 +83,7 @@ shell.SetPaintBackend("skia");                // 运行中热切换，下一帧�
 >
 > **UI 切换按钮**：标题栏右侧（三键左边）常驻「渲染: GDI / 渲染: Skia」按钮，点击在**可用**后端间循环，下一帧生效，可来回切；不改外壳、不换布局。插件缺失时显示「无插件 / 已回退」且不会改动界面。每次切换向 `client.log` 追加 `[paint] UI switch -> ...`。
 >
-> **插件部署**：默认 VS2017 产物无需 SDK，把 `airui-skia.dll` 和它的全套依赖 DLL 放到 exe 同目录即可；也可用 `AIRUI_SKIA_DLL` 指绝对路径，但必须同时把插件目录加入 `PATH`（`LoadLibraryW` 带完整路径时不会自动搜索该 DLL 所在目录）。exe 与插件**位数必须一致**：官方 `build/` 是 x86，CI 插件是 x64，请用 `build/vs2017-x64`。
+> **插件部署**：默认 VS2017 产物无需 SDK，把 `airui-skia.dll` 和它的全套依赖 DLL 放到 exe 同目录即可；也可用 `AIRUI_SKIA_DLL` 指绝对路径，但必须同时把插件目录加入 `PATH`（`LoadLibraryW` 带完整路径时不会自动搜索该 DLL 所在目录）。exe 与插件**位数必须一致**：`build.bat` 固定 `-A x64`，CI Skia 插件为 x64，两者位数必须一致。
 
 启动时 `client.log` 会写一行 `[paint] wholeWindow=1 coreShell=? requested=? resolved=? available=[...] skiaDll=? probe=? text=?`，可直接确认**实际生效的后端**、是否回退、以及文字由谁栅格化；`probe` 会真实开一帧，DLL 缺失/ABI 不符时会显示 `fell back to gdi`。`Shell::AvailablePaintBackends()` 也列出当前可用后端；`auto` 取注册表默认（gdi）。
 
@@ -122,13 +122,13 @@ gh run download <run-id> -D build\ci-all
 | `p-system-windows-x86-gdi` | VS2022 Win32 x86 默认 GDI 全量（所有 exe + lib） |
 | `p-system-core-ubuntu-latest` / `p-system-core-macos-latest` | 各平台 `libairui-core.a` + 4 个平台无关测试可执行 |
 
-三个 Windows job 都跑全量 `ctest -C Release`；Linux/macOS 因项目结构只构建平台无关 target。插件包**必须整套**放到 exe 同目录，只拷 `airui-skia.dll` 会因缺依赖回退 gdi。CI 的 Skia 产物是 **x64**，`build.bat` 默认是 **x86**：位数不匹配会静默回退，x86 请直接用 `p-system-windows-x86-gdi`，或另配 VS2017 x64 构建树（`-A x64`）。跨工具链实测结果见 `docs/skia-backend.md` §5.2。
+三个 Windows job 都跑全量 `ctest -C Release`；Linux/macOS 因项目结构只构建平台无关 target。插件包**必须整套**放到 exe 同目录，只拷 `airui-skia.dll` 会因缺依赖回退 gdi。CI 的 Skia 产物是 **x64**，`build.bat` 固定 `-A x64` 也是 **x64**：exe 与插件位数必须一致，x86 请直接用 `p-system-windows-x86-gdi` 产物。跨工具链实测结果见 `docs/skia-backend.md` §5.2。
 
 - 引入方式决策、C ABI 约束、验证矩阵与已知边界见 **`docs/skia-backend.md`**。
 - 无需 SDK 也能跑的验证：`test_paint_backend` / `test_paint_runtime`（运行时选择与回退，ctest）、`test_skia_types`（三平台）与 `scripts/check-skia-syntax.sh`（API 契约语法门禁）。
 
 ### 说明
 - 平台相关代码位于 `src/airui/platform/win32`，依赖 Win32 / GDI / DWM，只能在 **Windows + MSVC** 下编译。
-- **构建约定（硬性）**：Windows = CMake + VS2017；Linux = CMake + Unix Makefiles（仅核心）。详细规则与"禁止猜测工具链"见项目 skill `p-system-build`。
+- **构建约定**：本地推荐 Windows = CMake + VS2017，CI 与 Skia 路径为 VS2022；Linux = CMake + Unix Makefiles（仅核心）；完整应用需 MSVC，禁止 MinGW。详细规则与"禁止猜测工具链"见 `docs/build-conventions.md`。
 - Skia 后端已在 Windows 接入，采用**运行时动态选择**（`airui-skia.dll` 插件 / 静态 provider），`AIRUI_WITH_SKIA` 只控制是否构建 Skia 代码，见上节与 `docs/skia-backend.md`；Linux / macOS 应用本体与 Skia 版窗口壳仍为设计阶段，见 `docs/cross-platform.md`、`docs/ROADMAP.md`。
 - 控件采用「类体系 + 注册表」设计，新增/继承控件的做法见 `docs/design-patterns.md`。

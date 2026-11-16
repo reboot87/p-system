@@ -90,7 +90,7 @@ def main():
     wait = float(sys.argv[3]) if len(sys.argv) > 3 else 4.0
 
     exe = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
-                       "build", "vs2017-x64", "Release", "airecord.exe")
+                       "build-cmake", "Release", "airecord.exe")
     exe = os.path.abspath(exe)
     env = dict(os.environ)
     if os.environ.get("AIRUI_TRACE"):

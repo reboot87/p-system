@@ -145,7 +145,7 @@ airecord.exe --paint-backend=skia
 - 只拷贝 `*.dll`（`FILES_MATCHING PATTERN "*.dll"`），**不会覆盖开发者自己刚编译的 `airecord.exe`**；`airui-skia.dll` 及其全部 vcpkg 运行时依赖（skia / icu / harfbuzz 等）一次性到位。
 - **自动更新（不会用旧插件卡住）**：部署后在 exe 旁写一个标记 `airui-skia.ci-run`（记录来源 CI run id）。之后每次 x64 构建都做一次轻量 `gh run list`，若 CI 发布了更新的成功构建就自动重新拉取并覆盖，标记随之更新；标记与最新 run 一致则跳过（不重复下载）；离线 / 无 `gh` 则保留当前插件，绝不误删可用的 DLL。
   - 刷新时必须**真正重下**（先 `REMOVE_RECURSE` 清掉 `ci-skia` 再 `gh run download`）。早期版本把 `ci-skia` 里的旧缓存当成可用源，导致「跳过下载 + 把标记写成新 run id」，插件被永久钉在旧构建上（commit `c6b6db5`）。若怀疑插件没更新，删掉 exe 旁的 `airui-skia.ci-run` 后重新构建即可强制刷新。
-- **本地**：一次 `cmake --build build/vs2017-x64` 即自动把插件放到 exe 同目录——`gh` 已登录（`gh auth login`）+ 网络即可，无需任何手动拷贝或 fetch 命令；首次构建拉取一次，同版本后续构建跳过，CI 出新插件时自动更新。`fetch-skia-plugin` 这个独立 target 仍保留，作为手动强制预取入口。
+- **本地**：一次 `cmake --build build-cmake` 即自动把插件放到 exe 同目录——`gh` 已登录（`gh auth login`）+ 网络即可，无需任何手动拷贝或 fetch 命令；首次构建拉取一次，同版本后续构建跳过，CI 出新插件时自动更新。`fetch-skia-plugin` 这个独立 target 仍保留，作为手动强制预取入口。
 - **CI（x64 Windows 构建）**：专门的 `Download Skia plugin artifact` 步骤在 `cmake --build` 之前用 `gh`（`GH_TOKEN=${{ github.token }}`）把 `airui-skia-windows-x64` 产物预拉到 `build-core/ci-all/airui-skia-windows-x64`，POST_BUILD 再本地拷贝，从而绕开 `GITHUB_TOKEN` 难以传入 `cmake -P` 子进程的问题。该步骤 `continue-on-error`，失败只回退 GDI，不影响构建（已实测 run `42372024140` 自动部署成功）。
 
 手动 prefix（预编译 release 或自建产物）布局要求：
@@ -345,7 +345,7 @@ gh run download <run-id> -n airui-skia-windows-x64 -D <dir>          # 只要 Sk
 
 全量产物 run `42339972398`（5 个 artifact、5 个 job 全绿）下载后复核：Windows 包的 `airecord.exe` 分别检出 x64 / x86 / x64；直接运行下载后的 `test_paint_backend`、`test_paint_runtime`、`test_skia_plugin`、`test_skia_backend` 全通过；Skia x64 与 GDI x86 两个 `airecord.exe --hidden` 启动 5 秒无崩溃。本机官方 VS2017 全量构建也重新跑过 `BUILD=0` + `ctest -C Release` **19/19**。
 
-> 本机官方 `build/` 是 **x86**（`CMAKE_GENERATOR_PLATFORM` 为空），CI 产物是 **x64**；要直接用需另配 VS2017 x64 构建树：`cmake -S . -B build/vs2017-x64 -G "Visual Studio 15 2017" -A x64`。后端由帧级路由覆盖整窗，不需要 `--core-shell`（§1.4）；完整 GUI 窗口截图对比已于 2026-11-07 完成（§5.4）。
+> 本机官方构建 `build.bat` 固定 **`-A x64`**（产物 `build-cmake\Release`），CI 产物也是 **x64**，位数一致可直接用；x86 请直接用 `p-system-windows-x86-gdi` 产物。后端由帧级路由覆盖整窗，不需要 `--core-shell`（§1.4）；完整 GUI 窗口截图对比已于 2026-11-07 完成（§5.4）。
 
 ### 5.3 如何用 Skia 渲染 / 如何分辨与 GDI 的差别
 
