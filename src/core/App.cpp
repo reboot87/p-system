@@ -71,12 +71,24 @@ ServiceStats FetchStats(PipeClient& ipc, int& outSvcState, std::wstring& outSvcT
 
 // 离线重连探测（后台线程）：只探测/建立连接，不拉起服务。成功经 WM_APP+7
 // 回 UI 线程恢复，失败则由定时器下轮再试。只读 m_ipc，不写共享 UI 成员。
-void App::ReconnectProbe(HWND hwnd)
+void App::ReconnectProbe(HWND hwnd, bool wasOffline)
 {
-    bool ok = m_ipc.Connect();
-    m_reconnecting.store(false);
-    if (m_shuttingDown.load() || !hwnd) return;   // 退出中：不再投递
-    PostMessage(hwnd, WM_APP + 7, ok ? 0 : 1, 0);
+    if (wasOffline) {
+        // 服务曾不可用：探测/建立连接；成功经 WM_APP+7 回 UI 线程恢复，
+        // 失败则下轮再试。
+        bool ok = m_ipc.Connect();
+        m_reconnecting.store(false);
+        if (m_shuttingDown.load() || !hwnd) return;   // 退出中：不再投递
+        PostMessage(hwnd, WM_APP + 7, ok ? 0 : 1, 0);
+    } else {
+        // 服务在线：例行心跳，向服务端登记本会话，让服务端心跳兜底
+        // （60s 未收到则按会话重启 UI）始终最新，从而不会误拉重复实例。
+        // 不做阻塞式 Connect，直接经持久连接发 PING。
+        m_ipc.Request(L"PING\t" + std::to_wstring(diag::SessionId()));
+        m_reconnecting.store(false);
+        if (m_shuttingDown.load() || !hwnd) return;   // 退出中：不再投递
+        PostMessage(hwnd, WM_APP + 7, 2, 0);
+    }
 }
 
 // 后台刷新线程：只做纯 IPC 拉取 + 解析，不写任何 App 成员；结果封装进堆
@@ -329,11 +341,8 @@ int App::Run(HINSTANCE hInstance)
             // 同步 pending → 退出离线态 → 刷新统计与外壳 → 停定时器。
             if (msg == WM_TIMER && wParam == TIMER_SVC_RECONNECT) {
                 KillTimer(hwnd, TIMER_SVC_RECONNECT);
-                if (!m_offline.load()) {          // 已恢复：停定时器
-                    result = 0;
-                    return true;
-                }
-                // 服务回来（管道可连上）→ 同步 + 清除离线告警。
+                // 每 3s 触发一轮：服务在线时作例行心跳（发 PING 保持服务端
+                // 会话最新，避免 60s 兜底误拉重复实例）；服务离线时才做重连。
                 // **不能在 UI 线程直接调 Connect()**：它内部有 10×100ms 的
                 // TryConnect 探测循环，离线时每次探测会把 UI 线程卡 ~1s
                 // （用户报告"点击隔约 1 秒才有反应"的规律性卡顿正是这个）。
@@ -343,7 +352,7 @@ int App::Run(HINSTANCE hInstance)
                 // 防抖（m_reconnecting）已保证上一个探测线程结束，join 立即
                 // 返回；再用具名可 join 线程持有，析构时等待，杜绝 detach 裸 this。
                 if (m_reconnectThread.joinable()) m_reconnectThread.join();
-                m_reconnectThread = std::thread(&App::ReconnectProbe, this, hwnd);
+                m_reconnectThread = std::thread(&App::ReconnectProbe, this, hwnd, m_offline.load());
                 result = 0;
                 return true;
             }
@@ -357,6 +366,10 @@ int App::Run(HINSTANCE hInstance)
                     SetServiceOffline(false);
                     RefreshData();               // 后台线程拉数据，UI 不阻塞
                     Toast(L"服务已恢复", L"离线期间暂存的剪贴板记录已同步");
+                } else if (wParam == 2) {
+                    // 例行心跳完成：仅重新武装 3s 定时器，让下轮心跳继续。
+                    // 不弹 Toast、不改离线态、不刷新数据（服务一直在线）。
+                    StartReconnectWatch();
                 } else {
                     StartReconnectWatch();       // 还没起来 → 下轮继续探测
                 }

@@ -183,7 +183,7 @@ private:
     void OpenManualEntry();   // F4：切到剪贴板页并展开录入卡
 
     // 后台任务入口（可 join 线程，析构等待，杜绝 detach 线程裸 this 逃逸）
-    void ReconnectProbe(HWND hwnd);                    // 离线重连探测
+    void ReconnectProbe(HWND hwnd, bool wasOffline);   // 离线重连探测 / 在线例行心跳
     void RefreshWorker(HWND hwnd, std::wstring filter);  // 异步数据刷新
 
     air::ui::Shell m_shell;
