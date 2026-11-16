@@ -76,6 +76,47 @@ jobs:
           echo "Format check: git diff --check rc=$WS_RC, clang-format rc=$FMT_RC"
           exit $((WS_RC != 0 || FMT_RC != 0 ? 1 : 0))
 
+      # P1-5 phase 2: static analysis via clang-tidy on PR-changed C/C++ files.
+      # Report-only: continue-on-error, so findings surface in the log without
+      # ever failing the gate (and clang-tidy may not be installed on every
+      # runner / base-sha differs across push/PR events, mirroring the Format
+      # check above). Scope is .clang-tidy (bugprone-* + clang-analyzer-*, two
+      # noisy checks excluded). --config-file='' makes clang-tidy read the repo
+      # .clang-tidy; without a compile_commands.json it falls back to single-file
+      # heuristics, which is acceptable for a report step.
+      - name: Static analysis (clang-tidy, changed files, non-blocking)
+        shell: bash
+        continue-on-error: true
+        run: |
+          if ! command -v clang-tidy >/dev/null 2>&1; then
+            echo "Static analysis: clang-tidy not installed; skipping"
+            exit 0
+          fi
+          if [ -n "${{ github.event.pull_request.base.sha }}" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+          else
+            # Push event: diff against the previous commit. Shallow clones
+            # make this a no-op; that only narrows coverage, never breaks.
+            BASE="${GITHUB_SHA}~1"
+          fi
+          if ! git rev-parse --verify --quiet "${BASE}" >/dev/null 2>&1; then
+            echo "Static analysis: base '${BASE}' not present (shallow clone); skipping"
+            exit 0
+          fi
+          FILES=$(git diff --name-only "${BASE}...HEAD" 2>/dev/null \
+            | grep -E '\.(cpp|h|hpp|c|cc|cxx)$' || true)
+          if [ -z "$FILES" ]; then
+            echo "Static analysis: no changed C/C++ files; skipping"
+            exit 0
+          fi
+          for f in $FILES; do
+            if [ -f "$f" ]; then
+              echo "clang-tidy: $f"
+              clang-tidy "$f" --quiet --config-file='' 2>&1 || true
+            fi
+          done
+          echo "Static analysis: report-only run finished (non-blocking)"
+
       - name: Configure (CMake + Unix Makefiles)
         run: cmake -S . -B build-core -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release
 

@@ -1,0 +1,22 @@
+---
+# P1-5 phase 2: static analysis via clang-tidy.
+# Report-oriented, NON-BLOCKING: WarningsAsErrors is empty so findings are
+# surfaced in CI logs but never fail a build or gate a merge.
+#
+# Scope is deliberately the plan's intended subset (bugprone-* + clang-analyzer-*)
+# so it does not explode on pre-existing code. Two notoriously noisy
+# bugprone-* checks are excluded:
+#   -bugprone-easily-swappable-parameters : flags any multi-param function of
+#       same-adjacent-type, which floods every existing control/API signature.
+#   -bugprone-narrowing-conversions      : reports implicit int/float narrowing
+#       all over the existing GDI/Win32 layer; out of scope for this phase.
+#
+# FormatStyle: file  -> the format-style part of clang-tidy uses .clang-format.
+Checks: >
+  bugprone-*,
+  clang-analyzer-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions
+WarningsAsErrors: ''
+HeaderFilterRegex: ''
+FormatStyle: file

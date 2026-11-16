@@ -14,6 +14,10 @@ configure_file(cmake/Version.h.in
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# P1-5 phase 2: emit compile_commands.json so clang-tidy (and IDEs) can do
+# accurate cross-translation-unit analysis instead of single-file heuristics.
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # Console test targets must use /SUBSYSTEM:CONSOLE on MSVC. That link flag
 # is MSVC-only, so it is guarded here so Linux/macOS can link the same
 # platform-free targets (see docs/remediation-plan.md P2-2).
