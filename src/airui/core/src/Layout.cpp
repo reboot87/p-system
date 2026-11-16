@@ -179,8 +179,8 @@ void Layout::Compute(Node* node, const Rect& rc)
         // 对齐调整
         if (spec.align != LayoutAlign::Stretch && crossSize > 0) {
             int widgetCross = 0;
-            // 这里需要 widget 的 preferred cross size，暂时用字体行高估算
-            // 实际应该查 widget->Rect() 或预设
+            // TODO(layout): 这里用字体行高估算 widget 的 preferred cross size，
+            // 是行高测量的占位实现；应改为查 widget->Rect() 或读取预设的真实行高。
             switch (spec.align) {
                 case LayoutAlign::Start: break;
                 case LayoutAlign::Center: crossStart += (containerCross - widgetCross) / 2; break;

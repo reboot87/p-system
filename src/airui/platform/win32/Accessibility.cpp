@@ -20,7 +20,7 @@ void SetAccessibleRole(HWND hwnd, Role role)
 {
     if (!hwnd) return;
     // 通过 IAccessible 或 UIA 设置角色
-    // 简化：使用 SetProp 存储，实际需要实现 IAccessible
+    // TODO(a11y): 用 SetProp 存储角色是占位实现；真实应实现 IAccessible，见 docs/ROADMAP.md。
     SetPropW(hwnd, L"AirUI_A11y_Role", (HANDLE)(ULONG_PTR)role);
 }
 
@@ -99,7 +99,9 @@ void LiveRegion::Announce(const std::wstring& text, bool polite)
 
 void LiveRegion::SetAssertive(bool assertive)
 {
-    // 简化：实际需要 UIA LiveSetting 属性
+    (void)assertive;
+    // TODO(a11y): 空操作占位——真实实现需要 UIA LiveSetting 属性（Assertive 时同步到
+    // LiveSetting），见 docs/ROADMAP.md。
 }
 
 bool IsHighContrastMode()
@@ -113,14 +115,14 @@ static std::function<void(bool)> g_hcCallback;
 void SetHighContrastCallback(std::function<void(bool)> cb)
 {
     g_hcCallback = std::move(cb);
-    // 监听 WM_SETTINGCHANGE
-    // 简化：定时轮询
+    // TODO(a11y): 监听 WM_SETTINGCHANGE 的占位——当前为定时轮询，未真正监听
+    // 系统设置变更消息；真实实现见 docs/ROADMAP.md。
 }
 
 void EnableKeyboardNavigation(HWND hwnd)
 {
-    // 子类化处理 Tab/Arrow/Enter/Esc
-    // 简化：设置 WS_TABSTOP
+    // TODO(a11y): 子类化处理 Tab/Arrow/Enter/Esc 的占位——当前只设置
+    // WS_TABSTOP，未实现真正的键盘导航；真实实现见 docs/ROADMAP.md。
     LONG style = GetWindowLong(hwnd, GWL_STYLE);
     SetWindowLong(hwnd, GWL_STYLE, style | WS_TABSTOP);
 }

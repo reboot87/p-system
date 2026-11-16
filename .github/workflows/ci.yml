@@ -105,6 +105,20 @@ jobs:
       - name: Core smoke test (compile + link + run core tests)
         run: bash scripts/check-core-linux-smoke.sh
 
+      # P3-5: report-only count of TODO(<domain>) markers so known debt stays
+      # visible in the log. Never gates the job; excludes vendored third-party
+      # (third_party/sqlite3.c has its own upstream TODO(shess) markers).
+      - name: TODO debt count (report-only)
+        shell: bash
+        continue-on-error: true
+        run: |
+          echo "TODO markers in project-owned src/ + docs/:"
+          git grep -c 'TODO(' -- src/ docs/ || true
+          echo "TODO debt count by domain:"
+          git grep -o 'TODO([a-z]*):' -- src/ docs/ | sed 's/.*TODO(/TODO(/; s/:.*//' | sort | uniq -c || true
+          echo "Total project-owned TODO markers: $(git grep -o 'TODO(' -- src/ docs/ | wc -l)"
+          echo "(report-only; vendored third_party/sqlite markers not counted)"
+
       # Publish every build output of this platform, not just the tests.
       - name: Stage core artifacts
         run: |

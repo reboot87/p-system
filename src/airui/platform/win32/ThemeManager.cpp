@@ -13,7 +13,7 @@ ThemeManager& ThemeManager::Instance()
 bool ThemeManager::LoadFromFile(const std::wstring& path)
 {
     if (!LoadTheme(path)) return false;
-    // 简化：从 ThemeJson 获取名称
+    // TODO(theme): 占位——此处硬编码 "Loaded"，未从 ThemeJson 读取真实主题名称。
     m_name = L"Loaded";
     return true;
 }

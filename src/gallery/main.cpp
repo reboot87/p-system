@@ -137,6 +137,8 @@ public:
 
         HWND hwnd = shell.Hwnd();
         m_win = std::make_unique<Win32Window>(hwnd);
+        // TODO(gallery): 命中测试 / 布局更新回调当前为占位 no-op，尚未接入
+        // ShellCore；OnResized 依赖真实的布局重排流程接入后再启用。
         m_win->OnMouseMove([](air::ui::Point){ /* 命中测试可接入 ShellCore */ });
         m_win->OnResized([](air::ui::Rect){ /* 布局更新可接入 ShellCore */ });
         shell.SetMessageHook([this, hwnd](HWND,UINT msg,WPARAM wp,LPARAM lp,LRESULT& res){

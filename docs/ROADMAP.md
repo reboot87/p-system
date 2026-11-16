@@ -55,6 +55,19 @@
 | `test_ui` 接入 ctest | 未接入 | 端到端需 `airecord.exe` + IPC，只能手工跑（`phase0-signoff.md:37`） |
 | 跨后端 DrawCall 一致性断言 | ✅ 真 SDK 实跑通过 | `test_skia_backend` 实现「core 金样 vs Skia 后端实收调用序列」的 `Diff()` 断言 + 光栅像素校验，由 `skia-windows`（push/PR **自动触发**，带 vcpkg 源码编译产物缓存，依赖版本由 `vcpkg.json` manifest 锁定）实跑输出 `G5 parity + raster OK`；另有 `test_skia_plugin` 验证运行时 DLL 动态选择 + C ABI 光栅（同一 CI 作业）。**注意：`skia-windows` 是 `continue-on-error` 的非阻塞作业**——必需的合并门禁是 `core-unix` + `windows` / `windows-x86`；Skia 作业失败不阻断合并（vcpkg 源码编译第三方 SDK 可能偶发失败），故该行证据以「最近一次成功运行」为准。**像素级 GDI vs Skia 截图 diff** 仍属计划项（`docs/cross-platform.md` §6） |
 
+### E. 代码内 TODO 检索（P3-5）
+
+把散落在注释里的未完成工作统一成 `TODO(<领域>): ...` 标记，可按域名检索：
+`git grep 'TODO('` 可一次列出全部已知欠账（项目自产约 16 处，分布在
+`src/` 与 `docs/`，含本文自引计数；另 `third_party/sqlite/sqlite3.c` 有 7 处上游自带标记，非本项目债务）。
+
+- **`a11y`**（`src/airui/platform/win32/Accessibility.cpp`，7 处）：真实 `IAccessible` / UIA `LiveSetting` / `WM_SETTINGCHANGE` 监听 / 键盘导航——目前多为占位/简化实现。
+- **`layout`**（`src/airui/core/src/Layout.cpp`，1 处）：widget preferred cross size 用字体行高估算，应改为真实行高测量。
+- **`gallery`**（`src/gallery/main.cpp`，1 处）：命中测试 / 布局更新回调为 no-op 占位，未接入 ShellCore。
+- **`theme`**（`src/airui/platform/win32/ThemeManager.cpp`，1 处）：主题名称硬编码 "Loaded"，未从 ThemeJson 读取。
+- **`doc`**（`docs/toolbox-plugin-plan.md`，1 处）：工具箱化规划仍待评审/完善。
+- CI（`core-unix`）已加 **TODO 计数步骤**（仅报告，不阻塞）。
+
 ---
 
 ## 2. 建议的阶段路线
