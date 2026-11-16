@@ -6,6 +6,9 @@
 #include <vector>
 #include "Plugin.h"
 
+namespace arecord
+{
+
 class PluginManager
 {
 public:
@@ -26,3 +29,5 @@ public:
 private:
     std::vector<std::unique_ptr<IFeaturePlugin>> m_plugins;
 };
+
+} // namespace arecord

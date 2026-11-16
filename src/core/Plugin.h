@@ -6,6 +6,9 @@
 // ============================================================
 #include <windows.h>
 
+namespace arecord
+{
+
 class App;
 
 class IFeaturePlugin
@@ -39,3 +42,5 @@ public:
     virtual void OnTimer(App& app, UINT_PTR timerId)
     { UNREFERENCED_PARAMETER(app); UNREFERENCED_PARAMETER(timerId); }
 };
+
+} // namespace arecord

@@ -4,6 +4,7 @@
 #include "core/UiEntry.h"
 
 using namespace air::ui;
+using namespace arecord;
 
 // 服务离线横幅高度（px）：内容区顶部一条红色告警条。
 static constexpr int kBannerH = 28;

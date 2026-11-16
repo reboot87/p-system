@@ -4,6 +4,9 @@
 // ============================================================
 #include <string>
 
+namespace arecord
+{
+
 struct UiEntry
 {
     long long    id = 0;
@@ -12,3 +15,5 @@ struct UiEntry
     std::wstring note;
     std::wstring content;
 };
+
+} // namespace arecord

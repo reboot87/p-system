@@ -6,6 +6,8 @@
 // ============================================================
 #include "../core/Plugin.h"
 
+using namespace arecord;
+
 class SearchPlugin : public IFeaturePlugin
 {
 public:

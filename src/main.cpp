@@ -11,6 +11,8 @@
 #include "plugins/SearchPlugin.h"
 #include "plugins/ManualEntryPlugin.h"
 #include <memory>
+
+using namespace arecord;
 #include <string>
 #include <shellapi.h>
 #include <stdlib.h>

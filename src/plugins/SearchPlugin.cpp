@@ -1,6 +1,8 @@
 #include "SearchPlugin.h"
 #include "../core/App.h"
 
+using namespace arecord;
+
 // F3 搜索防抖：输入变化时重启 250ms 定时器
 void SearchPlugin::OnCommand(App& app, int ctrlId, int notifyCode)
 {

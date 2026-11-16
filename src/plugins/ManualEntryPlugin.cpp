@@ -3,6 +3,8 @@
 #include "../ipc/Ipc.h"
 #include <commctrl.h>
 
+using namespace arecord;
+
 // ---------- EDIT 子类化：捕获 Ctrl+Enter ----------
 static LRESULT CALLBACK ManualEditProc(HWND hwnd, UINT msg, WPARAM wParam,
                                        LPARAM lParam,

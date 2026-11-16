@@ -1,5 +1,8 @@
 #include "PluginManager.h"
 
+namespace arecord
+{
+
 void PluginManager::Register(std::unique_ptr<IFeaturePlugin> plugin)
 {
     m_plugins.push_back(std::move(plugin));
@@ -42,3 +45,5 @@ void PluginManager::DispatchTimer(App& app, UINT_PTR timerId)
     for (auto& p : m_plugins)
         p->OnTimer(app, timerId);
 }
+
+} // namespace arecord

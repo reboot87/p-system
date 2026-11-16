@@ -5,6 +5,8 @@
 // ============================================================
 #include "../core/Plugin.h"
 
+using namespace arecord;
+
 class ManualEntryPlugin : public IFeaturePlugin
 {
 public:

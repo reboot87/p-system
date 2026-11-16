@@ -11,8 +11,8 @@
 #include "airui/Interaction.h"
 #include "../core/UiEntry.h"
 
-class App;
-struct ServiceStats;
+namespace arecord { class App; }
+using namespace arecord;
 
 class ClipsPage : public air::ui::Page
 {

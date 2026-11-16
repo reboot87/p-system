@@ -4,6 +4,9 @@
 #include <ctime>
 #include <sstream>
 
+namespace arecord
+{
+
 // ---------- 编码转换 ----------
 std::string Database::WideToUtf8(const std::wstring& w)
 {
@@ -282,3 +285,5 @@ void Database::SetSetting(const std::wstring& key, const std::wstring& value)
     sqlite3_step(stmt);
     sqlite3_finalize(stmt);
 }
+
+} // namespace arecord

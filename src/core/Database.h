@@ -9,6 +9,9 @@
 
 struct sqlite3;
 
+namespace arecord
+{
+
 struct Entry
 {
     int64_t      id = 0;
@@ -58,3 +61,5 @@ private:
     static std::wstring Utf8ToWide(const std::string& s);
     static std::wstring NowString();
 };
+
+} // namespace arecord

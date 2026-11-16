@@ -12,6 +12,10 @@
 using air::ui::NavGroup;
 using air::ui::NavItem;
 using air::ui::ShellOptions;
+using namespace arecord;
+
+namespace arecord
+{
 
 // 版本单一来源：页脚文案唯一拼接点。版本号来自 CMake 生成的 Version.h
 // （project(AireRecord VERSION ...)），无硬编码 "vX.Y"。后缀（服务已连接 /
@@ -768,3 +772,5 @@ void App::RegisterSession()
 {
     m_ipc.Request(L"PING\t" + std::to_wstring(diag::SessionId()));
 }
+
+} // namespace arecord

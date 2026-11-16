@@ -16,6 +16,31 @@
 这一边界由 `scripts/check-core-clean.{ps1,sh}` 在 CI 中强制校验（扫描
 `#include` 与导入库）。任何新代码都要先问一句：**它属于 core 还是平台层？**
 
+### 1.1 两个 `core` 的边界
+
+仓库里有两个 `core` 目录，名字相近但**职责完全不同**，务必区分：
+
+- **`src/airui/core/`** — **平台无关 UI 框架**（`airui-core` 静态库）。它是可复用的
+  通用控件库，只依赖 `IPainter` / `Rect` / `Palette` / `Metrics` 等 HAL 抽象，
+  绝不 `#include windows.h`、绝不链接 `user32` / `gdi32`，由
+  `scripts/check-core-clean.{ps1,sh}` 门禁强制平台隔离。
+- **`src/core/`** — **业务应用层**（AireRecord 应用本体）。这里放的是
+  `App` / `Database` / `PluginManager` / `AgentHost` 等特定于本应用的门面与
+  服务。它不是库、没有稳定接口，**允许直接 `#include windows.h`**，属于特定
+  应用而非通用框架。
+
+两者关系：**业务层使用 UI 框架层**（`src/core/App.h` 持有 `air::ui::Shell`，
+页面继承 `air::ui::Page`）。边界约定：
+
+- **不要把业务逻辑塞进 `airui-core`** —— 一个功能若只在 AireRecord 里用，就
+  放 `src/core/`（或 `src/pages/` / `src/plugins/`），别污染通用控件库；
+- **也不要把 UI 框架依赖拖进业务层** —— 业务层允许直接依赖平台（`windows.h`），
+  `airui-core` 则必须保持平台无关。把业务符号收进 `namespace arecord` 正是为了
+  在名字上就划清「业务层 vs 通用框架」的界线。
+
+> 目录名 `src/core/` → `src/app/` 的重命名已推迟到 v1.1（见 docs/remediation-plan.md
+> P2-3），本批只做命名与文档澄清，不做大规模搬迁。
+
 ---
 
 ## 2. airui-core 中的模式

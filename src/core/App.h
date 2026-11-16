@@ -25,6 +25,14 @@
 // 版本单一来源：CMake `project(AireRecord VERSION ...)` 生成的版本头。
 #include "airui/Version.h"
 
+// 页面类保持在全局作用域（它们继承 air::ui::Page，属于业务层而非框架层）。
+class ClipsPage;
+class OverviewPage;
+class ConfigPage;
+
+namespace arecord
+{
+
 // 控件 ID（页面与插件共用）
 
 class AgentHost;
@@ -57,10 +65,6 @@ struct ServiceStats
     long long today   = 0;
     long long dbBytes = 0;
 };
-
-class ClipsPage;
-class OverviewPage;
-class ConfigPage;
 
 class App
 {
@@ -214,3 +218,5 @@ private:
     std::string  m_paintBackend;   // empty = auto (env / gdi)
     bool         m_coreShell = false;
 };
+
+} // namespace arecord

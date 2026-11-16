@@ -7,7 +7,8 @@
 #include "airui/AirUi.h"
 #include "../core/SysInfo.h"
 
-class App;
+namespace arecord { class App; }
+using namespace arecord;
 
 class ConfigPage : public air::ui::Page
 {

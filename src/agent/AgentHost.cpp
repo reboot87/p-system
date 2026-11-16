@@ -28,6 +28,9 @@ enum TrayCmd {
     CMD_EXIT      = 102,
 };
 
+namespace arecord
+{
+
 AgentHost::AgentHost() = default;
 AgentHost::~AgentHost()
 {
@@ -426,3 +429,5 @@ bool AgentHost::HandleWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
     }
     return false;
 }
+
+} // namespace arecord

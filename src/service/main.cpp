@@ -39,6 +39,8 @@
 #include "../core/Database.h"
 #include "../agent/AgentHost.h"
 
+using namespace arecord;
+
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "shlwapi.lib")
 #pragma comment(lib, "user32.lib")

@@ -4,6 +4,7 @@
 #include "../ipc/Ipc.h"
 
 using namespace air::ui;
+using namespace arecord;
 
 namespace {
 

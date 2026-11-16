@@ -26,6 +26,9 @@
 #include "../ipc/PipeClient.h"
 #include "../core/Database.h"
 
+namespace arecord
+{
+
 class AgentHost
 {
 public:
@@ -95,3 +98,5 @@ private:
     std::unique_ptr<Database> m_pending; // 服务不可用时的本地暂存库（%APPDATA%\AireRecord\pending.db）
     std::mutex  m_pendingMutex;      // 保护 m_pending（App 恢复线程与代理线程并发访问）
 };
+
+} // namespace arecord
