@@ -5,6 +5,17 @@
 // The same sequence must be produced on Windows / Linux / macOS;
 // once a second backend (Skia) exists, PaintRecorder::Diff() is the
 // G5 cross-backend consistency gate.
+//
+// CROSS-PLATFORM GOLDEN (P3-2):
+//   The whole-scene PaintRecorder::ToString() is compared against a
+//   committed baseline at tests/golden/paint_recorder.golden. That file is
+//   the SINGLE source of truth: every platform's `test_paint_recorder`
+//   (which is core-only and runs in the core-unix / windows / windows-x86
+//   ctest) compares its own output against the same committed file. So a
+//   platform that produces a different sequence fails that platform's
+//   required ctest -- no separate artifact-download/diff job is needed.
+//   Set UPDATE_GOLDEN=1 to (re)write the baseline; otherwise the test only
+//   reads it and fails on any mismatch. Keep the file ASCII-only.
 // ============================================================
 #include "airui/PaintRecorder.h"
 #include "airui/ControlsCore.h"
@@ -12,6 +23,9 @@
 #include "airui/Theme.h"
 
 #include <cstdio>
+#include <cstdlib>
+#include <fstream>
+#include <sstream>
 #include <string>
 
 using namespace air::ui;
@@ -62,6 +76,55 @@ bool IsAscii(const std::string& s)
 {
     for (unsigned char ch : s)
         if (ch > 127) return false;
+    return true;
+}
+
+// The committed cross-platform golden file lives next to this source file:
+// tests/golden/paint_recorder.golden. Builds run from the build dir, so
+// derive the repo path from __FILE__. __FILE__ may be absolute or relative
+// and may use '/' or '\' depending on the toolchain, so normalize both.
+std::string GoldenPath()
+{
+    std::string src = __FILE__;
+
+    // Find the "tests" directory in the path. __FILE__ may be absolute or
+    // relative and may use '/' or '\', so cover both. For a relative path
+    // like "tests\test_paint_recorder.cpp" there is no leading separator
+    // before "tests", so also detect the bare "tests/" or "tests\\" prefix.
+    std::string::size_type pos = std::string::npos;
+    std::string::size_type endLen = 0;
+    const std::string markers[] = { "/tests/", "\\tests\\", "\\tests/", "/tests\\",
+                                    "tests/",  "tests\\" };
+    for (const auto& m : markers)
+    {
+        std::string::size_type p = src.rfind(m);
+        if (p != std::string::npos && p >= pos)
+        {
+            pos = p;
+            endLen = m.size();
+        }
+    }
+    if (pos == std::string::npos)
+    {
+        // Fallback: assume the source is in a "tests" subdir; strip everything
+        // after the test file name.
+        const std::string fname = "test_paint_recorder.cpp";
+        std::string::size_type q = src.rfind(fname);
+        if (q != std::string::npos) src.resize(q);
+        return src + "golden/paint_recorder.golden";
+    }
+
+    src.resize(pos + endLen);               // keep everything up to and incl. separator
+    return src + "golden/paint_recorder.golden";
+}
+
+bool ReadFile(const std::string& path, std::string& out)
+{
+    std::ifstream in(path, std::ios::binary);
+    if (!in) return false;
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    out = ss.str();
     return true;
 }
 
@@ -135,6 +198,60 @@ int main()
     Check(shell.Ops().size() >= 3, "ShellCore paints caption / nav / status");
     Check(shell.SequenceEquals(shell2), "ShellCore golden is reproducible");
     Check(shell.Count(PaintOpKind::FillRect) >= 2, "ShellCore records surface fills");
+
+    // ---- whole-scene canonical golden (P3-2) ----
+    // Button scene then shell scene, concatenated with a blank line between.
+    // This is the cross-platform baseline that every platform's
+    // test_paint_recorder compares against (committed golden file).
+    const std::string golden =
+        btn.ToString() + "\n\n" + shell.ToString() + "\n";
+    Check(IsAscii(golden), "whole-scene ToString() is ASCII-only");
+
+    const std::string path = GoldenPath();
+
+    // Explicit rewrite gate: UPDATE_GOLDEN=1 writes the baseline and returns 0.
+    const char* updateEnv = std::getenv("UPDATE_GOLDEN");
+    if (updateEnv && updateEnv[0] == '1')
+    {
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        if (!out)
+        {
+            std::printf("FAIL: cannot write golden file: %s\n", path.c_str());
+            return 1;
+        }
+        out << golden;
+        std::printf("GOLDEN UPDATED: %s (%zu bytes)\n", path.c_str(), golden.size());
+        return 0;
+    }
+
+    // Normal mode: read the committed baseline and diff against it.
+    std::string baseline;
+    if (!ReadFile(path, baseline))
+    {
+        std::printf("FAIL: cannot read golden baseline: %s\n"
+                    "  (run once with UPDATE_GOLDEN=1 to generate it)\n", path.c_str());
+        ++g_failures;
+    }
+    else if (baseline == golden)
+    {
+        std::printf("PASS: output matches golden baseline (%zu bytes)\n", golden.size());
+    }
+    else
+    {
+        std::printf("FAIL: output differs from golden baseline: %s\n", path.c_str());
+        ++g_failures;
+        // Minimal diff summary: first differing line.
+        size_t i = 0, line = 1;
+        while (i < baseline.size() && i < golden.size() && baseline[i] == golden[i])
+        {
+            if (baseline[i] == '\n') ++line;
+            ++i;
+        }
+        if (i == baseline.size() && i == golden.size())
+            std::printf("  (lengths equal; see file)\n");
+        else
+            std::printf("  first diff at line %zu, offset %zu\n", line, i);
+    }
 
     if (g_failures) std::printf("FAILED: %d\n", g_failures);
     else            std::printf("ALL PASS (%d failures)\n", g_failures);

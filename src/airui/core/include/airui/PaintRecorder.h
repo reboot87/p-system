@@ -85,6 +85,12 @@ public:
     // Empty string when equal; otherwise a short human-readable diff.
     std::string Diff(const PaintRecorder& other) const;
 
+    // Whole-scene canonical serialization: one deterministic ASCII line per
+    // op (reusing PaintOp::ToString()), joined by '\n'. ASCII-only and
+    // deterministic (each op already length-encodes wide text), so it is the
+    // single source of truth for the cross-platform golden file.
+    std::string ToString() const;
+
     // ---- IPainter: every call becomes one PaintOp ----
     void FillRect(const Rect& r, Color c) override;
     void FillRectAlpha(const Rect& r, Color c, uint8_t alpha) override;

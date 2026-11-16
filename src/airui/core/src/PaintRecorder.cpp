@@ -88,6 +88,17 @@ std::string PaintOp::ToString() const
     return os.str();
 }
 
+std::string PaintRecorder::ToString() const
+{
+    std::string out;
+    for (const auto& op : m_ops)
+    {
+        if (!out.empty()) out.push_back('\n');
+        out += op.ToString();
+    }
+    return out;
+}
+
 size_t PaintRecorder::Count(PaintOpKind kind) const
 {
     size_t n = 0;

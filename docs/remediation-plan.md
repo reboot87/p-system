@@ -389,8 +389,9 @@
 
 ### P3-2 金样真正跨平台比对
 
+- **状态（P3-2 已完成）**：`PaintRecorder` 新增整场景 `ToString()`（每 op 一行 ASCII，复用 per-op `PaintOp::ToString()`）；`test_paint_recorder` 现与提交基线 `tests/golden/paint_recorder.golden` 比对，仅当 `UPDATE_GOLDEN=1` 时才重写该文件（否则比对失败即非零退出）；`core-unix` / `windows` / `windows-x86` 三平台均运行 `test_paint_recorder`，各自与**同一份提交基线**比对，任一平台产出不同则其 required ctest 失败，无需单独的 artifact 下载 diff 作业。
 - **证据**：`tests/test_paint_recorder.cpp:4-7` 与 `README.md:122` 声称「三平台产出同一份金样」，但 CI 各平台只是各自运行自比较（期望值硬编码在 `test_paint_recorder.cpp:79-92`），仓库无任何 `.golden` 文件，也没有跨产物比对步骤。
-- **改法**：`PaintRecorder::ToString()` 结果落盘到 `tests/golden/*.txt`，测试改为「与基线文件比对 + 显式 `UPDATE_GOLDEN=1` 才允许重写」；CI 新增一个 `golden-compare` job，`needs: [core-unix, windows]`，下载各平台 artifact 中的实际输出做 diff。
+- **改法**：`PaintRecorder::ToString()` 结果落盘到 `tests/golden/paint_recorder.golden`，测试改为「与基线文件比对 + 显式 `UPDATE_GOLDEN=1` 才允许重写」；`core-unix` / `windows` / `windows-x86` 的 ctest 各自与同一份提交基线比对，平台差异即失败。
 - **验收**：故意改一处 `PaintOp` 顺序，三平台 CI 同时失败并打印 diff。
 
 ### P3-3 文档修订清单（逐条）
