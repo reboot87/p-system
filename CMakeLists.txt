@@ -30,21 +30,6 @@ if(MSVC)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /source-charset:utf-8 /execution-charset:utf-8")
 endif()
 
-# Include directories
-#   core/include      -> airui-core public headers (platform-free)
-#   platform/win32    -> airui-win32 public headers (airui/*.h)
-#   platform/skia     -> optional backend headers. The app only needs
-#                        the platform-free C ABI header at runtime;
-#                        Skia sources/libs are compiled solely into
-#                        airui-skia(.dll) when AIRUI_WITH_SKIA=ON.
-include_directories(
-    ${CMAKE_SOURCE_DIR}/src/airui/core/include
-    ${CMAKE_SOURCE_DIR}/src/airui/platform/win32
-    ${CMAKE_SOURCE_DIR}/src/airui/platform/skia
-    ${CMAKE_SOURCE_DIR}/src
-    ${CMAKE_SOURCE_DIR}/third_party/sqlite
-)
-
 # ------------------------------------------------------------
 # airui-core: platform-free. Must never link user32/gdi32 and
 # must never include a platform header (enforced by
@@ -112,6 +97,9 @@ if(WIN32)
     target_include_directories(airui-win32 PUBLIC
         ${CMAKE_SOURCE_DIR}/src/airui/platform/win32
         ${CMAKE_SOURCE_DIR}/src/airui/core/include)
+    target_include_directories(airui-win32 PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/airui/platform/skia
+        ${CMAKE_SOURCE_DIR}/src)
     target_link_libraries(airui-win32 PUBLIC airui-core
         user32 gdi32 msimg32 shell32 comctl32 shlwapi advapi32 ole32 uxtheme imm32)
 else()
@@ -710,6 +698,7 @@ add_executable(airui_gallery
     src/gallery/GalleryDraw.cpp
     ${RESOURCE_FILE}
 )
+target_include_directories(airui_gallery PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(airui_gallery
     airui-win32
     user32 gdi32 shell32 comctl32 shlwapi advapi32 ole32
