@@ -27,12 +27,15 @@ test_theme.json
 component_gallery.*
 gallery_gui_*.png
 gallery_*.png
+gallery_*.txt
 # 手工截图对比的中间产物（A/B 两张 + pixdiff 结果）
 A*.png
 B*.png
 shot_*.png
 hover_now.png
 *.log
+# 诊断输出归档目录
+artifacts/
 
 
 # 工具与编辑器
