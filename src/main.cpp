@@ -101,12 +101,17 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int)
         return EXCEPTION_CONTINUE_SEARCH;
     });
 
-    // 单实例：已运行则激活已有窗口
+    // 单实例：已运行则激活已有窗口。但仅当本次是**用户显式唤起**（非
+    // --hidden）时才把已有窗口恢复并前置；系统服务按会话拉起的重复
+    // --hidden 实例（如 UI 管道瞬时断开被 watchdog 自动补拉）绝不能把
+    // 用户已最小化/隐藏的主窗口强行恢复置顶——那是用户报告的"最小化后
+    // 窗口自己跳到前台"的根因。
     HANDLE mutex = CreateMutexW(nullptr, TRUE, L"Local\\AireRecordUiMutex");
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
         HWND exist = FindWindowW(L"AireRecordWnd", nullptr);
-        diag::Log(L"[second-instance] existing=%p", (void*)exist);
-        if (exist) {
+        diag::Log(L"[second-instance] existing=%p hidden=%d", (void*)exist,
+                  (int)startHidden);
+        if (exist && !startHidden) {
             ShowWindow(exist, SW_RESTORE);
             SetForegroundWindow(exist);
         }
