@@ -5,12 +5,5 @@
   "description": "Windows desktop performance recording / analysis tool with a self-drawn UI framework and an optional Skia paint backend.",
   "dependencies": [
     "skia"
-  ],
-  "builtin-baseline": "8f363bdc11359ede4bc51e5eb32a2617538049c8",
-  "overrides": [
-    {
-      "name": "skia",
-      "version": "148"
-    }
   ]
 }

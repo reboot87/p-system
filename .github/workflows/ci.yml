@@ -351,9 +351,9 @@ jobs:
   # `core-unix` and `windows`/`windows-x86` jobs above; the docs spell
   # this out (README, docs/ROADMAP.md, docs/cross-platform.md).
   #
-  # The skia dependency version is pinned by the vcpkg.json manifest at the
-  # repo root (builtin-baseline + overrides). The cache key hashes that
-  # manifest, so a dependency bump automatically busts the cache.
+  # The skia dependency is listed in the vcpkg.json manifest at the repo
+  # root. The cache key hashes that manifest, so a dependency bump
+  # automatically busts the cache.
   #
   # Manifest mode: the CMake vcpkg toolchain installs the manifest deps into
   # the build dir's vcpkg_installed (not the runner's global vcpkg tree), so
