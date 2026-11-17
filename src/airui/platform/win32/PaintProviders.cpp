@@ -64,11 +64,50 @@ bool LoadPlugin()
     wchar_t custom[MAX_PATH] = {};
     const DWORD len = GetEnvironmentVariableW(AIRUI_SKIA_PLUGIN_ENV,
                                               custom, MAX_PATH);
-    const wchar_t* path =
-        (len > 0 && len < MAX_PATH) ? custom : AIRUI_SKIA_PLUGIN_DLL;
+    const wchar_t* path = (len > 0 && len < MAX_PATH) ? custom : nullptr;
+
+    // Resolve the plugin against the application's own directory, not the
+    // bare DLL name. LoadLibraryW with a bare name depends on the standard
+    // DLL search order (and the process CWD); when the app is launched by
+    // the service or from a shortcut the installed airui-skia.dll next to
+    // the exe may not be found, surfacing as "无插件" even though the file
+    // is present. Building an absolute <exe-dir>\airui-skia.dll path makes
+    // it load from wherever the app lives.
+    wchar_t absPath[MAX_PATH] = {};
+    wchar_t self[MAX_PATH] = {};
+    if (!path) {
+        if (GetModuleFileNameW(nullptr, self, MAX_PATH) > 0) {
+            wchar_t* slash = wcsrchr(self, L'\\');
+            if (slash) {
+                *slash = 0;
+                wsprintfW(absPath, L"%s\\%s", self, AIRUI_SKIA_PLUGIN_DLL);
+                path = absPath;
+            }
+        }
+    }
+    if (!path) path = AIRUI_SKIA_PLUGIN_DLL;
+
+    // Make the app's own directory part of the DLL search order so that the
+    // plugin and ITS import dependencies (skia.dll, icu*.dll, harfbuzz*.dll,
+    // ...) all resolve from the install dir, even when the process was
+    // launched with a different CWD (service / shortcut). Without this the
+    // absolute <exe-dir>\airui-skia.dll loads but its own imports fail to
+    // resolve, so the plugin load still fails and Skia stays unavailable.
+    // Best-effort: failure here only degrades the search path, never the
+    // rest of plugin resolution.
+    if (self[0]) {
+        SetDllDirectoryW(self);
+    }
 
     HMODULE module = LoadLibraryW(path);
-    if (!module) return false;
+    if (!module) {
+        wchar_t why[128] = {};
+        _snwprintf_s(why, _TRUNCATE,
+                     L"airui-skia plugin load failed: err=%u path=%ls",
+                     (unsigned)GetLastError(), path);
+        OutputDebugStringW(why);
+        return false;
+    }
     a.module   = module;
     a.describe = Resolve<AiruiSkiaDescribeFn>(module, AIRUI_SKIA_FN_DESCRIBE);
     a.create   = Resolve<AiruiSkiaCreateFn>(module, AIRUI_SKIA_FN_CREATE);

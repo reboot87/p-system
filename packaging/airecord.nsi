@@ -40,6 +40,14 @@ SetCompressor /SOLID lzma
 
 Section "Install" SecMain
   SetOutPath "$INSTDIR"
+
+  ; Kill any running AireRecord processes first: airecord.exe / airecordd.exe
+  ; are locked while running, so the File copy below would leave the OLD UI /
+  ; service in place and Windows keeps using them.
+  nsExec::ExecToLog 'taskkill /f /im airecord.exe'
+  nsExec::ExecToLog 'taskkill /f /im airecordd.exe'
+  Sleep 300
+
   File "${SRC_REL}\airecord.exe"
   File "${SRC_REL}\airecordd.exe"
   ; Skia plugin bundle (if present; else app falls back to GDI at runtime).
@@ -63,6 +71,10 @@ Section "Install" SecMain
 SectionEnd
 
 Section "Uninstall"
+  ; Kill any running UI / service process so the locked files can be removed.
+  nsExec::ExecToLog 'taskkill /f /im airecord.exe'
+  nsExec::ExecToLog 'taskkill /f /im airecordd.exe'
+  Sleep 300
   nsExec::ExecToLog '"$INSTDIR\airecordd.exe" -uninstall'
   Delete "$INSTDIR\airecord.exe"
   Delete "$INSTDIR\airecordd.exe"
