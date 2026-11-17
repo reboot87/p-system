@@ -1,4 +1,6 @@
 ; AireRecord NSIS installer - Modern UI 2, admin (registers the SCM service).
+; Architecture-aware: ships both the x86 build (GDI-only, no Skia plugin) and the
+; x64 build + x64 Skia plugin, and installs whichever matches the running OS.
 !include "MUI2.nsh"
 !include "x64.nsh"
 
@@ -12,12 +14,16 @@
 !ifndef ROOT
   !define ROOT "${__FILEDIR__}\.."
 !endif
-!define SRC_REL   "${ROOT}\build\Release"
-!define SRC_SKIA  "${ROOT}\build\ci-all\airui-skia-windows-x64"
+!define SRC_X86     "${ROOT}\build\Release"                     ; x86 app (GDI-only)
+!define SRC_X64     "${ROOT}\build-x64\Release"                 ; x64 app
+!define SRC_SKIA    "${ROOT}\build\ci-all\airui-skia-windows-x64" ; x64 Skia plugin bundle
 !define ICON_PATH "${ROOT}\res\app.ico"
 
 Name "${APP_NAME} ${APP_VERSION}"
 OutFile "${ROOT}\build\installer\AireRecord-${APP_VERSION}-setup.exe"
+; Default target dir; overridden per-arch in .onInit based on RunningX64.
+; We resolve $INSTDIR explicitly here and again in .onInit because NSIS installers
+; are x86 by default and $PROGRAMFILES resolves to the 32-bit dir on x86 only.
 InstallDir "$PROGRAMFILES64\AireRecord"
 RequestExecutionLevel admin
 SetCompressor /SOLID lzma
@@ -38,6 +44,18 @@ SetCompressor /SOLID lzma
 !insertmacro MUI_LANGUAGE "SimpChinese"
 !insertmacro MUI_LANGUAGE "English"
 
+; Choose the install dir up front so both the install and the uninstaller use
+; the same per-arch Program Files location ($PROGRAMFILES64 on x64, $PROGRAMFILES32
+; on x86). NSIS resolves the *_PROGRAMFILES constants to the real dirs regardless
+; of the (x86) installer's own bitness.
+Function .onInit
+  ${If} ${RunningX64}
+    StrCpy $INSTDIR "$PROGRAMFILES64\${APP_NAME}"
+  ${Else}
+    StrCpy $INSTDIR "$PROGRAMFILES32\${APP_NAME}"
+  ${EndIf}
+FunctionEnd
+
 Section "Install" SecMain
   SetOutPath "$INSTDIR"
 
@@ -48,13 +66,21 @@ Section "Install" SecMain
   nsExec::ExecToLog 'taskkill /f /im airecordd.exe'
   Sleep 300
 
-  File "${SRC_REL}\airecord.exe"
-  File "${SRC_REL}\airecordd.exe"
-  ; Skia plugin bundle (if present; else app falls back to GDI at runtime).
-  !if /FileExists "${SRC_SKIA}\airui-skia.dll"
-    SetOutPath "$INSTDIR"
-    File /nonfatal /r "${SRC_SKIA}\*.dll"
-  !endif
+  ${If} ${RunningX64}
+    ; x64 build + the x64 Skia plugin (Skia accelerated rendering).
+    File "${SRC_X64}\airecord.exe"
+    File "${SRC_X64}\airecordd.exe"
+    !if /FileExists "${SRC_SKIA}\airui-skia.dll"
+      SetOutPath "$INSTDIR"
+      File /nonfatal /r "${SRC_SKIA}\*.dll"
+    !endif
+  ${Else}
+    ; x86 build. No x86 Skia plugin is published -> GDI rendering only.
+    File "${SRC_X86}\airecord.exe"
+    File "${SRC_X86}\airecordd.exe"
+  ${EndIf}
+
+  SetOutPath "$INSTDIR"
   CreateDirectory "$SMPROGRAMS\${APP_NAME}"
   CreateShortcut "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk" "$INSTDIR\airecord.exe" "" "$INSTDIR\airecord.exe" 0
   CreateShortcut "$DESKTOP\${APP_NAME}.lnk" "$INSTDIR\airecord.exe" "" "$INSTDIR\airecord.exe" 0
