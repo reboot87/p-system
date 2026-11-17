@@ -130,16 +130,6 @@ std::string GoldenPath()
     return src + "golden/paint_recorder.golden";
 }
 
-bool ReadFile(const std::string& path, std::string& out)
-{
-    std::ifstream in(path, std::ios::binary);
-    if (!in) return false;
-    std::ostringstream ss;
-    ss << in.rdbuf();
-    out = ss.str();
-    return true;
-}
-
 // ---- structural (platform-independent) serialization ----
 //
 // Byte-exact ToString() is NOT stable across toolchains / DPI: the pure

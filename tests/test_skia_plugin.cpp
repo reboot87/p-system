@@ -70,16 +70,19 @@ int main()
     HMODULE dll = LoadLibraryW(AIRUI_SKIA_PLUGIN_DLL);
     Check(dll != nullptr, "plugin DLL loadable next to the exe");
     if (dll) {
-        AiruiSkiaAbiFn       abi      = Resolve<AiruiSkiaAbiFn>(dll, AIRUI_SKIA_FN_ABI);
+        AiruiSkiaDescribeFn   describe = Resolve<AiruiSkiaDescribeFn>(dll, AIRUI_SKIA_FN_DESCRIBE);
         AiruiSkiaCreateFn    create   = Resolve<AiruiSkiaCreateFn>(dll, AIRUI_SKIA_FN_CREATE);
         AiruiSkiaDestroyFn   destroy  = Resolve<AiruiSkiaDestroyFn>(dll, AIRUI_SKIA_FN_DESTROY);
         AiruiSkiaPixelsFn    pixels   = Resolve<AiruiSkiaPixelsFn>(dll, AIRUI_SKIA_FN_PIXELS);
         AiruiSkiaRowBytesFn  rowBytes = Resolve<AiruiSkiaRowBytesFn>(dll, AIRUI_SKIA_FN_ROW_BYTES);
 
-        Check(abi && create && destroy && pixels && rowBytes,
+        Check(describe && create && destroy && pixels && rowBytes,
               "all plugin C ABI entry points exported");
-        if (abi && create && destroy && pixels && rowBytes) {
-            Check(abi() == AIRUI_SKIA_PLUGIN_ABI, "plugin ABI version matches");
+        if (describe && create && destroy && pixels && rowBytes) {
+            const AiruiPluginDesc* desc = describe();
+            Check(desc && desc->abi == AIRUI_PLUGIN_ABI, "plugin ABI version matches");
+            Check(desc && desc->painterIfaceRev == AIRUI_PAINTER_IFACE_REV,
+                  "plugin painter interface revision matches");
             void* handle = create(nullptr, 0, 0, 32, 32);
             Check(handle != nullptr, "plugin created an off-screen frame");
             if (handle) {
