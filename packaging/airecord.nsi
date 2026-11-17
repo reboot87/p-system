@@ -56,23 +56,42 @@ Function .onInit
   ${EndIf}
 FunctionEnd
 
+; Best-effort stop: stop the SCM service first, then force-kill any UI /
+; service process. The RUNNING service holds airecordd.exe (and the watchdog
+; re-launches airecord.exe), so copying over it either leaves stale files or
+; errors. nsExec::ExecToLog never aborts the install if a process isn't
+; running or the service is already stopped, so these are safe to run
+; unconditionally. A longer Sleep lets Windows release the file handles.
+!macro StopAireRecord
+  nsExec::ExecToLog 'net stop AireRecord'
+  nsExec::ExecToLog 'taskkill /f /im airecord.exe'
+  nsExec::ExecToLog 'taskkill /f /im airecordd.exe'
+  Sleep 500
+!macroend
+
 Section "Install" SecMain
   SetOutPath "$INSTDIR"
 
-  ; Kill any running AireRecord processes first: airecord.exe / airecordd.exe
-  ; are locked while running, so the File copy below would leave the OLD UI /
-  ; service in place and Windows keeps using them.
-  nsExec::ExecToLog 'taskkill /f /im airecord.exe'
-  nsExec::ExecToLog 'taskkill /f /im airecordd.exe'
-  Sleep 300
+  ; Stop the service + kill the UI BEFORE copying files: airecord.exe and
+  ; airecordd.exe are locked while running, and the service watchdog
+  ; re-launches the UI, so without this the File copy leaves the OLD binaries
+  ; in place (or fails) and a stale service can keep spawning duplicate UIs.
+  !insertmacro StopAireRecord
 
   ${If} ${RunningX64}
-    ; x64 build + the x64 Skia plugin (Skia accelerated rendering).
+    ; x64 build. The x64 Skia plugin is only shipped when the build script
+    ; proved the bundle is a fresh ABI-v2 plugin (exports airui_skia_describe).
+    ; A stale ABI-v1 bundle (exports airui_skia_abi, built before P0-3) would
+    ; be loaded but rejected by the app -> silently falling back to GDI and
+    ; misleadingly reporting the plugin as present. We omit it so the installed
+    ; app is honest GDI until a fresh CI bundle is published. See
+    ; packaging\build-installer.ps1 (it sets /DSHIP_SKIA=1 only for a fresh bundle).
     File "${SRC_X64}\airecord.exe"
     File "${SRC_X64}\airecordd.exe"
-    !if /FileExists "${SRC_SKIA}\airui-skia.dll"
+    !ifdef SHIP_SKIA
       SetOutPath "$INSTDIR"
       File /nonfatal /r "${SRC_SKIA}\*.dll"
+      SetOutPath "$INSTDIR"
     !endif
   ${Else}
     ; x86 build. No x86 Skia plugin is published -> GDI rendering only.
@@ -97,10 +116,10 @@ Section "Install" SecMain
 SectionEnd
 
 Section "Uninstall"
-  ; Kill any running UI / service process so the locked files can be removed.
-  nsExec::ExecToLog 'taskkill /f /im airecord.exe'
-  nsExec::ExecToLog 'taskkill /f /im airecordd.exe'
-  Sleep 300
+  ; Stop the service + kill any running UI / service process so the locked
+  ; files can be removed (the service watchdog otherwise re-launches the UI
+  ; while we are deleting its binaries). Best-effort like install.
+  !insertmacro StopAireRecord
   nsExec::ExecToLog '"$INSTDIR\airecordd.exe" -uninstall'
   Delete "$INSTDIR\airecord.exe"
   Delete "$INSTDIR\airecordd.exe"
