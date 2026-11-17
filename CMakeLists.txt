@@ -182,6 +182,7 @@ if(AIRUI_WITH_SKIA)
     )
     target_include_directories(airui-skia PUBLIC
         ${CMAKE_SOURCE_DIR}/src/airui/platform/skia
+        ${CMAKE_SOURCE_DIR}/src
         ${AIRUI_SKIA_INCLUDE_DIRS})
     target_link_libraries(airui-skia
         PUBLIC airui-core
