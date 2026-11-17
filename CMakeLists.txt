@@ -758,3 +758,12 @@ foreach(_t test_core_layout test_controls_core test_hot_state test_shell_hal tes
         add_test(NAME ${_t} COMMAND ${_t})
     endif()
 endforeach()
+
+# NSIS installer (best-effort; requires makensis.exe). Not added to ALL so
+# the build/ctest never fail when NSIS is absent. Build explicitly with:
+#   cmake --build build --config Release --target installer
+add_custom_target(installer
+    COMMAND powershell -NoProfile -ExecutionPolicy Bypass
+            -File ${CMAKE_SOURCE_DIR}/packaging/build-installer.ps1
+    COMMENT "Building AireRecord NSIS installer"
+    VERBATIM)
