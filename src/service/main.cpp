@@ -679,6 +679,21 @@ static int InstallService()
     if (!svc && GetLastError() == ERROR_SERVICE_EXISTS)
         svc = OpenServiceW(mgr, kSvcName, SERVICE_ALL_ACCESS);
 
+    // 修复服务二进制路径：服务已存在（例如重装 / 换安装目录）时，SCM 里
+    // 的 ImagePath 仍指向旧位置的 airecordd.exe，可能已不存在或版本不符，
+    // 于是"安装完服务没起来"。无论新建还是已存在，都强制把二进制路径改到
+    // 当前 exe，保证启动落的是本安装。ChangeServiceConfigW 在
+    // SERVICE_ALL_ACCESS 句柄上可改 lpBinaryPathName；失败无害（仅日志）。
+    if (svc) {
+        if (!ChangeServiceConfigW(svc, SERVICE_NO_CHANGE, SERVICE_NO_CHANGE,
+                                  SERVICE_NO_CHANGE, cmd.c_str(), nullptr,
+                                  nullptr, nullptr, nullptr, nullptr,
+                                  nullptr)) {
+            diag::Log(L"[svc] ChangeServiceConfigW repair-path failed gle=%lu",
+                      GetLastError());
+        }
+    }
+
     // ---- SCM 崩溃自动重启（失败操作）----
     // 服务崩溃（异常退出）时由操作系统（Session 0）自动重启，而非由 UI
     // 重启。SCM 失败操作只在进程异常退出时触发；干净的 `sc stop` 不会。
