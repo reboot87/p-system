@@ -15,6 +15,7 @@
 #include <windows.h>
 
 #include <cstdio>
+#include <cwchar>
 #include <string>
 
 using namespace air::ui;
@@ -125,7 +126,7 @@ int main()
                 void* h = c5(nullptr, 0, 0, 32, 32);
                 if (!h) return -1;
                 IPainter* pt = reinterpret_cast<IPainter*>(h);
-                pt->Text(Rect{ 2, 2, 28, 28 },(s).c_str(), (s).size(),FontRole::Body,MakeColor(0xFF, 0xFF, 0xFF),dt::SingleLine);
+                pt->Text(Rect{ 2, 2, 28, 28 }, s, wcslen(s), FontRole::Body, MakeColor(0xFF, 0xFF, 0xFF), dt::SingleLine);
                 const unsigned char* px =
                     static_cast<const unsigned char*>(p5(h));
                 const uint64_t stride = r5(h);
