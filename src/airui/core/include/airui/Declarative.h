@@ -209,5 +209,36 @@ void PrepareTree(LayoutNode& root, const Rect& bounds, const LayoutEnv& env = {}
 // 便利入口：root 尺寸由 bounds 的 Exactly 约束决定。
 void MeasureTree(LayoutNode& root, MeasureSpec w, MeasureSpec h, const LayoutEnv& env = {});
 
+// ------------------------------------------------------------
+// JSON 布局描述（布局文件 -> 节点树）
+//
+//   { "type": "column", "padding": 16, "gap": 12, "children": [
+//       { "type": "label", "text": "Hello", "font": "title", "h": 24 },
+//       { "type": "row", "gap": 8, "children": [
+//           { "type": "control", "id": "ok", "w": 72, "h": 32 },
+//           { "type": "spacer", "weight": 1 } ] } ] }
+// ------------------------------------------------------------
+struct InflateError
+{
+    bool        ok = true;
+    int         line = 0;      // 1-based；0 表示与位置无关的错误
+    int         column = 0;
+    std::string message;
+
+    void Reset() { ok = true; line = 0; column = 0; message.clear(); }
+    void Fail(int l, int c, std::string msg)
+    {
+        ok = false;
+        line = l;
+        column = c;
+        message = std::move(msg);
+    }
+    // "line:col: message"（便于日志/报错）
+    std::string Describe() const;
+};
+
+// 成功返回根节点；失败返回 nullptr，并在 err（若非空）给出行列号与原因。
+std::unique_ptr<LayoutNode> InflateLayout(const std::string& utf8Json, InflateError* err = nullptr);
+
 } // namespace ui
 } // namespace air
