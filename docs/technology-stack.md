@@ -115,7 +115,7 @@
 - **RAII**：模态禁用/重绘冻结/列表批量用 RAII（`ScopedWindowDisable`/`ScopedRedrawFreeze`/
   `ScopedBatch`），异常/提前返回也正确恢复。
 - **ABI 契约**：跨 DLL 的 C++ 虚表布局用 `painterIfaceRev` 显式校验。
-- **测试资产**：孤儿测试归入 `tools/diagnostics/`；`ctest -C Release` 23/23；
+- **测试资产**：孤儿测试归入 `tools/diagnostics/`；`ctest -C Release` 26/26；
   金样为平台无关结构断言。
 - **决策记录**：`docs/adr/` 4 篇（工具链矩阵/版本号/服务-UI 生命周期/插件 ABI v2）。
 

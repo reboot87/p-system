@@ -98,7 +98,7 @@ target_link_libraries(app PRIVATE airui-core airui-win32 user32 gdi32 shell32 co
 
 - CI 门禁：`check-core-clean`（core 平台隔离）、`check-skia-syntax`、`test_paint_recorder`
   结构金样、`clang-format`、clang-tidy（非阻塞）。
-- `ctest -C Release` 23/23。
+- `ctest -C Release` 26/26。
 - 公共头应**自包含**（单独 include 可编译）——由 `check-public-headers` 门禁强制：
   configure 时对每个公共头生成仅含它的最小 TU 单独编译（`AIRUI_CHECK_PUBLIC_HEADERS`，
   默认 ON）；`cmake --build <build> --target check-public-headers` 可在 CI/本地强制重新

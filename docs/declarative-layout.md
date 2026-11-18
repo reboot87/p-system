@@ -85,9 +85,10 @@ PrepareTree(root, Rect{0, 0, 640, 480}, env);   // measure + layout 一步到位
 |---|---|
 | 1. 节点模型（`LayoutNode` + `LayoutParams` + `MeasureSpec`） | ✅ 已完成 |
 | 2. measure/layout 两趟引擎（Row/Column/Frame/Grid/Scroll） | ✅ 已完成 |
-| 3. JSON inflate（布局文件 → 节点树） | ⬜ 下一步 |
-| 4. 绑定与交互（`{binding}`、`onClick`、命中测试接 `ControlHost`） | ⬜ |
-| 5. 渲染桥（节点树 → `IPainter` 绘制）+ gallery 示例 + 热加载 | ⬜ |
+| 3. JSON inflate（布局描述 → 节点树，错误带行列号） | ✅ 已完成 |
+| 4. 绑定与交互（`ValueStore` 占位符、`HitTest`、`DispatchClick`） | ✅ 已完成 |
+| 5. 渲染桥（`DeclarativeRender.h`，节点树 → `IPainter`） | ✅ 已完成 |
+| 6. gallery 声明式示例页 + 热加载 | ⬜ 下一步 |
 
 ## 5. 已知限制
 
@@ -95,6 +96,63 @@ PrepareTree(root, Rect{0, 0, 640, 480}, env);   // measure + layout 一步到位
 - `Frame` 只有一个 `align`（水平/垂直共用一个），需要独立 `gravity` 时再加字段。
 - `Scroll` 仅竖向；横向滚动后续按同一模式扩展。
 - 尚未和 `ControlHost` / `Control` 的命中与焦点联动（步骤 4）。
+
+## 5.5 JSON 布局描述（步骤 3）
+
+`InflateLayout(utf8Json, &err)` 把布局描述解析成节点树；失败返回 `nullptr`，
+`err.Describe()` 给出 `"line:col: 原因"`（解析错误与语义错误都定位到出错 token）。
+
+```jsonc
+{
+  "type": "column",                 // column/row/frame/grid/scroll/label/control/spacer
+  "padding": [12, 16],              // 数字 | [vertical,horizontal] | [l,t,r,b] | {left,top,right,bottom}
+  "gap": 10,
+  "children": [
+    { "type": "label", "id": "title",
+      "text": "{title}",            // UTF-8；支持 \uXXXX 与代理对；{key} 是绑定占位符
+      "font": "title",              // body/meta/title/section/button/icon/icon_large/display
+      "h": 24 },                    // 数字=固定；"wrap"/"match"；别名 width/height 亦可
+    { "type": "row", "gap": 8, "onClick": "rowCommand", "children": [
+        { "type": "control", "id": "save", "style": "primary",
+          "w": 72, "h": 32, "onClick": "doSave" },
+        { "type": "spacer", "weight": 1 } ] },
+    { "type": "grid", "columns": 2, "gap": 6, "children": [
+        { "type": "label", "text": "a" },
+        { "type": "label", "text": "b" } ] }
+  ]
+}
+```
+
+- 其余字段：`minW/minH/maxW/maxH`、`align`（start/center/end/stretch）、`preferred: [w,h]`。
+- 未知字段忽略（向前兼容）；未知 type/align/font、类型不符的值 → 带行列号的错误。
+
+## 5.6 绑定与交互（步骤 4）
+
+```cpp
+ValueStore store;
+store.Set("title", L"主页").Set("count", 42);
+store.Apply(*root);                       // 把每个节点 text 里的 {key} 填充掉
+
+LayoutNode* hit = HitTest(*root, Point{40, 16});   // 最深节点；Frame 后加入者在上层
+DispatchClick(*root, Point{40, 16}, [](LayoutNode& n, const std::string& cmd) {
+    // cmd == n.onClick；沿父链上溯到第一个非空 onClick 才触发
+});
+```
+
+- `HitTest`：Scroll 开 `clip` 时视口外的点不命中内容（点落在 Scroll 容器或其外层）。
+- `DispatchClick`：整条父链都没有 `onClick` 就不回调（纯展示控件不产生命令）。
+
+## 5.7 渲染桥（步骤 5）
+
+```cpp
+#include "airui/DeclarativeRender.h"
+RenderTree(g, *root, Pal(), Mx());        // GDI / Skia / PaintRecorder 同一条路径
+```
+
+节点映射：Label → `IPainter::Text`（font + align）；Control → `PaintButton`
+（`style`: primary/danger/ghost/secondary）；Scroll → `PushClip(视口)/PopClip`；
+容器默认无视觉（`RenderOptions::debugBoxes` 可画调试边框）。
+测试用 `PaintRecorder` 断言绘制调用序列（平台无关，跨后端一致）。
 
 ## 6. 为什么先做引擎
 
@@ -108,6 +166,6 @@ PrepareTree(root, Rect{0, 0, 640, 480}, env);   // measure + layout 一步到位
 ```powershell
 cmake -S . -B build
 cmake --build build --config Release
-cd build; ctest -C Release          # 23/23
+cd build; ctest -C Release          # 26/26（含 declarative layout/json/interact/render 四组）
 cmake --build build --config Release --target check-public-headers
 ```

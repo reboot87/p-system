@@ -152,6 +152,6 @@ m_items.push_back(it);
 ## 5. 检查
 
 - 本文示例已用 MSVC x64 单独编译验证通过（`/std:c++17 /source-charset:utf-8`）。
-- `cd build; ctest -C Release` 23/23（`test_paint_recorder` 金样会覆盖你的新绘制，若录入了）。
+- `cd build; ctest -C Release` 26/26（`test_paint_recorder` 金样会覆盖你的新绘制，若录入了）。
 - `powershell -File scripts/check-core-clean.ps1`（core 里别用平台头）。
 - 公共头自包含：`cmake --build build --config Release --target check-public-headers`。
