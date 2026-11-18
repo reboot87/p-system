@@ -121,3 +121,44 @@
 - `docs/build-conventions.md`（构建矩阵 + 打包）
 - `docs/skia-backend.md`（Skia 后端、ABI、像素差异）
 - `docs/design-patterns.md`（设计模式、两个 core 边界）
+
+## 9. 已知边界与后续改进点
+
+### 9.1 平台 / 打包
+- **x86 无 Skia 插件**：CI 只发布 x64 Skia 包，x86 机器安装版是 GDI-only（软件渲染）。
+  需用 x86 Skia SDK 重编插件（CI 加 `skia-windows-x86` job 或 vcpkg x86 port）后 x86 也能用 Skia。
+- **二进制未代码签名**：安装器/应用未签名，Windows SmartScreen / UAC 会告警，信任门槛高。
+  可接入证书签名（`signtool`）。
+- **NSIS 版本与 CMake 分离**：`packaging/airecord.nsi` 硬编码 `0.9.0`，与
+  `project(AireRecord VERSION ...)` 是双来源。`build-installer.ps1` 可从 `Version.h` 读取注入，避免漂移。
+
+### 9.2 安全
+- **机器级 DB 的 Users 写权限**：`InstallService` 用 `icacls` 给
+  `%PROGRAMDATA%\AireRecord` 授 Users 写（`*S-1-5-32-545:(OI)(CI)M`）。若业务不需要普通进程
+  直写共享库，应收紧或移除（服务以 SYSTEM 独占写即可）。
+- **插件 DLL 供应链**：`airecord.exe` 从 `%PROGRAMFILES64%` 加载 `airui-skia.dll`，未验证其
+  来源/签名。部署受信任路径风险可控，但若考虑供应链加固可加签名校验。
+
+### 9.3 测试 / 质量
+- **clang-tidy 未实跑**：`.clang-tidy` 已配置（`bugprone-*` + `clang-analyzer-*`）但本地无
+  二进制，CI 步骤 `continue-on-error`。需在带 clang-tidy 的 runner 上跑一遍并清理发现。
+- **无 ASan/TSan 验证**：P0-2 验收提到的「ASan 20 次启动→切页→关闭」未真正接入。可加
+  sanitizer CI 作业（MSVC `/fsanitize=address`）。
+- **安装器无自动集成测试**：install→检查→uninstall 目前只手动静默验证。可加 CI 步骤自动跑。
+
+### 9.4 性能
+- **Skia 帧成本高于 GDI**（已知 30-50ms vs 4-5ms）。既然已能加载 Skia，可做 Skia 渲染优化：
+  frame/Surface 复用、文字 raster 缓存、`measureText` 次数收敛。
+- **离线 pending.db 同步**：大批量 `FlushPending` 逐条 `SAVE` 可批量/并发，减少重连后的同步窗口。
+
+### 9.5 工程化 / 技术债
+- **目录重命名 `src/core/` → `src/app/`**（P2-3 延后到 v1.1）：业务层 `src/core` 与框架层
+  `src/airui/core` 同名易混，重命名消除歧义（会打断 `docs/` 大量路径引用）。
+- **`third_party/sqlite`（9MB vendored）**：可改用 vcpkg 依赖，减少仓库体积、获得版本/许可管理。
+- **gallery 演示与主应用**：`airui_gallery` 组件覆盖面广，主应用 `airecord` 的
+  剪贴板/配置页细节与无障碍（IAccessible，P0-4 标 TODO）可继续打磨。
+
+### 9.6 可观测 / 运维
+- **无自动更新**：安装版用户需手动重装。可加简易自更新（下载新 setup + 静默安装）。
+- **服务日志位置**：服务端 `diag::Log` 写到 `%LOCALAPPDATA%`（SYSTEM profile），定位不便。
+  可统一到 `%PROGRAMDATA%\AireRecord\logs` 并加滚动/级别控制。
