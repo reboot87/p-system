@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cwchar>
 
 namespace air {
 namespace ui {
@@ -469,6 +470,136 @@ void PrepareTree(LayoutNode& root, const Rect& bounds, const LayoutEnv& env)
     root.Measure(MeasureSpec::Exactly(bounds.Width()),
                  MeasureSpec::Exactly(bounds.Height()), env);
     root.Layout(bounds);
+}
+
+// ------------------------------------------------------------
+// ValueStore：{key} 占位符绑定
+// ------------------------------------------------------------
+ValueStore& ValueStore::Set(const std::string& key, std::wstring value)
+{
+    m_values[key] = std::move(value);
+    return *this;
+}
+
+ValueStore& ValueStore::Set(const std::string& key, const wchar_t* value)
+{
+    m_values[key] = value ? std::wstring(value) : std::wstring();
+    return *this;
+}
+
+ValueStore& ValueStore::Set(const std::string& key, long long value)
+{
+    wchar_t buf[32] = {};
+    std::swprintf(buf, 32, L"%lld", value);
+    m_values[key] = buf;
+    return *this;
+}
+
+ValueStore& ValueStore::Set(const std::string& key, double value)
+{
+    wchar_t buf[64] = {};
+    if (value == static_cast<double>(static_cast<long long>(value)) &&
+        std::fabs(value) < 1e15) {
+        std::swprintf(buf, 64, L"%lld", static_cast<long long>(value));
+    } else {
+        std::swprintf(buf, 64, L"%.6g", value);
+    }
+    m_values[key] = buf;
+    return *this;
+}
+
+ValueStore& ValueStore::Set(const std::string& key, bool value)
+{
+    m_values[key] = value ? L"true" : L"false";
+    return *this;
+}
+
+bool ValueStore::Has(const std::string& key) const
+{
+    return m_values.find(key) != m_values.end();
+}
+
+const std::wstring& ValueStore::Get(const std::string& key) const
+{
+    static const std::wstring kEmpty;
+    const auto it = m_values.find(key);
+    return it != m_values.end() ? it->second : kEmpty;
+}
+
+std::wstring ValueStore::Resolve(const std::wstring& text) const
+{
+    if (m_values.empty() || text.empty()) return text;
+
+    std::wstring out;
+    out.reserve(text.size());
+    size_t i = 0;
+    while (i < text.size()) {
+        if (text[i] != L'{') {
+            out += text[i++];
+            continue;
+        }
+        const size_t close = text.find(L'}', i + 1);
+        if (close == std::wstring::npos) {  // 没有配对：原样保留
+            out += text[i++];
+            continue;
+        }
+        // key 只取 ASCII（绑定名是代码资产）
+        const std::wstring raw = text.substr(i + 1, close - i - 1);
+        std::string key;
+        bool ascii = !raw.empty();
+        for (wchar_t wc : raw) {
+            if (wc < 0 || wc > 0x7F) { ascii = false; break; }
+            key += static_cast<char>(wc);
+        }
+        if (ascii && Has(key)) {
+            out += Get(key);
+            i = close + 1;
+        } else {  // 未命中/非 ASCII key：原样保留整个占位符
+            out += text[i++];
+        }
+    }
+    return out;
+}
+
+void ValueStore::Apply(LayoutNode& root) const
+{
+    root.text = Resolve(root.text);
+    for (auto& child : root.children) Apply(*child);
+}
+
+// ------------------------------------------------------------
+// 命中测试与点击
+// ------------------------------------------------------------
+LayoutNode* HitTest(LayoutNode& root, Point pt)
+{
+    if (!root.Frame().Contains(pt)) return nullptr;
+
+    // Scroll 裁剪：视口（内容框）之外的点不进入子树。
+    const bool clipped =
+        root.type == NodeType::Scroll && root.clip &&
+        !root.ContentFrame().Contains(pt);
+
+    if (!clipped) {
+        // 逆序遍历：后加入的子节点绘制在上层，优先命中。
+        for (auto it = root.children.rbegin(); it != root.children.rend(); ++it) {
+            if (LayoutNode* hit = HitTest(**it, pt)) return hit;
+        }
+    }
+    return &root;  // 子树都没命中，但点在自身盒子里 -> 命中容器本身
+}
+
+void DispatchClick(LayoutNode& root, Point pt,
+                   const std::function<void(LayoutNode&, const std::string& cmd)>& handler)
+{
+    if (!handler) return;
+    LayoutNode* hit = HitTest(root, pt);
+    if (!hit) return;
+    for (LayoutNode* n = hit; n; n = n->Parent()) {
+        if (!n->onClick.empty()) {
+            handler(*n, n->onClick);
+            return;
+        }
+    }
 }
 
 } // namespace ui

@@ -22,6 +22,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -140,6 +141,7 @@ public:
     FontRole     font = FontRole::Body;
     Size         intrinsic{};               // Label/Control 期望尺寸（0 = 由测量得出）
     bool         clip = true;               // Scroll: 裁掉超出盒子的内容
+    std::string  onClick;                   // 点击命令名（非空 = 可点击，事件沿父链上溯）
 
     // ---- 便捷链式设置 ----
     LayoutNode& SetId(std::string nodeId)          { id = std::move(nodeId); return *this; }
@@ -158,6 +160,7 @@ public:
     LayoutNode& SetStyle(std::wstring s)           { style = std::move(s); return *this; }
     LayoutNode& SetFont(FontRole f)                { font = f; return *this; }
     LayoutNode& SetIntrinsic(Size s)               { intrinsic = s; return *this; }
+    LayoutNode& SetOnClick(std::string cmd)        { onClick = std::move(cmd); return *this; }
 
     // ---- 树 ----
     std::vector<std::unique_ptr<LayoutNode>> children;
@@ -208,6 +211,45 @@ void PrepareTree(LayoutNode& root, const Rect& bounds, const LayoutEnv& env = {}
 
 // 便利入口：root 尺寸由 bounds 的 Exactly 约束决定。
 void MeasureTree(LayoutNode& root, MeasureSpec w, MeasureSpec h, const LayoutEnv& env = {});
+
+// ------------------------------------------------------------
+// 数据绑定：文本里的 {key} 占位符 -> 值（渲染前填充进树）
+// ------------------------------------------------------------
+class ValueStore
+{
+public:
+    ValueStore& Set(const std::string& key, std::wstring value);
+    ValueStore& Set(const std::string& key, const wchar_t* value);
+    ValueStore& Set(const std::string& key, long long value);
+    ValueStore& Set(const std::string& key, double value);
+    ValueStore& Set(const std::string& key, bool value);
+
+    bool Has(const std::string& key) const;
+    // 不存在的 key 返回空串。
+    const std::wstring& Get(const std::string& key) const;
+
+    // 替换 text 中的 {key}；未命中的占位符保持原样（便于发现漏绑）。
+    std::wstring Resolve(const std::wstring& text) const;
+
+    // 遍历整棵树，用 Resolve 重写每个节点的 text。
+    void Apply(LayoutNode& root) const;
+
+private:
+    std::unordered_map<std::string, std::wstring> m_values;
+};
+
+// ------------------------------------------------------------
+// 命中测试与点击
+// ------------------------------------------------------------
+// 返回包含 pt 的最深节点（后绘制的子节点优先，Frame 叠放也按此规则）；
+// 无命中返回 nullptr。Scroll 开启 clip 时，内容框（视口）之外的点不会
+// 命中其子树——点会落在 Scroll 容器自身（或其外层）。
+LayoutNode* HitTest(LayoutNode& root, Point pt);
+
+// 命中后沿父链上溯，找第一个 onClick 非空的节点并回调；
+// 整条链都没有命令则不回调。handler 可做命令分发/状态更新/触发重绘。
+void DispatchClick(LayoutNode& root, Point pt,
+                   const std::function<void(LayoutNode&, const std::string& cmd)>& handler);
 
 // ------------------------------------------------------------
 // JSON 布局描述（布局文件 -> 节点树）
