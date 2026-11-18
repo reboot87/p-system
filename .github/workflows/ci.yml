@@ -254,6 +254,17 @@ jobs:
           powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-core-clean.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      # Self-contained public-header gate (docs/ui-library.md §6). Every
+      # PUBLIC header of airui-core / airui-win32 must compile standalone.
+      # The target re-runs the check in a fresh scratch build dir (no stale
+      # cached per-header result). It is a real gate: a non-self-contained
+      # header fails this step. Windows-only (win32 headers are Win32).
+      - name: Self-contained public-header gate
+        shell: pwsh
+        run: |
+          cmake --build build-core --config Release --target check-public-headers
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Build ALL targets (app, gallery, tests, libs)
         run: cmake --build build-core --config Release
 

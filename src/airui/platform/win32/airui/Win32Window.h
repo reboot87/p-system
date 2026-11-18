@@ -14,6 +14,7 @@
 // ============================================================
 #include "airui/hal.h"
 #include <windows.h>
+#include <windowsx.h>
 #include <functional>
 #include <map>
 #include <string>

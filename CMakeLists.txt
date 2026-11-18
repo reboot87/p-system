@@ -744,6 +744,95 @@ if(WIN32)
         VERBATIM)
 endif()
 
+# ------------------------------------------------------------
+# Self-contained public-header gate (see docs/ui-library.md §6).
+#
+# Every PUBLIC header of airui-core / airui-win32 must be
+# self-contained: a tiny TU that includes exactly that one header
+# (plus a trivial main) must compile standalone. A header that only
+# compiles after another header is included first is a library bug.
+#
+# Implementation: configure-time `check_cxx_source_compiles` per
+# header, with the include dirs the library actually exposes. Robust
+# under MSVC/VS (no per-header TU trickery). Guarded by
+# AIRUI_CHECK_PUBLIC_HEADERS (default ON on Windows where both libs
+# build; core is platform-free so it is always checkable). win32
+# headers are Windows-only and only checked on WIN32.
+# ------------------------------------------------------------
+option(AIRUI_CHECK_PUBLIC_HEADERS
+       "Compile-check that every public header is self-contained (see docs/ui-library.md §6)"
+       ON)
+
+if(AIRUI_CHECK_PUBLIC_HEADERS)
+    include(CheckCXXSourceCompiles)
+
+    # airui_check_public_headers(HEADERS <...> INCLUDE_DIRS <...>)
+    #   For each header, verify a TU including exactly it compiles.
+    function(airui_check_public_headers)
+        set(multiValueArgs HEADERS INCLUDE_DIRS)
+        cmake_parse_arguments(PH "" "" "${multiValueArgs}" ${ARGN})
+        if(NOT PH_HEADERS)
+            return()
+        endif()
+        set(_saved_incs "${CMAKE_REQUIRED_INCLUDES}")
+        foreach(_inc IN LISTS PH_INCLUDE_DIRS)
+            list(APPEND CMAKE_REQUIRED_INCLUDES "${_inc}")
+        endforeach()
+        foreach(_h IN LISTS PH_HEADERS)
+            get_filename_component(_abs "${_h}" ABSOLUTE)
+            set(_src "#include \"${_abs}\"\nint main(){return 0;}\n")
+            string(MAKE_C_IDENTIFIER "${_abs}" _chk)
+            check_cxx_source_compiles("${_src}" "PUBLIC_HEADER_OK_${_chk}")
+            if(NOT PUBLIC_HEADER_OK_${_chk})
+                message(FATAL_ERROR
+                    "Self-containment check FAILED for public header: ${_abs}\n"
+                    "A user must be able to #include this one header alone. It is "
+                    "missing an #include / forward-declaration it depends on. Fix the "
+                    "header (add the missing include), then reconfigure.")
+            endif()
+        endforeach()
+        set(CMAKE_REQUIRED_INCLUDES "${_saved_incs}")
+    endfunction()
+
+    # Core public headers (platform-free -> always checkable).
+    file(GLOB AIRUI_CORE_PUBLIC_HEADERS
+        ${CMAKE_SOURCE_DIR}/src/airui/core/include/airui/*.h)
+    airui_check_public_headers(
+        HEADERS ${AIRUI_CORE_PUBLIC_HEADERS}
+        INCLUDE_DIRS
+            ${CMAKE_SOURCE_DIR}/src/airui/core/include
+            ${CMAKE_BINARY_DIR}/generated)
+
+    # win32 public headers (Windows-only -> only checked on WIN32).
+    if(WIN32)
+        file(GLOB AIRUI_WIN32_PUBLIC_HEADERS
+            ${CMAKE_SOURCE_DIR}/src/airui/platform/win32/airui/*.h)
+        airui_check_public_headers(
+            HEADERS ${AIRUI_WIN32_PUBLIC_HEADERS}
+            INCLUDE_DIRS
+                ${CMAKE_SOURCE_DIR}/src/airui/platform/win32
+                ${CMAKE_SOURCE_DIR}/src/airui/core/include
+                ${CMAKE_SOURCE_DIR}/src
+                ${CMAKE_SOURCE_DIR}/src/pluginapi
+                ${CMAKE_BINARY_DIR}/generated)
+    endif()
+
+    # Re-runnable gate target for local/CI use. The main configure-time gate
+    # above already runs on every configure; this target forces a CLEAN re-check
+    # into a scratch build dir (a fresh cache means no stale per-header result is
+    # reused), so after editing a header a developer can re-verify with:
+    #   cmake --build build --target check-public-headers
+    add_custom_target(check-public-headers
+        COMMAND ${CMAKE_COMMAND} -E rm -rf ${CMAKE_BINARY_DIR}/public-header-check
+        COMMAND ${CMAKE_COMMAND}
+                -S ${CMAKE_SOURCE_DIR}
+                -B ${CMAKE_BINARY_DIR}/public-header-check
+                -DAIRUI_CHECK_PUBLIC_HEADERS=ON
+                -DAIRUI_WITH_SKIA=OFF
+        COMMENT "check-public-headers: clean self-containment gate for every public header"
+        VERBATIM)
+endif()
+
 # test_ui is an end-to-end script that drives a *running* airecord.exe
 # (window lookup + IPC), so it is not registered as a ctest case.
 enable_testing()
