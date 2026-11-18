@@ -74,6 +74,10 @@ target_link_libraries(app PRIVATE airui-core airui-win32 user32 gdi32 shell32 co
 #include "airui/ControlsCore.h"   // 核心控件（走 IPainter）
 ```
 
+- **MSVC 编译选项**：头文件注释为 UTF-8，消费方需加 `/source-charset:utf-8`
+  （建议同时 `/execution-charset:utf-8`）；airui 自身 CMake 已内置。
+- 所有 API 在 `namespace air::ui`。
+
 - 应用：`Shell` 建窗 → `AddPage` 页面 → 页面 `OnPaint(Canvas&, client)` 里用 `CanvasPainter`
   画核心控件。
 - 自定义后端：实现 `IPainter`，经 `PainterRegistry` 注册即可被 `PaintFrame` 路由使用。
