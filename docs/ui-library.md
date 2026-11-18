@@ -25,7 +25,9 @@
 - **ShellCore**：`ShellCore.h` —— 平台无关外壳状态机（Caption/NavBar/StatusBar），后端渲染。
 - **控件**：`ControlsCore.h` + `ControlsCoreClasses.h`（基础控件）、`ControlsAdvanced/Extra/
   Enterprise/Studio*.h`（扩展控件）—— 核心控件绘制走 `IPainter`，可在任一后端渲染。
-- **布局**：`Layout.h` —— 基础布局引擎。
+- **布局**：`Layout.h` —— 命令式 Flex/Grid 布局引擎（现成控件摆位置）。
+  声明式节点树见 `Declarative.h`（`LayoutNode` + measure/layout 两趟，Android 模型，见
+  `docs/declarative-layout.md`）。
 - **框架**：`FrameworkCore.h`（文本编辑/状态机）、`Interaction.h`、`Observable.h`、
   `Animation.h`、`OverlayCore.h`、`PaintRecorder.h`（录制/金样）、`PaintBackend.h`（后端选择）、
   `UiText.h`、`WidgetControls.h`。
@@ -86,8 +88,9 @@ target_link_libraries(app PRIVATE airui-core airui-win32 user32 gdi32 shell32 co
 
 - **无障碍**：`Accessibility.h` 的 `SetAccessibleName/…` 为 TODO（真实 IAccessible 未实现），
   见 `docs/technology-stack.md` §9.5 与 `docs/ROADMAP.md`。
-- **声明式布局**：本版是**过程式 API**（代码建控件）。声明式布局（Android 模型的 XML/JSON
-  inflate + 布局引擎）为后续规划，将在此稳定库之上实现。
+- **声明式布局（进行中）**：节点模型 + measure/layout 引擎已完成（`Declarative.h`，
+  `docs/declarative-layout.md`）；JSON inflate、数据绑定、渲染桥仍在计划内。本版日常仍以
+  过程式 API（代码建控件 + `Layout`）为主。
 - **win32 是唯一后端**：Linux/macOS 仅有 `airui-core`（平台无关测试），无窗口壳。
 - **Skia 跨 DLL**：`airui-skia.dll` 需与 exe 同目录且位数一致（架构感知安装器已处理）。
 
@@ -95,7 +98,7 @@ target_link_libraries(app PRIVATE airui-core airui-win32 user32 gdi32 shell32 co
 
 - CI 门禁：`check-core-clean`（core 平台隔离）、`check-skia-syntax`、`test_paint_recorder`
   结构金样、`clang-format`、clang-tidy（非阻塞）。
-- `ctest -C Release` 22/22。
+- `ctest -C Release` 23/23。
 - 公共头应**自包含**（单独 include 可编译）——由 `check-public-headers` 门禁强制：
   configure 时对每个公共头生成仅含它的最小 TU 单独编译（`AIRUI_CHECK_PUBLIC_HEADERS`，
   默认 ON）；`cmake --build <build> --target check-public-headers` 可在 CI/本地强制重新

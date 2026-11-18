@@ -41,6 +41,12 @@
 - 插件路径：`LoadPlugin` 解析到 `<exe-dir>\airui-skia.dll` 绝对路径 + `SetDllDirectoryW(<exe-dir>)`
   让依赖（skia.dll、icu、harfbuzz…）也能从安装目录加载。
 
+### 声明式布局（`airui/Declarative.h`）
+- Android 模型：`LayoutNode` 树 + `MeasureSpec` 约束的两趟（measure/layout）引擎；
+  `Dim::Wrap/Match/Fixed`、`weight`、padding/margin、`align`，容器 Row/Column/Frame/Grid/Scroll。
+- 纯整数几何、平台无关，可直接在 core 单测（`test_declarative_layout`）；JSON inflate
+  与数据绑定/渲染桥是后续步骤（`docs/declarative-layout.md`）。
+
 ## 3. 进程模型与 IPC
 
 ### 进程
@@ -109,7 +115,7 @@
 - **RAII**：模态禁用/重绘冻结/列表批量用 RAII（`ScopedWindowDisable`/`ScopedRedrawFreeze`/
   `ScopedBatch`），异常/提前返回也正确恢复。
 - **ABI 契约**：跨 DLL 的 C++ 虚表布局用 `painterIfaceRev` 显式校验。
-- **测试资产**：孤儿测试归入 `tools/diagnostics/`；`ctest -C Release` 22/22；
+- **测试资产**：孤儿测试归入 `tools/diagnostics/`；`ctest -C Release` 23/23；
   金样为平台无关结构断言。
 - **决策记录**：`docs/adr/` 4 篇（工具链矩阵/版本号/服务-UI 生命周期/插件 ABI v2）。
 

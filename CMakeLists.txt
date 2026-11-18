@@ -42,6 +42,7 @@ endif()
 set(AIRUI_CORE_SOURCES
     src/airui/core/src/Theme.cpp
     src/airui/core/src/Layout.cpp
+    src/airui/core/src/DeclarativeLayout.cpp
     src/airui/core/src/Animation.cpp
     src/airui/core/src/ControlsCore.cpp
     src/airui/core/src/ControlsData.cpp
@@ -538,6 +539,17 @@ set_target_properties(test_core_layout PROPERTIES
 )
 airui_console_target(test_core_layout)
 
+# Declarative layout model + measure/layout engine (core only)
+add_executable(test_declarative_layout
+    tests/test_declarative_layout.cpp
+)
+target_link_libraries(test_declarative_layout airui-core)
+set_target_properties(test_declarative_layout PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
+)
+airui_console_target(test_declarative_layout)
+
 # Core controls test (PaintButton / PaintCheckbox / PaintRadio)
 add_executable(test_controls_core
     tests/test_controls_core.cpp
@@ -781,7 +793,10 @@ if(AIRUI_CHECK_PUBLIC_HEADERS)
         foreach(_h IN LISTS PH_HEADERS)
             get_filename_component(_abs "${_h}" ABSOLUTE)
             set(_src "#include \"${_abs}\"\nint main(){return 0;}\n")
-            string(MAKE_C_IDENTIFIER "${_abs}" _chk)
+            # Include a content hash so editing a header invalidates the cached
+            # result (check_cxx_source_compiles caches by variable name).
+            file(SHA1 "${_abs}" _hsha)
+            string(MAKE_C_IDENTIFIER "${_abs}_${_hsha}" _chk)
             check_cxx_source_compiles("${_src}" "PUBLIC_HEADER_OK_${_chk}")
             if(NOT PUBLIC_HEADER_OK_${_chk})
                 message(FATAL_ERROR
@@ -836,7 +851,7 @@ endif()
 # test_ui is an end-to-end script that drives a *running* airecord.exe
 # (window lookup + IPC), so it is not registered as a ctest case.
 enable_testing()
-foreach(_t test_core_layout test_controls_core test_hot_state test_shell_hal test_paint_recorder test_paint_backend test_paint_runtime test_paint_frame test_paint_compare test_skia_types test_skia_backend test_skia_plugin test_data_controls test_overlay_core test_framework_extra test_advanced_controls test_enterprise_controls test_studio_controls test_control_classes test_theme_manager test_draw_calls test_locale test_component_gallery test_ipc_pipe)
+foreach(_t test_core_layout test_declarative_layout test_controls_core test_hot_state test_shell_hal test_paint_recorder test_paint_backend test_paint_runtime test_paint_frame test_paint_compare test_skia_types test_skia_backend test_skia_plugin test_data_controls test_overlay_core test_framework_extra test_advanced_controls test_enterprise_controls test_studio_controls test_control_classes test_theme_manager test_draw_calls test_locale test_component_gallery test_ipc_pipe)
     # Several of these targets are platform-conditional (WIN32-only or
     # AIRUI_WITH_SKIA / Skia-plugin builds), so they legitimately do not exist
     # on every platform. Register the ones that ARE present; do not FATAL on a
