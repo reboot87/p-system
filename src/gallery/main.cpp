@@ -1593,7 +1593,10 @@ private:
             }
             if (it.kind==Item::Extra && msg==WM_LBUTTONDOWN && h && it.ext>=0) {
                 std::wstring status;
-                extragallery::ExtraClick(it.ext, Point{p.x,p.y},
+                // 注意：给 extra 扩展传客户区坐标，与 Paint 中 DrawExtraControl
+                // 收到的 rc（client 空间）同空间；p = pt - (m_content - m_scroll)
+                // 的转换后 extra 会全员失灵（HitX 与 rc 不对齐）。
+                extragallery::ExtraClick(it.ext, Point{pt.x,pt.y},
                     Rect{it.rect.left,it.rect.top,it.rect.right,it.rect.bottom},
                     m_x, Mx(), status);
                 if (!status.empty()) SetStatusText(status);

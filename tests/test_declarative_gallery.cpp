@@ -174,6 +174,37 @@ int main()
     extragallery::LayoutDir().clear();
     std::filesystem::remove_all(tmpRoot, std::error_code{});
 
+    // ---- 6. 真机仿真：带 client 偏移的 rc，点击给 client 坐标 ----
+    // 对应修复后的 main.cpp 行为：rc（client 空间）== 树布局空间，
+    // 点击 pt 与之同空间，HitTest 必须命中。
+    {
+        PaintRecorder rec;
+        rec.Clear();
+        extragallery::ExtraDemoState s2;
+        const Rect rc2{30, 45, 550, 345};
+        demo->paint(rec, rc2, s2, kPal, kMx);
+        Check(s2.declLive != nullptr, "offset layout painted");
+        LayoutNode* inc2 = s2.declLive ? s2.declLive->Find("inc") : nullptr;
+        Check(inc2 != nullptr, "inc node exists in the offset tree");
+        if (inc2) {
+            Point click{inc2->Frame().left + 5, inc2->Frame().top + 5};
+            demo->click(0, click, rc2, s2, kMx, s2.declToast);
+            Check(s2.declClicks == 1, "click on offset rc with client coords fires +1");
+        }
+        // 再用外部文件内容（配置文件路径来源）做一次热加载仿真
+        std::filesystem::create_directories(tmpRoot);
+        extragallery::LayoutDir() = tmpRoot.wstring();
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        {
+            std::ofstream f(tmpRoot / "demo.json", std::ios::binary);
+            f << "{ \"type\": \"label\", \"id\": \"t\", \"text\": \"仿真热重载\", \"h\": 24 }";
+        }
+        rec.Clear();
+        demo->paint(rec, rc2, s2, kPal, kMx);
+        Check(s2.declError.empty(), "simulation layout loads without error");
+        extragallery::LayoutDir().clear();
+    }
+
     if (g_failures != 0) {
         std::printf("\n%d check(s) FAILED\n", g_failures);
         return 1;
