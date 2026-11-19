@@ -137,6 +137,16 @@ public:
 
         HWND hwnd = shell.Hwnd();
         m_win = std::make_unique<Win32Window>(hwnd);
+        // 声明式布局 demo：布局目录 = exe 同级 layouts（可放 demo.json 热重载）
+        {
+            wchar_t exePath[MAX_PATH] = {};
+            GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+            std::wstring exeDir(exePath);
+            const size_t slash = exeDir.find_last_of(L"\\/");
+            extragallery::LayoutDir() = (slash == std::wstring::npos)
+                ? std::wstring(L"layouts")
+                : exeDir.substr(0, slash + 1) + L"layouts";
+        }
         // TODO(gallery): 命中测试 / 布局更新回调当前为占位 no-op，尚未接入
         // ShellCore；OnResized 依赖真实的布局重排流程接入后再启用。
         m_win->OnMouseMove([](air::ui::Point){ /* 命中测试可接入 ShellCore */ });

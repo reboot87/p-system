@@ -537,6 +537,18 @@ bool OptString(const JValue& obj, const char* key, std::string& dst, InflateErro
     return true;
 }
 
+bool OptBool(const JValue& obj, const char* key, bool& dst, InflateError& err)
+{
+    const JValue* v = obj.Get(key);
+    if (!v) return true;
+    if (v->kind != JValue::Kind::Bool) {
+        err.Fail(v->line, v->col, std::string("'") + key + "' must be a boolean");
+        return false;
+    }
+    dst = v->b;
+    return true;
+}
+
 bool DimField(const JValue& obj, const char* first, const char* second,
               Dim& out, InflateError& err)
 {
@@ -702,6 +714,7 @@ std::unique_ptr<LayoutNode> BuildNode(const JValue& v, InflateError& err, int de
     if (!OptWString(v, "text", node->text, err)) return nullptr;
     if (!OptWString(v, "style", node->style, err)) return nullptr;
     if (!OptString(v, "onClick", node->onClick, err)) return nullptr;
+    if (!OptBool(v, "clip", node->clip, err)) return nullptr;
     if (!IntrinsicField(v, node->intrinsic, err)) return nullptr;
 
     if (const JValue* align = v.Get("align")) {

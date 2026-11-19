@@ -212,6 +212,10 @@ void PrepareTree(LayoutNode& root, const Rect& bounds, const LayoutEnv& env = {}
 // 便利入口：root 尺寸由 bounds 的 Exactly 约束决定。
 void MeasureTree(LayoutNode& root, MeasureSpec w, MeasureSpec h, const LayoutEnv& env = {});
 
+// 深拷贝一棵子树（LayoutNode 不可拷贝，用于“模板树保持纯净、
+// 渲染前克隆一份填绑定”的用法）。
+std::unique_ptr<LayoutNode> CloneTree(const LayoutNode& src);
+
 // ------------------------------------------------------------
 // 数据绑定：文本里的 {key} 占位符 -> 值（渲染前填充进树）
 // ------------------------------------------------------------

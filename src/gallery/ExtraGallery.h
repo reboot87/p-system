@@ -21,14 +21,21 @@
 #include "airui/ControlsAdvanced.h"
 #include "airui/ControlsEnterprise.h"
 #include "airui/ControlsStudio.h"
+#include "airui/Declarative.h"
+#include "airui/DeclarativeRender.h"
 #include "airui/FrameworkCore.h"
 #include "airui/WidgetControls.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cwchar>
+#include <filesystem>
+#include <fstream>
 #include <functional>
+#include <iterator>
 #include <memory>
 #include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -96,6 +103,19 @@ struct ExtraDemoState
     float         animPhase = 0.0f;
     ListDataState virtualList;
     ScrollState   demoScroll;
+
+    // 声明式布局 demo：declTemplate 是纯净模板树，declLive 是每帧
+    // 克隆并填充绑定后的实例（绘制与命中都用它）。
+    std::unique_ptr<LayoutNode> declTemplate;
+    std::unique_ptr<LayoutNode> declLive;
+    std::string  declSource;        // 当前生效的 JSON 文本
+    std::wstring declOrigin;        // 来源显示（内置布局 / 文件路径）
+    std::wstring declError;         // 解析错误（空 = OK；非空时继续画旧模板）
+    std::wstring declToast;         // 最近动作提示
+    long long    declClicks = 0;
+    long long    declScrollY = 0;   // Scroll 节点的滚动偏移（存状态，避免每帧重置）
+    long long    declFileStamp = 0; // 外部布局文件最后写入时间（毫秒）；0 = 尚无
+    bool         declLoaded = false;
 
     // P1
     CardState       card;
@@ -1784,6 +1804,223 @@ inline bool DemoWheel_DemoScroll(int, int delta, ExtraDemoState& s, const Metric
 }
 
 // ============================================================
+// 声明式布局 demo：整块区域由 JSON 描述（InflateLayout -> RenderTree）。
+// 外部文件 <布局目录>\demo.json 存在时优先加载，并按最后写入时间热重载；
+// 布局目录由 main.cpp 注入（exe 同级的 layouts），缺省用内置布局。
+// 模板树保持纯净，每帧克隆一份填 ValueStore 绑定后再布局/绘制。
+// ============================================================
+inline std::wstring& LayoutDir()
+{
+    static std::wstring dir;
+    return dir;
+}
+
+inline std::wstring DeclUtf8(const std::string& s)
+{
+    std::wstring out;
+    out.reserve(s.size());
+    size_t i = 0;
+    while (i < s.size()) {
+        const unsigned char c = static_cast<unsigned char>(s[i]);
+        unsigned cp = 0;
+        int len = 0;
+        if (c < 0x80) { cp = c; len = 1; }
+        else if ((c & 0xE0) == 0xC0) { cp = c & 0x1Fu; len = 2; }
+        else if ((c & 0xF0) == 0xE0) { cp = c & 0x0Fu; len = 3; }
+        else if ((c & 0xF8) == 0xF0) { cp = c & 0x07u; len = 4; }
+        else { ++i; continue; }
+        if (i + static_cast<size_t>(len) > s.size()) break;
+        for (int k = 1; k < len; ++k) {
+            cp = (cp << 6) | (static_cast<unsigned char>(s[i + static_cast<size_t>(k)]) & 0x3Fu);
+        }
+        i += static_cast<size_t>(len);
+        if (cp <= 0xFFFF) {
+            out.push_back(static_cast<wchar_t>(cp));
+        } else {
+            cp -= 0x10000;
+            out.push_back(static_cast<wchar_t>(0xD800 + (cp >> 10)));
+            out.push_back(static_cast<wchar_t>(0xDC00 + (cp & 0x3FF)));
+        }
+    }
+    return out;
+}
+
+inline const char* kDeclarativeDefaultJson = R"({
+  "type": "column", "gap": 10,
+  "children": [
+    { "type": "label", "text": "声明式布局", "font": "title", "h": 26 },
+    { "type": "label", "text": "来源: {origin}", "font": "meta", "h": 18 },
+    { "type": "row", "gap": 8, "children": [
+      { "type": "control", "id": "inc", "text": "+1", "style": "primary",
+        "w": 72, "h": 32, "onClick": "inc" },
+      { "type": "control", "id": "reset", "text": "清零", "style": "secondary",
+        "w": 72, "h": 32, "onClick": "reset" },
+      { "type": "spacer", "weight": 1 },
+      { "type": "label", "text": "{clicks} 次点击", "w": "match", "h": 32, "align": "end" }
+    ]},
+    { "type": "scroll", "weight": 1, "gap": 6, "children": [
+      { "type": "label", "text": "· 整块区域由 JSON 描述，页面代码没有一行坐标", "h": 20 },
+      { "type": "label", "text": "· 修改 layouts/demo.json 保存即可热重载", "h": 20 },
+      { "type": "label", "text": "· 滚轮滚动本区域（Scroll 节点，视口裁剪）", "h": 20 },
+      { "type": "label", "text": "· 点击沿父链上溯到最近的 onClick 命令", "h": 20 },
+      { "type": "control", "id": "top", "text": "回到顶部", "style": "ghost",
+        "w": 96, "h": 30, "onClick": "scrollTop" },
+      { "type": "spacer", "h": 8 },
+      { "type": "grid", "columns": 2, "gap": 8, "children": [
+        { "type": "control", "text": "A", "style": "secondary", "w": "match", "h": 30 },
+        { "type": "control", "text": "B", "style": "secondary", "w": "match", "h": 30 },
+        { "type": "control", "text": "C", "style": "ghost", "w": "match", "h": 30 },
+        { "type": "control", "text": "D", "style": "ghost", "w": "match", "h": 30 }
+      ]}
+    ]}
+  ]
+})";
+
+inline bool DeclReadFile(const std::wstring& path, std::string& out)
+{
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return false;
+    std::string data((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    if (data.size() >= 3 && static_cast<unsigned char>(data[0]) == 0xEF &&
+        static_cast<unsigned char>(data[1]) == 0xBB &&
+        static_cast<unsigned char>(data[2]) == 0xBF) {
+        data.erase(0, 3);  // 去 UTF-8 BOM
+    }
+    out = std::move(data);
+    return true;
+}
+
+// 首次加载 / 热重载检查。返回 true 表示模板已变化。
+inline bool DeclarativeEnsureLoaded(ExtraDemoState& s)
+{
+    namespace fs = std::filesystem;
+
+    std::string source;
+    std::wstring origin;
+    long long stamp = 0;
+
+    const std::wstring& dir = LayoutDir();
+    if (!dir.empty()) {
+        const std::wstring file = dir + L"\\demo.json";
+        std::error_code ec;
+        const auto wt = fs::last_write_time(file, ec);
+        if (!ec) {
+            const long long now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                      wt.time_since_epoch()).count();
+            if (now != s.declFileStamp) {
+                std::string text;
+                if (DeclReadFile(file, text) && !text.empty()) {
+                    source = std::move(text);
+                    origin = file;
+                    stamp = now;
+                }
+            }
+        }
+    }
+
+    if (source.empty() && !s.declTemplate) {
+        source = kDeclarativeDefaultJson;
+        origin = L"内置布局";
+    }
+    if (source.empty()) return false;
+
+    InflateError err;
+    auto root = InflateLayout(source, &err);
+    if (!root) {
+        // 保留旧模板继续渲染，红色状态行显示错误；坏文件记录时间戳，
+        // 避免每帧重复解析。
+        s.declError = DeclUtf8(err.Describe());
+        if (stamp != 0) s.declFileStamp = stamp;
+        s.declToast = L"布局解析失败";
+        return true;
+    }
+    s.declTemplate = std::move(root);
+    s.declSource = std::move(source);
+    s.declOrigin = std::move(origin);
+    s.declError.clear();
+    s.declFileStamp = stamp;
+    s.declScrollY = 0;
+    s.declToast = L"布局已加载";
+    s.declLoaded = true;
+    return true;
+}
+
+inline LayoutNode* DeclFindScroll(LayoutNode& n)
+{
+    if (n.type == NodeType::Scroll) return &n;
+    for (auto& c : n.children) {
+        if (LayoutNode* hit = DeclFindScroll(*c)) return hit;
+    }
+    return nullptr;
+}
+
+inline void DemoPaint_Declarative(IPainter& g, const Rect& rc, ExtraDemoState& s,
+                                  const Palette& pal, const Metrics& mx)
+{
+    DeclarativeEnsureLoaded(s);
+
+    if (!s.declTemplate) {
+        g.Text(rc, L"声明式布局不可用", 9, FontRole::Body, pal.error,
+               dt::SingleLine | dt::Left | dt::VCenter);
+        return;
+    }
+
+    s.declLive = CloneTree(*s.declTemplate);
+    ValueStore store;
+    store.Set("clicks", s.declClicks);
+    store.Set("origin", s.declOrigin);
+    store.Apply(*s.declLive);
+
+    const Rect layoutRect{rc.left, rc.top, rc.right, rc.bottom - 22};
+    PrepareTree(*s.declLive, layoutRect);
+    if (LayoutNode* sc = DeclFindScroll(*s.declLive)) {
+        sc->SetScrollY(static_cast<int>(s.declScrollY));
+        sc->Layout(sc->Frame());
+        s.declScrollY = sc->ScrollY();
+    }
+    RenderTree(g, *s.declLive, pal, mx);
+
+    const wchar_t* state = s.declError.empty() ? s.declToast.c_str()
+                                               : s.declError.c_str();
+    g.Text(Rect(rc.left, rc.bottom - 22, rc.right, rc.bottom),
+           state, std::wcslen(state), FontRole::Meta,
+           s.declError.empty() ? pal.textFaint : pal.error,
+           dt::SingleLine | dt::Left | dt::VCenter | dt::EndEllipsis);
+}
+
+inline void DemoClick_Declarative(int, Point pt, const Rect&, ExtraDemoState& s,
+                                  const Metrics&, std::wstring& status)
+{
+    if (!s.declLive) return;
+    std::string cmd;
+    DispatchClick(*s.declLive, pt,
+                  [&cmd](LayoutNode&, const std::string& c) { cmd = c; });
+    if (cmd.empty()) return;
+    if (cmd == "inc") {
+        ++s.declClicks;
+        s.declToast = L"已 +1";
+    } else if (cmd == "reset") {
+        s.declClicks = 0;
+        s.declToast = L"已清零";
+    } else if (cmd == "scrollTop") {
+        s.declScrollY = 0;
+        s.declToast = L"已回到顶部";
+    } else {
+        s.declToast = L"命令: " + DeclUtf8(cmd);
+    }
+    status = s.declToast;
+}
+
+inline bool DemoWheel_Declarative(int, int delta, ExtraDemoState& s, const Metrics&)
+{
+    if (!s.declLive) return false;
+    const LayoutNode* sc = DeclFindScroll(*s.declLive);
+    if (!sc || !sc->Scrollable()) return false;
+    s.declScrollY -= delta / 2;  // 每格 120 -> 60px；夹紧在绘制时由 SetScrollY 做
+    return true;
+}
+
+// ============================================================
 // The registry: one entry per demo control. This is the single
 // source of truth consumed by Defs() / Count() and the three
 // dispatch hooks below. To add a control you edit *this* list
@@ -1893,6 +2130,8 @@ inline const std::vector<DemoEntry>& Demos()
         // Both new controls are shown here as real ControlHost instances
         // (see the P6 widget members + DemoPaint/Click_WidgetClasses).
         { L"P6 类体系", L"WidgetClasses", 250, DemoPaint_WidgetClasses, DemoClick_WidgetClasses, nullptr },
+        // ---------------- 声明式 ----------------
+        { L"声明式", L"DeclarativeJson", 300, DemoPaint_Declarative, DemoClick_Declarative, DemoWheel_Declarative },
     };
     return demos;
 }

@@ -472,6 +472,31 @@ void PrepareTree(LayoutNode& root, const Rect& bounds, const LayoutEnv& env)
     root.Layout(bounds);
 }
 
+std::unique_ptr<LayoutNode> CloneTree(const LayoutNode& src)
+{
+    auto copy = std::make_unique<LayoutNode>(src.type, src.id);
+    copy->width = src.width;
+    copy->height = src.height;
+    copy->minW = src.minW;
+    copy->minH = src.minH;
+    copy->maxW = src.maxW;
+    copy->maxH = src.maxH;
+    copy->margin = src.margin;
+    copy->padding = src.padding;
+    copy->weight = src.weight;
+    copy->align = src.align;
+    copy->gap = src.gap;
+    copy->columns = src.columns;
+    copy->text = src.text;
+    copy->style = src.style;
+    copy->font = src.font;
+    copy->intrinsic = src.intrinsic;
+    copy->clip = src.clip;
+    copy->onClick = src.onClick;
+    for (const auto& child : src.children) copy->Add(CloneTree(*child));
+    return copy;
+}
+
 // ------------------------------------------------------------
 // ValueStore：{key} 占位符绑定
 // ------------------------------------------------------------
