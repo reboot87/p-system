@@ -4,7 +4,7 @@
   "children": [
     { "type": "label", "text": "热重载演示", "font": "title", "h": 26 },
     { "type": "label", "text": "来源: {origin}", "font": "meta", "h": 18 },
-    { "type": "row", "gap": 8, "children": [
+    { "type": "row", "gap": 8, "w": "match", "children": [
       { "type": "control", "id": "inc", "text": "+1", "style": "primary", "w": 72, "h": 32, "onClick": "inc" },
       { "type": "control", "id": "reset", "text": "清零", "style": "secondary", "w": 72, "h": 32, "onClick": "reset" },
       { "type": "spacer", "weight": 1 },
