@@ -162,6 +162,8 @@ RenderTree(g, *root, Pal(), Mx());        // GDI / Skia / PaintRecorder 同一�
 - **热加载**：`<exe目录>\layouts\demo.json` 存在时优先于内置布局，按文件
   最后写入时间自动重载——改 JSON 保存即见效果。目录由 `main.cpp` 经
   `extragallery::LayoutDir()` 注入，demo 本身只用 `<filesystem>`（保持 core 可编译）。
+  示例布局已随仓库提交：`src/gallery/layouts/demo.json`，把它复制到 exe 旁的
+  `layouts\` 即生效（构建后是 `build\Release\layouts\`）。
 - **模板/实例分离**：`declTemplate` 是解析出的纯净树；每帧 `CloneTree` 一份、
   `ValueStore::Apply` 填绑定、`PrepareTree` + `RenderTree`。占位符只存在于模板，
   渲染结果不会把 `{key}` 画出去。
