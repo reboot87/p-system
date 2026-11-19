@@ -247,6 +247,44 @@ public:
                 POINT pt = {(short)LOWORD(lp),(short)HIWORD(lp)};
                 if (msg == WM_LBUTTONUP && GetCapture()==hwnd) ReleaseCapture();
 
+                // 滚动条拖动（滑块）/ 点击（Track：跳一页）。先于其它处理。
+                if (m_max > 0) {
+                    const Rect track = PageSbTrack();
+                    const Rect thumb = PageSbThumb();
+                    if (track.Contains(Point{pt.x, pt.y}) || thumb.Contains(Point{pt.x, pt.y})) {
+                        if (msg == WM_LBUTTONDOWN) {
+                            if (thumb.Contains(Point{pt.x, pt.y})) {
+                                SetCapture(hwnd);
+                                m_sbDrag = true;
+                                m_sbDragStartY = pt.y;
+                                m_sbDragStartScroll = m_scroll;
+                            } else {
+                                // Track 点击：向点位方向翻一页。
+                                const int viewH = m_content.bottom - m_content.top;
+                                m_scroll += pt.y > thumb.top ? viewH : -viewH;
+                            }
+                            ClampScroll();
+                            UpdateActiveNav();
+                            if (m_shell) m_shell->Invalidate();
+                            res = 0; return true;
+                        } else if (msg == WM_LBUTTONUP && m_sbDrag) {
+                            m_sbDrag = false;
+                            res = 0; return true;
+                        } else if (msg == WM_MOUSEMOVE && m_sbDrag) {
+                            const int travel = PageSbTravel();
+                            if (travel > 0) {
+                                m_scroll = m_sbDragStartScroll +
+                                           (pt.y - m_sbDragStartY) * m_max / travel;
+                                ClampScroll();
+                                UpdateActiveNav();
+                                if (m_shell) m_shell->Invalidate();
+                            }
+                            res = 0; return true;
+                        }
+                    }
+                }
+                if (msg == WM_LBUTTONUP && m_sbDrag) m_sbDrag = false;
+
                 // 0) Overlay 层优先于页面：模态拦截、点击外部关闭、层内命中消费。
                 //    坐标与 Click() 一致，均为内容区坐标（不随滚动改变语义）。
                 if (msg == WM_LBUTTONDOWN) {
@@ -327,6 +365,27 @@ public:
         if (m_scroll > m_max) m_scroll = m_max;
     }
 
+    // --------------------------------------------------------
+    // 页面滚动条（右侧窄带）。Paint / Hit 收成统一几何，避免两处漂移。
+    // 默认 8px 宽（不再“太窄”）；m_max > 0 时有效，调用方提前判断。
+    // --------------------------------------------------------
+    int PageSbBarX() const { return m_content.right - 8; }
+    Rect PageSbTrack() const {
+        return Rect{PageSbBarX(), m_content.top, PageSbBarX() + 8, m_content.bottom};
+    }
+    Rect PageSbThumb() const {
+        const int viewH = m_content.bottom - m_content.top;
+        int thumbH = viewH * viewH / (viewH + m_max);
+        if (thumbH < 24) thumbH = 24;
+        if (thumbH > viewH) thumbH = viewH;
+        const int ty = m_content.top + (viewH - thumbH) * m_scroll / m_max;
+        return Rect{PageSbBarX(), ty, PageSbBarX() + 8, ty + thumbH};
+    }
+    int PageSbTravel() const {
+        const int viewH = m_content.bottom - m_content.top;
+        return viewH - PageSbThumb().Height();
+    }
+
     // 按导航 id 滚动到对应 section
     void GotoSection(int id) {
         auto itId = m_navLabelById.find(id);
@@ -357,8 +416,6 @@ public:
 
     void OnLayout(const RECT& client) override {
         m_lastClient = client;
-        // ShellCore 负责画 Caption / NavBar / StatusBar，
-        // 画廊内容只使用它剩下的 ContentRect，避免互相重叠。
         Rect rc{client.left, client.top, client.right, client.bottom};
         m_shellCore.Layout(rc);
         Rect c = m_shellCore.ContentRect();
@@ -687,20 +744,11 @@ public:
         if (dc && s) RestoreDC(dc,s);
 
         if (m_max > 0) {
-            const int h = region.bottom - region.top;
-            const int barX = region.right - 6;
-            const int top = region.top;
-            const int trackH = region.bottom - top;
-            if (trackH > 0) {
-                RECT track = { barX, top, barX + 4, region.bottom };
-                g.FillRound(track, p.split, 2);
-                int thumbH = h * h / (h + m_max);
-                if (thumbH < 24) thumbH = 24;
-                if (thumbH > trackH) thumbH = trackH;
-                int ty = top + (trackH - thumbH) * m_scroll / m_max;
-                RECT thumb = { barX, ty, barX + 4, ty + thumbH };
-                g.FillRound(thumb, p.textDisabled, 2);
-            }
+            const Rect sbTrack = PageSbTrack(), sbThumb = PageSbThumb();
+            RECT track = { sbTrack.left, sbTrack.top, sbTrack.right, sbTrack.bottom };
+            RECT thumb = { sbThumb.left, sbThumb.top, sbThumb.right, sbThumb.bottom };
+            g.FillRound(track, p.split, 2);
+            g.FillRound(thumb, p.textDisabled, 2);
         }
     }
 
@@ -1840,6 +1888,10 @@ private:
     std::map<int, std::wstring>      m_navLabelById;   // 导航 id -> 标题
     std::map<std::wstring, int>      m_navIdByLabel;   // 标题 -> 导航 id
     int m_scroll=0, m_max=0;
+    // 页面滚动条（右边带）：拖动滑块的状态；拖动前记录起点用于按比例换算。
+    bool m_sbDrag = false;
+    int  m_sbDragStartY = 0;
+    int  m_sbDragStartScroll = 0;
     bool m_dark=false;
     ShellCore m_shellCore;
     std::unique_ptr<Win32Window> m_win;
