@@ -88,7 +88,7 @@ PrepareTree(root, Rect{0, 0, 640, 480}, env);   // measure + layout 一步到位
 | 3. JSON inflate（布局描述 → 节点树，错误带行列号） | ✅ 已完成 |
 | 4. 绑定与交互（`ValueStore` 占位符、`HitTest`、`DispatchClick`） | ✅ 已完成 |
 | 5. 渲染桥（`DeclarativeRender.h`，节点树 → `IPainter`） | ✅ 已完成 |
-| 6. gallery 声明式示例页 + 热加载 | ⬜ 下一步 |
+| 6. gallery 声明式示例页 + 热加载（`layouts/demo.json`） | ✅ 已完成 |
 
 ## 5. 已知限制
 
@@ -153,6 +153,22 @@ RenderTree(g, *root, Pal(), Mx());        // GDI / Skia / PaintRecorder 同一�
 （`style`: primary/danger/ghost/secondary）；Scroll → `PushClip(视口)/PopClip`；
 容器默认无视觉（`RenderOptions::debugBoxes` 可画调试边框）。
 测试用 `PaintRecorder` 断言绘制调用序列（平台无关，跨后端一致）。
+
+## 5.8 gallery 示例页与热加载（步骤 6）
+
+`airui_gallery` 导航「声明式 → DeclarativeJson」：整块区域由 JSON 描述，演示
+绑定（`{clicks}` 计数）、命令（`+1` / `清零` / `回到顶部`）、滚轮滚动与视口裁剪。
+
+- **热加载**：`<exe目录>\layouts\demo.json` 存在时优先于内置布局，按文件
+  最后写入时间自动重载——改 JSON 保存即见效果。目录由 `main.cpp` 经
+  `extragallery::LayoutDir()` 注入，demo 本身只用 `<filesystem>`（保持 core 可编译）。
+- **模板/实例分离**：`declTemplate` 是解析出的纯净树；每帧 `CloneTree` 一份、
+  `ValueStore::Apply` 填绑定、`PrepareTree` + `RenderTree`。占位符只存在于模板，
+  渲染结果不会把 `{key}` 画出去。
+- **失败兜底**：坏 JSON 保留上一份好布局继续渲染，状态行红字显示
+  `"line:col: 原因"`；坏文件记录时间戳避免每帧重解析。
+- 集成测试 `test_declarative_gallery`（core-only）无头驱动整个 demo：
+  首帧绘制、计数重绘、命令分发、滚轮夹紧、外部文件替换/热重载/错误兜底。
 
 ## 6. 为什么先做引擎
 
