@@ -251,36 +251,40 @@ public:
                 if (m_max > 0) {
                     const Rect track = PageSbTrack();
                     const Rect thumb = PageSbThumb();
-                    if (track.Contains(Point{pt.x, pt.y}) || thumb.Contains(Point{pt.x, pt.y})) {
+                    const Point ptW{pt.x, pt.y};
+                    if (track.Contains(ptW) || thumb.Contains(ptW)) {
+                        if (msg == WM_LBUTTONDOWN && thumb.Contains(ptW)) {
+                            SetCapture(hwnd);
+                            m_sbDrag = true;
+                            m_sbDragStartY = pt.y;
+                            m_sbDragStartScroll = m_scroll;
+                        } else if (msg == WM_LBUTTONDOWN) {
+                            // Track 点击：向点位方向翻一页。
+                            const int viewH = m_content.bottom - m_content.top;
+                            m_scroll += pt.y > thumb.top ? viewH : -viewH;
+                        }
                         if (msg == WM_LBUTTONDOWN) {
-                            if (thumb.Contains(Point{pt.x, pt.y})) {
-                                SetCapture(hwnd);
-                                m_sbDrag = true;
-                                m_sbDragStartY = pt.y;
-                                m_sbDragStartScroll = m_scroll;
-                            } else {
-                                // Track 点击：向点位方向翻一页。
-                                const int viewH = m_content.bottom - m_content.top;
-                                m_scroll += pt.y > thumb.top ? viewH : -viewH;
-                            }
                             ClampScroll();
                             UpdateActiveNav();
                             if (m_shell) m_shell->Invalidate();
                             res = 0; return true;
-                        } else if (msg == WM_LBUTTONUP && m_sbDrag) {
-                            m_sbDrag = false;
-                            res = 0; return true;
-                        } else if (msg == WM_MOUSEMOVE && m_sbDrag) {
-                            const int travel = PageSbTravel();
-                            if (travel > 0) {
-                                m_scroll = m_sbDragStartScroll +
-                                           (pt.y - m_sbDragStartY) * m_max / travel;
-                                ClampScroll();
-                                UpdateActiveNav();
-                                if (m_shell) m_shell->Invalidate();
-                            }
-                            res = 0; return true;
                         }
+                    }
+                    if (msg == WM_LBUTTONUP && m_sbDrag) {
+                        m_sbDrag = false;
+                        res = 0; return true;
+                    }
+                    // 拖动期间（捕获已发挥作用，指针不需要留在 bar 内）更新滚动。
+                    if (msg == WM_MOUSEMOVE && m_sbDrag) {
+                        const int travel = PageSbTravel();
+                        if (travel > 0) {
+                            m_scroll = m_sbDragStartScroll +
+                                       (pt.y - m_sbDragStartY) * m_max / travel;
+                            ClampScroll();
+                            UpdateActiveNav();
+                            if (m_shell) m_shell->Invalidate();
+                        }
+                        res = 0; return true;
                     }
                 }
                 if (msg == WM_LBUTTONUP && m_sbDrag) m_sbDrag = false;
