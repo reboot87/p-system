@@ -141,6 +141,9 @@ DispatchClick(*root, Point{40, 16}, [](LayoutNode& n, const std::string& cmd) {
 
 - `HitTest`：Scroll 开 `clip` 时视口外的点不命中内容（点落在 Scroll 容器或其外层）。
 - `DispatchClick`：整条父链都没有 `onClick` 就不回调（纯展示控件不产生命令）。
+- **坐标空间约定**：Paint 把树按 `rc`（client 空间）画，点击给 `pt` 也必须是
+  client 空间（与 `rc` 同空间），见 `main.cpp` 的 `ExtraClick` 调用——同一时刻
+  的树帧与点必须同空间，否则命中为空（gallery 曾正是因此出现“点击无效”）。
 
 ## 5.7 渲染桥（步骤 5）
 
