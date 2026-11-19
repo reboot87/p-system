@@ -437,6 +437,14 @@ airecord.exe --paint-backend=skia
 
 ## 6. 已知边界（不要误当成已完成）
 
+- **页面裁剪必须走后端的 clip 栈，不能只靠 HDC 裁剪区**：合成后端把整帧
+  画在自己的 surface 上，HDC 的裁剪区（`IntersectClipRect`）在那个 surface
+  上根本不存在。只用 HDC 裁剪区裁剪页面内容的代码，在 GDI 下看起来正常，
+  切到 Skia 后滚出内容区的组件就会画到标题栏上（页面绘制顺序晚于外壳
+  chrome，于是看起来像 z-order 错乱）。修法是页面用
+  `Canvas::PushClip` / `PopClip`（或 `CanvasPainter` 的同名方法）：GDI 下落到
+  HDC 裁剪区，Skia 下落到后端 clip 栈，两种后端像素一致。
+  回归测试见 `test_paint_frame` 的 “Canvas::PushClip is backend agnostic”。
 - **没有 Skia 版 `IWindow`**：目前只有绘制后端。窗口壳、消息泵、事件注入仍由 `Win32Window` 负责；Linux/macOS 应用本体仍不可构建。
 - **插件 ABI 有工具集与位数边界**：实测 MSVC v141 (VS2017 x64) ↔ v143 (VS2022 x64) 跨代可用（§5.2），但 **x86 进程无法加载 x64 DLL**——本机官方 `build/` 是 x86、CI 产物是 x64，直接放旁边只会静默回退 gdi。仍要求 MSVC 同族、一致 `/MD` 与 `_ITERATOR_DEBUG_LEVEL`；纯 C 绘制桥与非 MSVC 编译器验证均未做。
 - **文字默认由 Skia 直接绘制（`text=backend`）**：字体修复（commit `0cb349f`）后，插件用 `SkCreateTypefaceFromLOGFONT` 创建 "Microsoft YaHei UI" + "Segoe MDL2 Assets" typeface，探测 `SkiaPluginSupportsWideText()` 应返回 true，整窗含文字一起是 Skia 画的。`text=host` 仅作为探测失败时的安全回退（仍由宿主 GDI 重放文字，保证中文/图标可读）。如仍观察到 `text=host`，先确认 `airecord.exe` 同目录已部署 `airui-skia.dll` 且 CI 插件为最新（含字体修复）。

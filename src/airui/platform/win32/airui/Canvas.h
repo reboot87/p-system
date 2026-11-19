@@ -30,6 +30,10 @@ class Canvas
 public:
     // 库内构造（Shell / Widget 在绘制时机传入）；页面只管收着用
     Canvas(HDC dc, const Fonts& fonts);
+    ~Canvas();
+
+    Canvas(const Canvas&) = delete;
+    Canvas& operator=(const Canvas&) = delete;
 
     // 逃生舱：极少数需要原生 GDI 的场景（一般用不到）
     HDC Native() const { return m_dc; }
@@ -52,6 +56,17 @@ public:
     // 进度条（track 底槽；fill 按阈值在 normal/warn/hot 间变色）
     void ProgressBar(const RECT& rc, int pct, COLORREF track,
                      COLORREF colorNormal, COLORREF colorWarn, COLORREF colorHot);
+
+    // ---- clip (backend agnostic) ----
+    // GDI uses the HDC clip region; a compositing backend (Skia) owns an
+    // independent surface, so the HDC clip has no effect on it and the
+    // backend clip stack must be used instead. Pages clip their content
+    // through this pair so both backends produce the same pixels --
+    // otherwise a control scrolled out of the content area is painted
+    // over the title bar. Every PushClip needs one PopClip (unbalanced
+    // pushes are cleaned up when the Canvas is destroyed).
+    void PushClip(const RECT& rc);
+    void PopClip();
 
     // ---- 文本（按角色选字体） ----
     void Text(const RECT& rc, const std::wstring& s, FontRole role,
@@ -103,7 +118,11 @@ public:
 private:
     HDC          m_dc;
     const Fonts& m_fonts;
+    // GDI path: SaveDC handles of the pushed clips. Backend path: the
+    // sentinel kFrameClip marks a clip owned by the active PaintFrame.
+    std::vector<int> m_clipStack;
     static std::vector<DrawCall>* s_recorder;
+    static constexpr int kFrameClip = -1;
 };
 
 } // namespace ui

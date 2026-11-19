@@ -15,6 +15,43 @@ Canvas::Canvas(HDC dc, const Fonts& fonts) : m_dc(dc), m_fonts(fonts)
     if (m_dc) SetBkMode(m_dc, TRANSPARENT);
 }
 
+Canvas::~Canvas()
+{
+    // A page that forgets a PopClip would leak the clip into the rest of
+    // the frame (GDI: the DC stays clipped; Skia: the backend clip stack
+    // stays one level too deep). Balanced code never gets here.
+    while (!m_clipStack.empty()) PopClip();
+}
+
+// ---- clip ----
+void Canvas::PushClip(const RECT& rc)
+{
+    // A compositing backend renders into its own surface: the HDC clip
+    // region does not exist there, so the clip has to go to the frame
+    // (and from there to the backend's clip stack).
+    if (PaintFrame* f = CurrentPaintFrame()) {
+        f->PushClip(Rect{rc.left, rc.top, rc.right, rc.bottom});
+        m_clipStack.push_back(kFrameClip);
+        return;
+    }
+    if (!m_dc) { m_clipStack.push_back(0); return; }
+    const int saved = SaveDC(m_dc);
+    IntersectClipRect(m_dc, rc.left, rc.top, rc.right, rc.bottom);
+    m_clipStack.push_back(saved);
+}
+
+void Canvas::PopClip()
+{
+    if (m_clipStack.empty()) return;
+    const int saved = m_clipStack.back();
+    m_clipStack.pop_back();
+    if (saved == kFrameClip) {
+        if (PaintFrame* f = CurrentPaintFrame()) f->PopClip();
+        return;
+    }
+    if (m_dc && saved) RestoreDC(m_dc, saved);
+}
+
 // ---- 形状 ----
 void Canvas::Fill(const RECT& rc, COLORREF color)
 {

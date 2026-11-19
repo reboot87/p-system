@@ -6,6 +6,8 @@
 // ============================================================
 #include <windows.h>
 
+#include "airui/Canvas.h"
+#include "airui/Fonts.h"
 #include "airui/Gfx.h"
 #include "airui/PaintFrame.h"
 #include "airui/hal.h"
@@ -211,6 +213,51 @@ int main()
     gfx::Fill(s.dc, RECT{ 0, 0, 64, 32 }, RGB(0, 255, 0));
     Check(s.At(8, 8) == RGB(0, 255, 0),
           "GDI path fully restored after the frame closes");
+
+    // ---------- 5. Canvas::PushClip is backend agnostic ----------
+    // Regression guard: a page that clipped its content with the HDC
+    // clip region only (IntersectClipRect) painted outside the content
+    // area under a compositing backend -- the HDC clip does not exist on
+    // the backend's own surface, so scrolled-away controls ended up on
+    // the title bar. Canvas::PushClip must reach the backend clip stack.
+    s.ClearWhite();
+    {
+        Canvas canvas(s.dc, Fonts::Default());
+        canvas.PushClip(RECT{ 0, 0, 32, 32 });
+        canvas.Fill(RECT{ 0, 0, 64, 32 }, RGB(0, 128, 255));
+        canvas.PopClip();
+    }
+    Check(s.At(8, 8) == RGB(0, 128, 255),
+          "GDI path: Canvas clip keeps the fill inside the clip rect");
+    Check(s.At(40, 8) == RGB(255, 255, 255),
+          "GDI path: Canvas clip cuts the fill outside the clip rect");
+
+    s.ClearWhite();
+    mock.ops.clear();
+    frame.Begin(&mock, s.dc, nullptr, true);
+    {
+        Canvas canvas(s.dc, Fonts::Default());
+        canvas.PushClip(RECT{ 0, 0, 32, 32 });
+        canvas.Fill(RECT{ 0, 0, 64, 32 }, RGB(0, 128, 255));
+        canvas.PopClip();
+    }
+    Check(mock.Count("pushClip") == 1 && mock.Count("popClip") == 1,
+          "frame path: Canvas clip reaches the backend clip stack");
+    Check(s.At(8, 8) == RGB(255, 255, 255),
+          "frame path: Canvas clip does not paint the DC directly");
+    frame.End();
+    frame.Clear();
+
+    // An unbalanced push must not leak the clip into the rest of the frame.
+    s.ClearWhite();
+    {
+        Canvas canvas(s.dc, Fonts::Default());
+        canvas.PushClip(RECT{ 0, 0, 32, 32 });
+        // no PopClip on purpose: the Canvas destructor has to clean up
+    }
+    gfx::Fill(s.dc, RECT{ 0, 0, 64, 32 }, RGB(0, 255, 0));
+    Check(s.At(40, 8) == RGB(0, 255, 0),
+          "unbalanced Canvas clip is cleaned up when the Canvas dies");
 
     std::printf("\n%s (%d failure(s))\n",
                 g_failures ? "FAILED" : "PASSED", g_failures);

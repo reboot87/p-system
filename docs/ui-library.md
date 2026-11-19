@@ -49,6 +49,13 @@
 - 所有绘制经 `IPainter`（或 `PaintFrame` 路由）；核心控件不直接依赖 GDI/Skia。
 - 后端在运行时选择（`PaintBackend.h` + `PaintProviders`）：gdi 默认、skia 可选；不可用回退 gdi。
 - 文字策略运行时探测（`text=backend` / `text=host`）。
+- **裁剪必须走 `Canvas::PushClip` / `PopClip`（或 `CanvasPainter` 的同名方法）**：
+  这两个接口在 GDI 下落到 HDC 裁剪区，在合成后端（Skia）下落到后端自己的
+  clip 栈。页面**不能**只写 `IntersectClipRect(dc, ...)` —— HDC 裁剪区在
+  Skia 的 surface 上不存在，滚出内容区的组件会画到标题栏上
+  （Skia 有自己的 surface，页面绘制顺序又晚于外壳 chrome，于是表现为
+  “组件跑到标题栏 / z-order 错乱”）。每次 `PushClip` 配一次 `PopClip`；
+  漏配的裁剪会在 `Canvas` 析构时兜底回收。
 
 ### 3.2 平台隔离
 - `airui-core` 零平台头，`check-core-clean` CI 门禁强制。

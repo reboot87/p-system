@@ -463,7 +463,10 @@ public:
             if (dc && s) RestoreDC(dc,s);
             return;
         }
-        if (dc) IntersectClipRect(dc,region.left,region.top,region.right,region.bottom);
+        // 后端无关的裁剪栈：GDI 走 HDC 裁剪区，合成后端（Skia）有自己的
+        // surface，HDC 裁剪区对它无效。只用 IntersectClipRect 的话，滚出
+        // 内容区的组件会画到标题栏/页面标题上（Skia 下复现过）。
+        g.PushClip(region);
 
         // 本次 WM_PAINT 真正脏的客户区（整窗失效时 == client；一次 hover 失效时
         // 只包含命中的条目/行）。窗口帧位图只 blit 这块（见 PaintDC::Flush）。
@@ -745,6 +748,7 @@ public:
             const Rect fr = m_overlayCtl.FocusRect();
             if (!fr.Empty()) PaintFocusRing(painter, fr, p, Mx());
         }
+        g.PopClip();                 // 解除内容区裁剪（后端无关）
         if (dc && s) RestoreDC(dc,s);
 
         if (m_max > 0) {
