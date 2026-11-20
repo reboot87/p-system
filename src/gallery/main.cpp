@@ -397,7 +397,10 @@ public:
     // 固定表头（搜索框）占据内容区顶部的一段高度：滚动内容的视口从它下沿
     // 开始，所以“内容坐标 → 客户区坐标”的换算要以内容区顶部为基准，而
     // 可见范围要以表头下沿为基准。两者相差 HeaderH()。
-    int HeaderH() const { return m_searchBox.bottom - m_content.top; }
+    int HeaderH() const {
+        const int h = m_searchBox.bottom - m_content.top;
+        return h > 0 ? h : 0;
+    }
     int RegionH() const { return m_content.bottom - m_content.top; }
 
     // 把内容区矩形（内容坐标）滚进可见视口（表头下沿 ~ 状态栏上沿）。
@@ -512,9 +515,10 @@ public:
 
         // 滚动内容的视口从搜索框下沿开始：搜索框是固定表头，滚上来的内容
         // 从它下面被裁掉，而不是压在它上面（先前搜索框先画、内容后画，
-        // 滚动时内容会盖住搜索框）。
-        g.PushClip(RECT{region.left, m_searchBox.bottom,
-                        region.right, region.bottom});
+        // 滚动时内容会盖住搜索框）。窗口很矮时视口高度为 0（不画内容）。
+        const int viewTop = m_searchBox.bottom < region.bottom
+                          ? m_searchBox.bottom : region.bottom;
+        g.PushClip(RECT{region.left, viewTop, region.right, region.bottom});
 
         for (auto& it : m_items) {
             RECT r = it.rect;
