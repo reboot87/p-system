@@ -177,6 +177,8 @@ struct RoleMetrics
 {
     SkScalar em      = 13.f;   // SkFont::setSize, Latin/UI face
     SkScalar emCjk   = 13.f;   // same role, Microsoft YaHei UI (GDI's font link)
+    SkScalar emSym   = 13.f;   // same role, Segoe UI Symbol (GDI's symbol font)
+    SkScalar emLink  = 13.f;   // same role, Yu Gothic UI (GDI's link-chain tail)
     float    ascent  = 10.f;   // GDI tmAscent: baseline offset from the cell top
     float    descent = 3.f;    // GDI tmDescent
     int      cell    = 13;     // GDI cell height, which is also the line advance
@@ -200,6 +202,12 @@ constexpr wchar_t kRefText[]   = L"AireRecord";
 constexpr wchar_t kRefDigits[] = L"0123456789";
 // One Segoe MDL2 glyph, for icon-role calibration.
 constexpr wchar_t kRefIcon   = 0xE700;
+// U+2713 CHECK MARK: the glyph GDI font-links to Segoe UI Symbol and
+// that the Skia plugin must be able to draw (the checkbox tick).
+constexpr wchar_t kRefSymbol = 0x2713;
+// U+25BE BLACK DOWN-POINTING SMALL TRIANGLE: the glyph GDI links to
+// Yu Gothic UI (the tail of the UI family's font-link chain).
+constexpr wchar_t kRefLinked = 0x25BE;
 
 struct SharedFaces
 {
@@ -208,6 +216,10 @@ struct SharedFaces
     sk_sp<SkTypeface> cjk;       // Microsoft YaHei UI (what GDI font-links to)
     sk_sp<SkTypeface> cjkBold;   // Microsoft YaHei UI Semibold
     sk_sp<SkTypeface> icon;      // Segoe MDL2 Assets
+    sk_sp<SkTypeface> symbol;    // Segoe UI Symbol    (GDI's symbol font)
+    sk_sp<SkTypeface> symbolBold;// Segoe UI Symbol Bold
+    sk_sp<SkTypeface> linked;    // Yu Gothic UI       (GDI's link-chain tail)
+    sk_sp<SkTypeface> linkedBold;// Yu Gothic UI Bold
     sk_sp<SkTypeface> fallback;  // system default, last resort
 };
 
@@ -278,6 +290,10 @@ const SharedFaces& GetSharedFaces()
         f.cjk    = MakeFace(kFamilyCjk,  400, 13);
         f.cjkBold = MakeFace(kFamilyCjk, 600, 13);
         f.icon   = MakeFace(kFamilyIcon, 400, 13);
+        f.symbol = MakeFace(kFamilySymbol, 400, 13);
+        f.symbolBold = MakeFace(kFamilySymbol, 600, 13);
+        f.linked = MakeFace(kFamilyLinked, 400, 13);
+        f.linkedBold = MakeFace(kFamilyLinked, 600, 13);
 
         if (!f.ui) {
             // Last resort: let GDI pick the system default font.
@@ -290,6 +306,12 @@ const SharedFaces& GetSharedFaces()
         if (!f.uiBold) f.uiBold = f.ui;
         if (!f.cjk)    f.cjk    = f.ui;
         if (!f.cjkBold) f.cjkBold = f.cjk;
+        // A machine without these families keeps the chain intact: the
+        // next stop, and finally the system default, try instead.
+        if (!f.symbol)     f.symbol     = f.ui;
+        if (!f.symbolBold) f.symbolBold = f.symbol;
+        if (!f.linked)     f.linked     = f.ui;
+        if (!f.linkedBold) f.linkedBold = f.linked;
 
         // Generic fallback for codepoints no family above covers (rare
         // symbols / emoji): an empty-faced LOGFONT lets GDI resolve the
@@ -323,6 +345,24 @@ const sk_sp<SkTypeface>& CjkFaceFor(const SharedFaces& f, FontRole role)
     return RoleFontSpec(role).weight >= 600 && f.cjkBold ? f.cjkBold : f.cjk;
 }
 
+// The face GDI reaches for symbols the UI family does not carry
+// (U+2713 check mark, U+2715 ballot X). GDI's own fallback chain
+// resolves the Dingbats block to Segoe UI Symbol -- its linked U+2713
+// has exactly that family's advance and ink box -- so the plugin names
+// the same family to draw the same glyph.
+const sk_sp<SkTypeface>& SymbolFaceFor(const SharedFaces& f, FontRole role)
+{
+    return RoleFontSpec(role).weight >= 600 && f.symbolBold ? f.symbolBold : f.symbol;
+}
+
+// The face GDI reaches for the remaining symbols the UI family lacks
+// (U+25BE, U+25B8, U+26A0, U+2139): the tail of the UI family's
+// font-link chain. Measured against GDI: same advance, same ink box.
+const sk_sp<SkTypeface>& LinkedFaceFor(const SharedFaces& f, FontRole role)
+{
+    return RoleFontSpec(role).weight >= 600 && f.linkedBold ? f.linkedBold : f.linked;
+}
+
 // Resolve one role against GDI: same font the Win32 backend selects, same
 // cell height, then copy GDI's own numbers for ascent/descent and solve
 // the em that reproduces GDI's advance widths.
@@ -342,6 +382,8 @@ RoleMetrics MeasureRole(HDC dc, const SharedFaces& f, FontRole role)
     rm.cell = spec.cell > 0 ? spec.cell : 13;
     rm.em   = static_cast<SkScalar>(rm.cell);
     rm.emCjk = rm.em;
+    rm.emSym = rm.em;
+    rm.emLink = rm.em;
     rm.ascent  = static_cast<float>(rm.cell) * 0.8f;
     rm.descent = static_cast<float>(rm.cell) - rm.ascent;
 
@@ -375,13 +417,19 @@ RoleMetrics MeasureRole(HDC dc, const SharedFaces& f, FontRole role)
     // linear advance is 13.78 hints to 15 in the semibold face). The seed is
     // therefore refined against widths measured at the *drawn* size, with
     // the same font settings the painter uses, until it stops moving.
-    auto solve = [&](const wchar_t* text, int chars, int bytes, SkScalar& out) {
+    // The GDI side always measures with the font selected on the DC --
+    // the role's own family, exactly like the Win32 backend -- so GDI's
+    // own font linking is part of the measurement. `measureFace` is the
+    // Skia face the run will actually be drawn with; it may be a linked
+    // family (CJK, symbol) rather than the role's own.
+    auto solve = [&](const wchar_t* text, int chars, int bytes,
+                     const sk_sp<SkTypeface>& measureFace, SkScalar& out) {
         out = 0.f;
         SIZE sz{};
-        if (!face || !GetTextExtentPoint32W(dc, text, chars, &sz) || sz.cx <= 0)
+        if (!measureFace || !GetTextExtentPoint32W(dc, text, chars, &sz) || sz.cx <= 0)
             return;
         SkFont probe;
-        probe.setTypeface(face);
+        probe.setTypeface(measureFace);
         probe.setSize(1000.f);
         const float w1000 =
             probe.measureText(text, (size_t)bytes, SkTextEncoding::kUTF16);
@@ -394,7 +442,7 @@ RoleMetrics MeasureRole(HDC dc, const SharedFaces& f, FontRole role)
         const SkScalar lo = seed * 0.75f, hi = seed * 1.25f;
         for (int i = 0; i < 4; ++i) {
             SkFont f;
-            f.setTypeface(face);
+            f.setTypeface(measureFace);
             f.setSize(em);
             f.setHinting(SkFontHinting::kFull);
             f.setSubpixel(false);
@@ -412,22 +460,36 @@ RoleMetrics MeasureRole(HDC dc, const SharedFaces& f, FontRole role)
     };
 
     if (isIcon) {
-        solve(&kRefIcon, 1, (int)sizeof(wchar_t), rm.em);
+        solve(&kRefIcon, 1, (int)sizeof(wchar_t), face, rm.em);
     } else {
-        solve(kRefCjk, kRefCjkCount, kRefCjkCount * (int)sizeof(wchar_t), rm.em);
+        solve(kRefCjk, kRefCjkCount, kRefCjkCount * (int)sizeof(wchar_t), face, rm.em);
         // A face without hanzi (or a DC that refused the run): fall back
         // to letters, then digits.
         if (rm.em <= 1.f)
             solve(kRefText, (int)(sizeof(kRefText) / sizeof(wchar_t)) - 1,
-                  (int)(sizeof(kRefText) - sizeof(wchar_t)), rm.em);
+                  (int)(sizeof(kRefText) - sizeof(wchar_t)), face, rm.em);
         if (rm.em <= 1.f)
             solve(kRefDigits, (int)(sizeof(kRefDigits) / sizeof(wchar_t)) - 1,
-                  (int)(sizeof(kRefDigits) - sizeof(wchar_t)), rm.em);
+                  (int)(sizeof(kRefDigits) - sizeof(wchar_t)), face, rm.em);
 
         // Chinese needs no separate size: the UI family *is* Microsoft
         // YaHei UI, so GDI never font-links here and Latin and CJK share
         // one em (a hanzi advances exactly 1 em in that face).
         rm.emCjk = rm.em;
+
+        // Symbols need their own size: the UI family has no U+2713 and
+        // no U+25BE, and GDI draws those from other families, at the
+        // same cell size but with their own metrics. Solving each face's
+        // em against the advance GDI reports for the linked run makes
+        // the glyph land on the same pixels in both backends (measured:
+        // identical advance and identical ink box, so the glyph is the
+        // same size, not just present).
+        const sk_sp<SkTypeface>& sym = SymbolFaceFor(f, role);
+        if (sym)
+            solve(&kRefSymbol, 1, (int)sizeof(wchar_t), sym, rm.emSym);
+        const sk_sp<SkTypeface>& link = LinkedFaceFor(f, role);
+        if (link)
+            solve(&kRefLinked, 1, (int)sizeof(wchar_t), link, rm.emLink);
     }
 
     SelectObject(dc, old);
@@ -483,8 +545,9 @@ void DiagCalibration(const RoleMetrics* m)
     if (!fp) return;
     fwprintf(fp, L"[calib] gdi-matched calibration\n");
     for (int i = 0; i < static_cast<int>(FontRole::Count); ++i) {
-        fwprintf(fp, L"[calib] role=%d cell=%d em=%.2f cjk=%.2f ascent=%.1f descent=%.1f\n",
+        fwprintf(fp, L"[calib] role=%d cell=%d em=%.2f cjk=%.2f sym=%.2f link=%.2f ascent=%.1f descent=%.1f\n",
                  i, m[i].cell, (double)m[i].em, (double)m[i].emCjk,
+                 (double)m[i].emSym, (double)m[i].emLink,
                  (double)m[i].ascent, (double)m[i].descent);
     }
     fclose(fp);
@@ -536,6 +599,16 @@ bool IsCjk(uint32_t cp)
            (cp >= 0xAC00u && cp <= 0xD7AFu) ||   // hangul
            (cp >= 0xF900u && cp <= 0xFAFFu) ||   // compatibility ideographs
            (cp >= 0xFF00u && cp <= 0xFFEFu);     // fullwidth forms
+}
+
+// The Dingbats block. GDI resolves it from its symbol font (Segoe UI
+// Symbol) even when the UI family's font-link chain has the glyph as
+// well -- measured: GDI's U+2713 is Segoe UI Symbol's to the pixel,
+// while GDI's U+25BE is Yu Gothic UI's. So the two need two different
+// faces, and the block decides which one goes first.
+bool IsDingbat(uint32_t cp)
+{
+    return cp >= 0x2700u && cp <= 0x27BFu;
 }
 
 } // namespace
@@ -609,6 +682,8 @@ struct SkiaPainter::Impl
     sk_sp<SkTypeface>      roleFace[static_cast<int>(FontRole::Count)];
     RoleMetrics            roleM[static_cast<int>(FontRole::Count)] = {};
     sk_sp<SkTypeface>      roleCjk[static_cast<int>(FontRole::Count)];
+    sk_sp<SkTypeface>      roleSymbol[static_cast<int>(FontRole::Count)];
+    sk_sp<SkTypeface>      roleLinked[static_cast<int>(FontRole::Count)];
     sk_sp<SkTypeface>      cjkFace = nullptr;
     sk_sp<SkTypeface>      defaultFace = nullptr;
     bool                   facesReady = false;
@@ -632,6 +707,10 @@ struct SkiaPainter::Impl
         cpFace[static_cast<int>(FontRole::Count)];
     SkFont fontCjk[static_cast<int>(FontRole::Count)];
     bool   cjkFontReady[static_cast<int>(FontRole::Count)] = {};
+    SkFont fontSymbol[static_cast<int>(FontRole::Count)];
+    bool   symbolFontReady[static_cast<int>(FontRole::Count)] = {};
+    SkFont fontLinked[static_cast<int>(FontRole::Count)];
+    bool   linkedFontReady[static_cast<int>(FontRole::Count)] = {};
     SkFont scratchFont;             // system-default fallback, rare
     sk_sp<SkTypeface> scratchFace;
 
@@ -647,6 +726,10 @@ struct SkiaPainter::Impl
             roleFace[i] = UiFaceFor(shared, role);
             if (!roleFace[i]) roleFace[i] = shared.ui;
             roleCjk[i] = CjkFaceFor(shared, role);
+            roleSymbol[i] = SymbolFaceFor(shared, role);
+            if (!roleSymbol[i]) roleSymbol[i] = shared.symbol;
+            roleLinked[i] = LinkedFaceFor(shared, role);
+            if (!roleLinked[i]) roleLinked[i] = shared.linked;
             roleM[i] = cal.m[i];
         }
         cjkFace = shared.cjk;
@@ -656,9 +739,12 @@ struct SkiaPainter::Impl
     }
 
     // Pick the typeface that can actually draw `cp` for this role. Order
-    // mirrors GDI: role family -> font-linked CJK family -> system
-    // default. Falling back to the generic system font first would give
-    // Chinese a different family from GDI's and change its shapes.
+    // mirrors GDI: role family -> font-linked CJK family -> the symbol
+    // faces GDI's own fallback uses -> system default. Falling back to
+    // the generic system font first would give Chinese a different
+    // family from GDI's and change its shapes -- and the system default
+    // carries no U+2713 at all, so the check mark would come out as the
+    // .notdef box.
     // Which face covers `cp` for this role. Cached per role because the
     // answer only depends on the (fixed) face set, while unicharToGlyph
     // itself is a cmap walk that used to run twice per character per
@@ -677,10 +763,24 @@ struct SkiaPainter::Impl
         sk_sp<SkTypeface>& base = roleFace[i];
         sk_sp<SkTypeface> picked = base;
         if (!(base && base->unicharToGlyph(cp))) {
-            if (IsCjk(key) && roleCjk[i] && roleCjk[i]->unicharToGlyph(cp))
+            if (IsCjk(key) && roleCjk[i] && roleCjk[i]->unicharToGlyph(cp)) {
                 picked = roleCjk[i];
-            else if (defaultFace && defaultFace->unicharToGlyph(cp))
-                picked = defaultFace;
+            } else {
+                // GDI's universal fallback, measured on Windows: the
+                // Dingbats block comes from the symbol font, the other
+                // missing symbols from the tail of the UI family's
+                // font-link chain. Which one goes first depends on the
+                // block, not on which face happens to have the glyph.
+                const bool dingbat = IsDingbat(key);
+                const sk_sp<SkTypeface>& first = dingbat ? roleSymbol[i] : roleLinked[i];
+                const sk_sp<SkTypeface>& second = dingbat ? roleLinked[i] : roleSymbol[i];
+                if (first && first->unicharToGlyph(cp))
+                    picked = first;
+                else if (second && second->unicharToGlyph(cp))
+                    picked = second;
+                else if (defaultFace && defaultFace->unicharToGlyph(cp))
+                    picked = defaultFace;
+            }
         }
         // Bounded: a UI shows a few hundred distinct characters, but the
         // map must not grow without limit in a long-lived process.
@@ -691,10 +791,12 @@ struct SkiaPainter::Impl
 
     // The prebuilt font for a run: the role's Latin face, its CJK face
     // (sized by its own em -- the linked family has a different
-    // win-metric ratio), or a scratch font for the system-default
-    // fallback. Returning a reference is the point: copying an SkFont or
-    // calling setTypeface() throws away the strike spec, and the next
-    // measureText()/drawSimpleText() has to rebuild it.
+    // win-metric ratio), its symbol faces (sized against the advance
+    // GDI reports for the linked run), or a scratch font for the
+    // system-default fallback. Returning a reference is the point:
+    // copying an SkFont or calling setTypeface() throws away the strike
+    // spec, and the next measureText()/drawSimpleText() has to rebuild
+    // it.
     const SkFont& FontForFace(FontRole role, const sk_sp<SkTypeface>& face)
     {
         Font(role);                     // ensures fonts[i] / roleFace[i]
@@ -711,6 +813,30 @@ struct SkiaPainter::Impl
                 cjkFontReady[i] = true;
             }
             return fontCjk[i];
+        }
+        if (roleSymbol[i] && face.get() == roleSymbol[i].get()) {
+            if (!symbolFontReady[i]) {
+                SkFont f = fonts[i];
+                f.setTypeface(roleSymbol[i]);
+                const SkScalar em = roleM[i].emSym > 0 ? roleM[i].emSym
+                                                      : fonts[i].getSize();
+                f.setSize(em);
+                fontSymbol[i] = f;
+                symbolFontReady[i] = true;
+            }
+            return fontSymbol[i];
+        }
+        if (roleLinked[i] && face.get() == roleLinked[i].get()) {
+            if (!linkedFontReady[i]) {
+                SkFont f = fonts[i];
+                f.setTypeface(roleLinked[i]);
+                const SkScalar em = roleM[i].emLink > 0 ? roleM[i].emLink
+                                                       : fonts[i].getSize();
+                f.setSize(em);
+                fontLinked[i] = f;
+                linkedFontReady[i] = true;
+            }
+            return fontLinked[i];
         }
         // Rare: a character only the system default can draw. Shape it
         // once per distinct face rather than per draw.
@@ -770,7 +896,8 @@ struct SkiaPainter::Impl
         size_t                  i = 0;
         while (i < lay.cps.size()) {
             // One face per run, exactly like GDI's font linking: the
-            // role's own family first, then the linked CJK family.
+            // role's own family first, then the linked CJK family, then
+            // the symbol family for characters neither covers.
             const sk_sp<SkTypeface> face = FaceFor(role, lay.cps[i]);
             size_t j = i + 1;
             while (j < lay.cps.size() &&

@@ -312,5 +312,20 @@ bool SkiaPluginSupportsWideText()
     return cached != 0;
 }
 
+bool SkiaPluginSupportsSymbolFallback()
+{
+    static int cached = -1;
+    if (cached >= 0) return cached != 0;
+
+    // Negotiated capability: the plugin advertises that it resolves the
+    // symbols the UI family lacks through GDI's own font-link chain.
+    // A plugin that predates the bit simply does not set it, and the
+    // caller falls back to GDI's own rendering for those glyphs.
+    PluginApi& a = Api();
+    if (!LoadPlugin() || !a.desc) return false;
+    cached = (a.desc->caps & AIRUI_CAP_SYMBOL_FALLBACK) ? 1 : 0;
+    return cached != 0;
+}
+
 } // namespace ui
 } // namespace air

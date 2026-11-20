@@ -46,7 +46,7 @@ using namespace air::ui;
 namespace {
 
 constexpr int    kW = 320;
-constexpr int    kH = 240;
+constexpr int    kH = 280;
 constexpr size_t kBytes = static_cast<size_t>(kW) * kH * 4u;
 
 using Image = std::vector<uint8_t>;   // top-down BGRA, 4 bytes per pixel
@@ -134,6 +134,16 @@ void DrawScene(IPainter& p)
     p.Translate(Point{ 4, 4 });
     p.FillRect(Rect{ 212, 190, 300, 226 }, kBlue);
     p.PopClip();
+
+    // Symbol glyph: U+2713 CHECK MARK, the tick of a checkbox. The UI
+    // family (Microsoft YaHei UI) has no such glyph, so GDI resolves it
+    // through its own font linking -- to Segoe UI Symbol. A backend that
+    // picks faces itself (the Skia plugin) has to name that family too,
+    // or the glyph is dropped and the check mark disappears. It sits on
+    // its own row so a missing glyph shows up as a coverage difference
+    // rather than as noise inside a text region.
+    p.Text(Rect{ 12, 240, 208, 264 }, L"\u2713", 1, FontRole::Body, kInk,
+           dt::SingleLine | dt::VCenter);
 }
 
 uint32_t Checksum(const Image& img)
@@ -212,6 +222,64 @@ double MeanLuma(const Image& img, const Rect& r)
     return n ? sum / n : 0.0;
 }
 
+// Total ink coverage over a region, counted in "fully covered pixels".
+// Where InkedPixels() counts the pixels that differ from the background
+// at all, this adds up how much ink they carry. The two answer
+// different questions: a glyph drawn from the wrong face can have the
+// right number of pixels but the wrong weight (a hairline instead of a
+// stroke), and only the coverage sum sees that.
+double Coverage(const Image& img, const Rect& r)
+{
+    const uint8_t bgB = static_cast<uint8_t>(ColorB(kBg));
+    const uint8_t bgG = static_cast<uint8_t>(ColorG(kBg));
+    const uint8_t bgR = static_cast<uint8_t>(ColorR(kBg));
+    double sum = 0.0;
+    for (int y = r.top; y < r.bottom; ++y) {
+        for (int x = r.left; x < r.right; ++x) {
+            const size_t i = (static_cast<size_t>(y) * kW + x) * 4u;
+            const int db = bgB > img[i + 0] ? bgB - img[i + 0] : 0;
+            const int dg = bgG > img[i + 1] ? bgG - img[i + 1] : 0;
+            const int dr = bgR > img[i + 2] ? bgR - img[i + 2] : 0;
+            sum += (db + dg + dr) / (255.0 * 3.0);
+        }
+    }
+    return sum;
+}
+
+// Bounding box of the ink in a region.
+struct Box
+{
+    int x0 = 0, x1 = -1, y0 = 0, y1 = -1;
+    bool Empty() const { return x1 < x0; }
+    int W() const { return x1 - x0 + 1; }
+    int H() const { return y1 - y0 + 1; }
+};
+
+Box InkBox(const Image& img, const Rect& r)
+{
+    const uint8_t bgB = static_cast<uint8_t>(ColorB(kBg));
+    const uint8_t bgG = static_cast<uint8_t>(ColorG(kBg));
+    const uint8_t bgR = static_cast<uint8_t>(ColorR(kBg));
+    Box b;
+    for (int y = r.top; y < r.bottom; ++y) {
+        for (int x = r.left; x < r.right; ++x) {
+            const size_t i = (static_cast<size_t>(y) * kW + x) * 4u;
+            const int db = bgB > img[i + 0] ? bgB - img[i + 0] : 0;
+            const int dg = bgG > img[i + 1] ? bgG - img[i + 1] : 0;
+            const int dr = bgR > img[i + 2] ? bgR - img[i + 2] : 0;
+            if (db + dg + dr <= 12) continue;
+            if (b.Empty()) { b.x0 = b.x1 = x; b.y0 = b.y1 = y; }
+            else {
+                if (x < b.x0) b.x0 = x;
+                if (x > b.x1) b.x1 = x;
+                if (y < b.y0) b.y0 = y;
+                if (y > b.y1) b.y1 = y;
+            }
+        }
+    }
+    return b;
+}
+
 // SSIM on the luma channel with 8x8 windows, averaged over the frame.
 // Standard constants for 8-bit data; higher is closer to identical.
 double SSIM(const Image& a, const Image& b)
@@ -258,7 +326,7 @@ double SSIM(const Image& a, const Image& b)
     return windows ? total / windows : 0.0;
 }
 
-struct Region { const char* name; Rect r; };
+struct Region { const char* name; Rect r; double inkTol; };
 
 // Backend-independent acceptance limits. They are deliberately about
 // structure (is the same primitive there, in the same place, at the same
@@ -267,6 +335,18 @@ constexpr double kMaxMeanLumaDelta = 12.0;   // 0..255
 constexpr double kMaxInkRatioDelta = 0.25;   // relative coverage
 constexpr double kMinSSIM           = 0.80;
 constexpr double kMaxDiffPct        = 12.0;
+// One glyph on its own: the two rasterisers do not agree on the exact
+// pixel weight of a single tick, but they do agree that it is there --
+// so the gate is loose enough for anti-aliasing and still fails when
+// the glyph is dropped altogether (a dropped glyph scores 0 against a
+// non-zero reference, i.e. a ratio of 1.0).
+constexpr double kMaxSymbolInkRatioDelta = 0.60;
+// Coverage of the symbol glyph: the two rasterisers do not agree on the
+// exact pixel weight of a tick, but they do agree that it is there --
+// so the gate is loose enough for anti-aliasing and still fails when
+// the glyph comes out of the wrong face (measured: a hairline diagonal
+// has a fraction of the coverage of a real check mark).
+constexpr double kMaxSymbolCoverageDelta = 0.35;
 
 bool Check(bool ok, const char* what)
 {
@@ -383,22 +463,23 @@ int main()
     }
 
     static const Region regions[] = {
-        { "whole frame   ", Rect{ 0, 0, kW, kH } },
-        { "round fill    ", Rect{ 12, 12, 108, 64 } },
-        { "round stroke  ", Rect{ 112, 12, 208, 64 } },
-        { "alpha 50%     ", Rect{ 212, 12, 308, 64 } },
-        { "alpha 25%     ", Rect{ 212, 72, 308, 100 } },
-        { "rect stroke   ", Rect{ 12, 72, 208, 100 } },
-        { "dashed border ", Rect{ 12, 108, 208, 152 } },
-        { "text body     ", Rect{ 12, 158, 208, 182 } },
-        { "text block    ", Rect{ 12, 186, 208, 232 } },
-        { "clip          ", Rect{ 212, 106, 310, 178 } },
-        { "translate     ", Rect{ 216, 194, 304, 230 } },
+        { "whole frame   ", Rect{ 0, 0, kW, kH },       kMaxInkRatioDelta },
+        { "round fill    ", Rect{ 12, 12, 108, 64 },   kMaxInkRatioDelta },
+        { "round stroke  ", Rect{ 112, 12, 208, 64 },  kMaxInkRatioDelta },
+        { "alpha 50%     ", Rect{ 212, 12, 308, 64 },  kMaxInkRatioDelta },
+        { "alpha 25%     ", Rect{ 212, 72, 308, 100 }, kMaxInkRatioDelta },
+        { "rect stroke   ", Rect{ 12, 72, 208, 100 },  kMaxInkRatioDelta },
+        { "dashed border ", Rect{ 12, 108, 208, 152 }, kMaxInkRatioDelta },
+        { "text body     ", Rect{ 12, 158, 208, 182 }, kMaxInkRatioDelta },
+        { "text block    ", Rect{ 12, 186, 208, 232 }, kMaxInkRatioDelta },
+        { "clip          ", Rect{ 212, 106, 310, 178 }, kMaxInkRatioDelta },
+        { "translate     ", Rect{ 216, 194, 304, 230 }, kMaxInkRatioDelta },
+        { "symbol check  ", Rect{ 12, 240, 208, 264 }, kMaxSymbolInkRatioDelta },
     };
 
     std::printf("  agreement (structure, not anti-aliasing):\n");
-    std::printf("    %-14s %8s %8s %8s %8s\n",
-                "region", "diff%", "inkA%", "inkB%", "luma d");
+    std::printf("    %-14s %8s %8s %8s %8s %8s\n",
+                "region", "diff%", "inkA%", "inkB%", "luma d", "covA/covB");
     for (const Region& r : regions) {
         const Diff d = CompareRegion(gdi, skia, r.r);
         const double area = static_cast<double>(d.total ? d.total : 1);
@@ -407,18 +488,100 @@ int main()
         const double lumaA = MeanLuma(gdi, r.r);
         const double lumaB = MeanLuma(skia, r.r);
         const double lumaD = std::fabs(lumaA - lumaB);
+        const double covA = Coverage(gdi, r.r);
+        const double covB = Coverage(skia, r.r);
 
-        std::printf("    %-14s %7.1f%% %7.1f%% %7.1f%% %8.1f\n",
-                    r.name, d.Pct(), inA, inB, lumaD);
+        std::printf("    %-14s %7.1f%% %7.1f%% %7.1f%% %8.1f %6.1f/%-6.1f\n",
+                    r.name, d.Pct(), inA, inB, lumaD, covA, covB);
 
         const double inkRatio = (inA > inB ? inA : inB) >= 2.0
                               ? std::fabs(inA - inB) / (inA > inB ? inA : inB)
                               : 0.0;
         char label[96];
         std::snprintf(label, sizeof(label), "%s ink agrees", r.name);
-        ok = Check(inkRatio <= kMaxInkRatioDelta, label) && ok;
+        ok = Check(inkRatio <= r.inkTol, label) && ok;
         std::snprintf(label, sizeof(label), "%s luma agrees", r.name);
         ok = Check(lumaD <= kMaxMeanLumaDelta, label) && ok;
+    }
+
+    // The symbol glyph has to be PRESENT and has to have the right
+    // WEIGHT in both backends. GDI resolves U+2713 through its own font
+    // linking (to Segoe UI Symbol); a backend that picks faces itself
+    // has to name that family explicitly. If it does not, the glyph
+    // comes out of some other face -- measured: the .notdef box, a
+    // hollow rectangle instead of a tick -- which is present, so a
+    // plain "is there ink" check passes, but is nowhere near the
+    // coverage of a real check mark. Coverage is the metric that tells
+    // the two apart.
+    //
+    // The check is gated on the plugin advertising symbol fallback: a
+    // plugin published before that capability existed draws its
+    // symbols differently from GDI by design, and the host deploys the
+    // latest published plugin next to this test -- so without the gate
+    // the test would fail against a plugin that is merely older, not
+    // broken. The plugin built from this source does advertise it, and
+    // that is the build the gate is for.
+    const bool symbolCapable = SkiaPluginSupportsSymbolFallback();
+    std::printf("  symbol fallback : %s\n",
+                symbolCapable ? "plugin resolves symbols like GDI"
+                              : "plugin does not advertise it (older build)");
+    {
+        const Rect sym{ 12, 240, 208, 264 };
+        const double area = static_cast<double>(sym.Width() * sym.Height());
+        const double symA = 100.0 * InkedPixels(gdi, sym) / area;
+        const double symB = 100.0 * InkedPixels(skia, sym) / area;
+        const double covA = Coverage(gdi, sym);
+        const double covB = Coverage(skia, sym);
+        const Box boxA = InkBox(gdi, sym);
+        const Box boxB = InkBox(skia, sym);
+        std::printf("    %-14s ink %.2f%%/%.2f%%  coverage %.1f/%.1f  "
+                    "box %dx%d/%dx%d -- U+2713 check mark\n",
+                    "symbol", symA, symB, covA, covB,
+                    boxA.W(), boxA.H(), boxB.W(), boxB.H());
+        if (std::getenv("AIRUI_PAINT_DUMP")) {
+            // Coverage map, background relative, so the shape of the
+            // glyph is readable side by side. AIRUI_PAINT_DUMP=1
+            // dumps it; a missing glyph shows up as the .notdef box.
+            const char* levels = " .:-=+*#%@";
+            const uint8_t bgG = static_cast<uint8_t>(ColorG(kBg));
+            auto level = [&](const Image& img, int x, int y) {
+                const size_t i = (static_cast<size_t>(y) * kW + x) * 4u;
+                const double c = (bgG > img[i + 1])
+                               ? static_cast<double>(bgG - img[i + 1]) / bgG : 0.0;
+                int v = static_cast<int>(c * 9.0);
+                if (v < 0) v = 0;
+                if (v > 9) v = 9;
+                return levels[v];
+            };
+            for (int y = sym.top; y < sym.bottom; ++y) {
+                std::printf("      y=%3d gdi |", y);
+                for (int x = sym.left; x < sym.left + 24; ++x)
+                    std::printf("%c", level(gdi, x, y));
+                std::printf("|  skia |");
+                for (int x = sym.left; x < sym.left + 24; ++x)
+                    std::printf("%c", level(skia, x, y));
+                std::printf("|\n");
+            }
+        }
+        ok = Check(symA > 0.0, "gdi draws the U+2713 check mark") && ok;
+        if (!symbolCapable) {
+            std::printf("    (symbol parity not enforced: plugin does not "
+                        "advertise symbol fallback)\n");
+        } else {
+            ok = Check(symB > 0.0, "skia draws the U+2713 check mark") && ok;
+            // Same weight, +/-35 %: anti-aliasing and the rasteriser's
+            // stem weight move the coverage a little, a glyph from the
+            // wrong face moves it by a factor.
+            const double covRatio = (covA > covB ? covA : covB) > 0.0
+                                  ? std::fabs(covA - covB) / (covA > covB ? covA : covB)
+                                  : 1.0;
+            ok = Check(covRatio <= kMaxSymbolCoverageDelta,
+                       "skia U+2713 coverage matches gdi") && ok;
+            // Same size: a tick is about as tall as it is wide.
+            ok = Check(!boxB.Empty() && std::abs(boxB.W() - boxA.W()) <= 3 &&
+                       std::abs(boxB.H() - boxA.H()) <= 3,
+                       "skia U+2713 glyph box matches gdi") && ok;
+        }
     }
 
     const Diff whole = CompareRegion(gdi, skia, Rect{ 0, 0, kW, kH });

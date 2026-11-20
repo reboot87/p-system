@@ -27,7 +27,7 @@ namespace {
 const AiruiPluginDesc g_desc = {
     sizeof(AiruiPluginDesc),
     AIRUI_PLUGIN_ABI,
-    AIRUI_CAP_WIDE_TEXT,
+    AIRUI_CAP_WIDE_TEXT | AIRUI_CAP_SYMBOL_FALLBACK,
     AIRUI_PAINTER_IFACE_REV,
 };
 

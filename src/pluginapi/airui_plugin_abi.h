@@ -32,6 +32,12 @@ enum
     AIRUI_CAP_WIDE_TEXT   = 1u << 0,   // backend rasterises CJK / icon glyphs
     AIRUI_CAP_SUBPIXEL_AA = 1u << 1,
     AIRUI_CAP_OFFSCREEN   = 1u << 2,
+    // The backend resolves the symbols the UI family does not carry
+    // (U+2713 check mark, U+2715 ballot X, U+25BE, ...) through the
+    // same font-link chain GDI uses, so the glyphs come out identical
+    // instead of as the .notdef box. A plugin that does not set this
+    // bit still draws text, but its symbols differ from GDI's.
+    AIRUI_CAP_SYMBOL_FALLBACK = 1u << 3,
 };
 
 // Revision of the IPainter vtable that crosses the module boundary.

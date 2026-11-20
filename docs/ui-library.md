@@ -62,6 +62,13 @@
   3. 命中测试要跟着裁剪走 —— 被裁掉的条目不可 hover / 不可点击，
      否则会出现“看不见却能点中”的幽灵条目。
   画廊的搜索框就是这条规则的参考实现（`src/gallery/main.cpp`）。
+- **符号字形必须按 GDI 的字体链接链回退**：UI 字族没有 `✓ ✕ ▾ ⚠` 等码位，
+  GDI 会自己链接到别的字体（GDI 实测：Dingbats 区 → Segoe UI Symbol，
+  其余缺失符号 → Yu Gothic UI），后端若自己挑 face 就必须显式点名，
+  否则画出来的是 `.notdef` 空心方框（表现为"切到 Skia 后 checkbox 的对号
+  变成一个框"）。字族名与对应关系见 `airui/UiText.h` 与
+  `docs/skia-backend.md` §4.1(9)；插件用 `AIRUI_CAP_SYMBOL_FALLBACK`
+  能力位声明支持，`test_paint_compare` 据此门禁符号一致性。
 
 ### 3.2 平台隔离
 - `airui-core` 零平台头，`check-core-clean` CI 门禁强制。

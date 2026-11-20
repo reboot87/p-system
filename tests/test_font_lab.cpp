@@ -351,6 +351,11 @@ const Sample kSamples[] = {
     { FontRole::Title,   "Title  CJK ", L"\u8BBE\u7F6E" },   // 设置
     { FontRole::Icon,    "Icon   gear", L"\uE713" },
     { FontRole::Display, "Display Ag ", L"Ag" },
+    // U+2713 CHECK MARK: not in the UI family, so GDI resolves it
+    // through its own font linking to Segoe UI Symbol. A backend that
+    // picks faces itself has to name that family too -- this sample is
+    // where a dropped glyph shows up.
+    { FontRole::Body,    "Body   check", L"\u2713" },
 };
 
 void PrintInkLine(const char* tag, const Ink& k, const Ink* ref)

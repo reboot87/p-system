@@ -33,5 +33,12 @@ void SkiaPluginReload();
 // AIRUI_SKIA_TEXT=host|backend overrides the probe for diagnostics.
 bool SkiaPluginSupportsWideText();
 
+// Runtime capability probe: the plugin resolves the symbols the UI
+// family does not carry (U+2713 check mark, U+2715 ballot X, U+25BE,
+// ...) through the same font-link chain GDI uses, so the glyphs are the
+// same ones GDI draws. A plugin without AIRUI_CAP_SYMBOL_FALLBACK drops
+// those glyphs and the controls show the .notdef box instead.
+bool SkiaPluginSupportsSymbolFallback();
+
 } // namespace ui
 } // namespace air

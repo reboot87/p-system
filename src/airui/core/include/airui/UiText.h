@@ -47,6 +47,23 @@ inline constexpr const wchar_t* kFamilyUi    = L"Microsoft YaHei UI";
 inline constexpr const wchar_t* kFamilyCjk   = L"Microsoft YaHei UI";
 inline constexpr const wchar_t* kFamilyIcon  = L"Segoe MDL2 Assets";
 
+// Symbols the UI family does not carry: U+2713 CHECK MARK (the tick in
+// a checkbox), U+2715 BALLOT X, arrows, dingbats. GDI resolves those
+// through its own fallback chain, and a backend that picks faces itself
+// -- the Skia plugin -- has to name the same families explicitly, or
+// the glyph is dropped and the control renders an empty box.
+//
+// Measured on Windows (advance + ink box, GDI against each candidate):
+//   * the Dingbats block (U+2700..U+27BF: check, cross, ballot X)
+//     comes from Segoe UI Symbol -- GDI's symbol font;
+//   * the other symbols the UI family lacks (U+25BE, U+25B8, U+26A0,
+//     U+2139) come from Yu Gothic UI, the tail of GDI's font-link
+//     chain for the UI family;
+//   * Segoe UI Symbol covers everything the UI family lacks, so it is
+//     the last named stop before the system default.
+inline constexpr const wchar_t* kFamilySymbol = L"Segoe UI Symbol";
+inline constexpr const wchar_t* kFamilyLinked = L"Yu Gothic UI";
+
 // Header-inline on purpose: the Skia plugin links its own small library
 // and must not pull in core just for eight integers.
 inline FontSpec RoleFontSpec(FontRole role) noexcept
