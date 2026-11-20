@@ -183,7 +183,10 @@ public:
             if (msg == WM_CHAR) {
                 const wchar_t ch = static_cast<wchar_t>(wp);
                 if (m_searchFocus) {
-                    if (ch >= 32 && ch != L'T' && ch != L'D') {
+                    // 搜索框收下所有可打印字符：组件名里带 T/D 很常见
+                    // （Table / Tag / ToggleSwitch / DataGrid…），这里不能像
+                    // 下面的内容文本框那样把 T/D 让给主题/DPI 快捷键。
+                    if (ch >= 32) {
                         SetSearch(m_search + ch);
                     }
                     res = 0; return true;
@@ -259,8 +262,9 @@ public:
                             m_sbDragStartY = pt.y;
                             m_sbDragStartScroll = m_scroll;
                         } else if (msg == WM_LBUTTONDOWN) {
-                            // Track 点击：向点位方向翻一页。
-                            const int viewH = m_content.bottom - m_content.top;
+                            // Track 点击：向点位方向翻一页。翻页步长用可见
+                            // 视口高度（内容区高度减去固定表头）。
+                            const int viewH = RegionH() - HeaderH();
                             m_scroll += pt.y > thumb.top ? viewH : -viewH;
                         }
                         if (msg == WM_LBUTTONDOWN) {
@@ -390,13 +394,29 @@ public:
         return viewH - PageSbThumb().Height();
     }
 
+    // 固定表头（搜索框）占据内容区顶部的一段高度：滚动内容的视口从它下沿
+    // 开始，所以“内容坐标 → 客户区坐标”的换算要以内容区顶部为基准，而
+    // 可见范围要以表头下沿为基准。两者相差 HeaderH()。
+    int HeaderH() const { return m_searchBox.bottom - m_content.top; }
+    int RegionH() const { return m_content.bottom - m_content.top; }
+
+    // 把内容区矩形（内容坐标）滚进可见视口（表头下沿 ~ 状态栏上沿）。
+    void ScrollIntoView(int top, int bottom) {
+        const int viewTop    = m_scroll + HeaderH();
+        const int viewBottom = m_scroll + RegionH();
+        if (top < viewTop + 8)             m_scroll = top - HeaderH() - 8;
+        else if (bottom > viewBottom - 8)  m_scroll = bottom - RegionH() + 8;
+        ClampScroll();
+    }
+
     // 按导航 id 滚动到对应 section
     void GotoSection(int id) {
         auto itId = m_navLabelById.find(id);
         if (itId == m_navLabelById.end()) return;
         auto itTop = m_sectionTop.find(itId->second);
         if (itTop == m_sectionTop.end()) return;
-        m_scroll = itTop->second;
+        // 减去表头高度：分组标题要落在视口顶端（表头下沿），否则会被表头盖住。
+        m_scroll = itTop->second - HeaderH();
         ClampScroll();
         UpdateActiveNav();
         if (m_shell) m_shell->Invalidate();
@@ -406,7 +426,7 @@ public:
     void UpdateActiveNav() {
         int active = -1;
         for (const auto& s : m_sections) {          // m_sections 按 y 升序
-            if (s.second <= m_scroll + 8) {
+            if (s.second <= m_scroll + HeaderH() + 8) {
                 auto it = m_navIdByLabel.find(s.first);
                 if (it != m_navIdByLabel.end()) active = it->second;
             }
@@ -486,40 +506,15 @@ public:
         // 内容区整块白底，与灰底页面、侧边导航形成三层结构
         g.Fill(region, p.surface);
 
-        // 顶部搜索框：复用 TextField 的绘制，占内容区顶行。
-        {
-            Rect rc{m_searchBox.left, m_searchBox.top,
-                    m_searchBox.right, m_searchBox.bottom};
-            TextFieldState st;
-            st.base.hover = m_searchHover;
-            st.text = m_search;
-            st.placeholder = L"搜索组件（如 Button）…";
-            st.hasFocus = !m_search.empty();   // 有词时高亮描边
-            CanvasPainter painter(g);
-            PaintTextField(painter, rc, st, Pal(), Mx());
-            // 清空按钮：有词时在右侧画一个 ×。
-            if (!m_search.empty()) {
-                const int cy = (m_searchBox.top + m_searchBox.bottom) / 2;
-                (void)cy;
-                RECT clear = { m_searchBox.right - 30, m_searchBox.top,
-                               m_searchBox.right - 8, m_searchBox.bottom };
-                g.Text(clear, L"\u2715", FontRole::Body, p.textDisabled,
-                       DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
-            }
-        }
-
-        // 空结果提示：过滤没有任何命中时，在搜索框下方给出说明。
-        if (m_items.empty() && FilterActive()) {
-            RECT hint = { m_searchBox.left, m_searchBox.bottom + 24,
-                          m_searchBox.right, m_searchBox.bottom + 60 };
-            g.Text(hint, L"没有匹配“" + m_search + L"”的组件 · 按 Esc 清空",
-                   FontRole::Meta, p.textSub,
-                   DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
-        }
-
         const int scroll = m_scroll;
         const int ox = region.left;              // 内容区原点
         const int oy = region.top - scroll;      // 条目 y 原点（标题由 ShellCore 承担）
+
+        // 滚动内容的视口从搜索框下沿开始：搜索框是固定表头，滚上来的内容
+        // 从它下面被裁掉，而不是压在它上面（先前搜索框先画、内容后画，
+        // 滚动时内容会盖住搜索框）。
+        g.PushClip(RECT{region.left, m_searchBox.bottom,
+                        region.right, region.bottom});
 
         for (auto& it : m_items) {
             RECT r = it.rect;
@@ -733,6 +728,39 @@ public:
             if (r.bottom < region.top || r.top > region.bottom) continue;
             if (!touchesClip(r)) continue;
             RECT old = c->GetRect(); c->SetRect(r); c->Paint(g); c->SetRect(old);
+        }
+        g.PopClip();                 // 视口裁剪到此为止（搜索框以下）
+
+        // 顶部搜索框：复用 TextField 的绘制，占内容区顶行。它是固定
+        // 表头，必须画在滚动内容之上，否则滚动时会被内容盖住。
+        {
+            Rect rc{m_searchBox.left, m_searchBox.top,
+                    m_searchBox.right, m_searchBox.bottom};
+            TextFieldState st;
+            st.base.hover = m_searchHover;
+            st.text = m_search;
+            st.placeholder = L"搜索组件（如 Button）…";
+            st.hasFocus = !m_search.empty();   // 有词时高亮描边
+            CanvasPainter painter(g);
+            PaintTextField(painter, rc, st, Pal(), Mx());
+            // 清空按钮：有词时在右侧画一个 ×。
+            if (!m_search.empty()) {
+                const int cy = (m_searchBox.top + m_searchBox.bottom) / 2;
+                (void)cy;
+                RECT clear = { m_searchBox.right - 30, m_searchBox.top,
+                               m_searchBox.right - 8, m_searchBox.bottom };
+                g.Text(clear, L"\u2715", FontRole::Body, p.textDisabled,
+                       DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
+            }
+        }
+
+        // 空结果提示：过滤没有任何命中时，在搜索框下方给出说明。
+        if (m_items.empty() && FilterActive()) {
+            RECT hint = { m_searchBox.left, m_searchBox.bottom + 24,
+                          m_searchBox.right, m_searchBox.bottom + 60 };
+            g.Text(hint, L"没有匹配“" + m_search + L"”的组件 · 按 Esc 清空",
+                   FontRole::Meta, p.textSub,
+                   DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
         }
 
         // Overlay 层与焦点圈画在所有内容之上。Translate 让 core 继续
@@ -1052,6 +1080,8 @@ private:
             return;
         }
         // 其它控件复用既有鼠标交互：把矩形中心转成客户区坐标再转发。
+        // 先把它滚进可见视口：被固定表头盖住的控件点不到。
+        ScrollIntoView(it.rect.top, it.rect.bottom);
         POINT pt = { m_content.left + (it.rect.left + it.rect.right) / 2,
                      m_content.top - m_scroll + (it.rect.top + it.rect.bottom) / 2 };
         Click(pt, WM_LBUTTONDOWN);
@@ -1081,11 +1111,8 @@ private:
         // 焦点在弹出层内时不要滚动页面，否则弹出层会被带走。
         if (m_overlayCtl.ActiveGroup() != 0) return;
         const Rect fr = m_overlayCtl.FocusRect();
-        const int viewH = m_content.bottom - m_content.top;
-        if (fr.Empty() || viewH <= 0) return;
-        if (fr.top < m_scroll + 8) m_scroll = fr.top - 8;
-        else if (fr.bottom > m_scroll + viewH - 8) m_scroll = fr.bottom - viewH + 8;
-        ClampScroll();
+        if (fr.Empty()) return;
+        ScrollIntoView(fr.top, fr.bottom);
         UpdateActiveNav();
     }
 
@@ -1640,8 +1667,11 @@ private:
         }
 
         bool d = false;
+        // 视口上沿（搜索框下沿）以上的条目在绘制时已被裁掉：不可 hover、
+        // 不可点击，否则会出现“看不见却能点中”的幽灵条目。
+        const bool inViewport = pt.y >= m_searchBox.bottom;
         for (auto& it : m_items) {
-            bool h = PtInRect(&it.rect,p)!=FALSE;
+            bool h = inViewport && PtInRect(&it.rect,p)!=FALSE;
             d = false;                           // 本轮该控件是否有改动
             // hover for all interactive items
             if (msg==WM_MOUSEMOVE) {
