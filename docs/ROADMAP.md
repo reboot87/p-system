@@ -66,10 +66,11 @@
   （`WM_GETOBJECT` → `a11y::HandleGetObject*` → `AccessibleObject`，含
   name/role/state/value/description/default-action/命中测试，测试
   `test_accessibility` 走真实 `ObjectFromLresult` 往返）。
-- **`layout`**（`src/airui/core/src/Layout.cpp`，1 处）：widget preferred cross size 用字体行高估算，应改为真实行高测量。
 - **`gallery`**（`src/gallery/main.cpp`，1 处）：命中测试 / 布局更新回调为 no-op 占位，未接入 ShellCore。
-- **`theme`**（`src/airui/platform/win32/ThemeManager.cpp`，1 处）：主题名称硬编码 "Loaded"，未从 ThemeJson 读取。
 - **`doc`**（`docs/toolbox-plugin-plan.md`，1 处）：工具箱化规划仍待评审/完善。
+- 已还清：`layout`（`ILayoutItem::PreferredSize()` 虚函数，2026-11-21）、
+  `theme`（`LastLoadedThemeName()`，2026-11-21）、`a11y` 的 `IAccessible` 主体
+  （`WM_GETOBJECT` 管线，2026-11-21）。
 - CI（`core-unix`）已加 **TODO 计数步骤**（仅报告，不阻塞）。
 
 ---
