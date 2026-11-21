@@ -733,10 +733,35 @@ public:
             if (!touchesClip(r)) continue;
             RECT old = c->GetRect(); c->SetRect(r); c->Paint(g); c->SetRect(old);
         }
+        // Overlay 层与焦点圈属于滚动内容，必须画在视口裁剪之内：否则焦点
+        // 圈会盖到固定表头（搜索框）上，看上去像“透过搜索组件看到了按钮”。
+        // Translate 让 core 继续使用内容坐标，后端负责把 (ox, oy) 偏移加到
+        // 每一次绘制上。
+        if (m_overlayCtl.Stack().Count() > 0 || m_overlayCtl.FocusedId() >= 0) {
+            CanvasPainter painter(g);
+            painter.Translate(Point{ox, oy});
+            const OverlayItem* top = m_overlayCtl.Stack().Top();
+            if (top && top->scrim)
+                PaintOverlayScrim(painter, OverlayClientRect(), p.bg);
+            for (const auto& layer : m_overlayCtl.Stack().Layers())
+                PaintOverlayLayer(painter, layer);
+            const Rect fr = m_overlayCtl.FocusRect();
+            if (!fr.Empty()) PaintFocusRing(painter, fr, p, Mx());
+        }
         g.PopClip();                 // 视口裁剪到此为止（搜索框以下）
 
+        // 表头是不透明的固定层：先把整条表头带铺成内容底色，再画搜索框。
+        // 否则搜索框的圆角与下沿会露出下面滚动上来的内容（例如 Primary
+        // 按钮的蓝色），同样像“透过搜索组件看到了按钮”。
+        // FillRect 的下沿是排他的，所以用 bottom+1 才能盖住搜索框下边框
+        // 所在的那一行（m_searchBox.bottom）。
+        {
+            RECT header{region.left, region.top, region.right, m_searchBox.bottom + 1};
+            if (header.bottom > header.top) g.Fill(header, p.surface);
+        }
+
         // 顶部搜索框：复用 TextField 的绘制，占内容区顶行。它是固定
-        // 表头，必须画在滚动内容之上，否则滚动时会被内容盖住。
+        // 表头，必须画在滚动内容与浮层之上，否则滚动时会被内容盖住。
         {
             Rect rc{m_searchBox.left, m_searchBox.top,
                     m_searchBox.right, m_searchBox.bottom};
@@ -765,20 +790,6 @@ public:
             g.Text(hint, L"没有匹配“" + m_search + L"”的组件 · 按 Esc 清空",
                    FontRole::Meta, p.textSub,
                    DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
-        }
-
-        // Overlay 层与焦点圈画在所有内容之上。Translate 让 core 继续
-        // 使用内容坐标，后端负责把 (ox, oy) 偏移加到每一次绘制上。
-        if (m_overlayCtl.Stack().Count() > 0 || m_overlayCtl.FocusedId() >= 0) {
-            CanvasPainter painter(g);
-            painter.Translate(Point{ox, oy});
-            const OverlayItem* top = m_overlayCtl.Stack().Top();
-            if (top && top->scrim)
-                PaintOverlayScrim(painter, OverlayClientRect(), p.bg);
-            for (const auto& layer : m_overlayCtl.Stack().Layers())
-                PaintOverlayLayer(painter, layer);
-            const Rect fr = m_overlayCtl.FocusRect();
-            if (!fr.Empty()) PaintFocusRing(painter, fr, p, Mx());
         }
         g.PopClip();                 // 解除内容区裁剪（后端无关）
         if (dc && s) RestoreDC(dc,s);
@@ -1672,8 +1683,10 @@ private:
 
         bool d = false;
         // 视口上沿（搜索框下沿）以上的条目在绘制时已被裁掉：不可 hover、
-        // 不可点击，否则会出现“看不见却能点中”的幽灵条目。
-        const bool inViewport = pt.y >= m_searchBox.bottom;
+        // 不可点击，否则会出现“看不见却能点中”的幽灵条目。表头带覆盖到
+        // m_searchBox.bottom 这一行（搜索框的下边框），所以可见内容从下一
+        // 行开始。
+        const bool inViewport = pt.y > m_searchBox.bottom;
         for (auto& it : m_items) {
             bool h = inViewport && PtInRect(&it.rect,p)!=FALSE;
             d = false;                           // 本轮该控件是否有改动
