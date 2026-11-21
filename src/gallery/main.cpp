@@ -147,10 +147,19 @@ public:
                 ? std::wstring(L"layouts")
                 : exeDir.substr(0, slash + 1) + L"layouts";
         }
-        // TODO(gallery): 命中测试 / 布局更新回调当前为占位 no-op，尚未接入
-        // ShellCore；OnResized 依赖真实的布局重排流程接入后再启用。
-        m_win->OnMouseMove([](air::ui::Point){ /* 命中测试可接入 ShellCore */ });
-        m_win->OnResized([](air::ui::Rect){ /* 布局更新可接入 ShellCore */ });
+        // 命中测试 / 布局重排的真路径不在这里：
+        //   · 导航命中 + 悬停切换 → 下面钩子里的 m_shellCore.HitTestNav
+        //   · 窗口尺寸 → 重排     → Shell::WM_SIZE → LayoutAll → IPage::OnLayout
+        // 指针**离开窗口**时 WM_MOUSEMOVE 不再来，最后一行导航悬停会卡住
+        // 不消（hover 清理只在 move 上跑）；Win32Window 的 MouseLeave
+        // 事件正是补这一刀。
+        m_win->OnMouseLeave([this]() {
+            const int hovered = m_shellCore.NavHover();
+            if (hovered < 0) return;
+            const bool ok = InvalidateNavRow(hovered);
+            m_shellCore.SetNavHover(-1);
+            if (!ok && m_shell) m_shell->Invalidate();   // 行定位失败：整窗兜底
+        });
         shell.SetMessageHook([this, hwnd](HWND,UINT msg,WPARAM wp,LPARAM lp,LRESULT& res){
             if (m_win) m_win->PumpEvent(msg, wp, lp);
             if (msg == WM_KEYDOWN) {
@@ -328,29 +337,13 @@ public:
                 // 1) ShellCore 导航栏：悬停高亮 + 点击跳转
                 const int navId = m_shellCore.HitTestNav(Point{pt.x, pt.y});
                 if (msg == WM_MOUSEMOVE && navId != m_shellCore.NavHover()) {
-                    // Only the two affected rows change, so invalidate those
-                    // rows instead of the whole window.
-                    RECT dirty{}; bool any = false;
-                    auto addNav = [&](int id) {
-                        if (id < 0) return;
-                        const auto& rects = m_shellCore.NavItemRects();
-                        const auto& ids   = m_shellCore.NavItemIds();
-                        for (size_t i = 0; i < ids.size() && i < rects.size(); ++i) {
-                            if (ids[i] != id) continue;
-                            RECT r{rects[i].left, rects[i].top,
-                                   rects[i].right, rects[i].bottom};
-                            if (r.right <= r.left || r.bottom <= r.top) return;
-                            if (!any) { dirty = r; any = true; }
-                            else { RECT u; UnionRect(&u, &dirty, &r); dirty = u; }
-                            return;
-                        }
-                    };
-                    addNav(m_shellCore.NavHover());
+                    // 只失效两行（旧悬停 + 新悬停），不是整窗。
+                    const bool oldOk = InvalidateNavRow(m_shellCore.NavHover());
+                    const bool newOk = InvalidateNavRow(navId);
                     m_shellCore.SetNavHover(navId);
-                    addNav(navId);
                     if (m_shell) {
-                        if (any) m_shell->InvalidateRegion(dirty);
-                        else     m_shell->Invalidate();
+                        // 两行都定位不到（行高为 0 / 尚未布局）：整窗失效兜底。
+                        if (!oldOk && !newOk) m_shell->Invalidate();
                     }
                 }
                 if (msg == WM_LBUTTONDOWN && navId >= 0) {
@@ -439,6 +432,25 @@ public:
             if (it != m_navIdByLabel.end()) active = it->second;
         }
         if (active != m_shellCore.ActiveNav()) m_shellCore.SetActiveNav(active);
+    }
+
+    // 只失效某一行导航：hover 切换的开销是"两行"而不是整窗。
+    // 返回是否真的找到了该行的脏矩形（两行都找不到时调用方整窗失效兜底）。
+    bool InvalidateNavRow(int id) {
+        if (id < 0 || !m_shell) return false;
+        const auto& rects = m_shellCore.NavItemRects();
+        const auto& ids   = m_shellCore.NavItemIds();
+        for (size_t i = 0; i < ids.size() && i < rects.size(); ++i) {
+            if (ids[i] != id) continue;
+            const RECT r{rects[i].left, rects[i].top,
+                         rects[i].right, rects[i].bottom};
+            if (r.right > r.left && r.bottom > r.top) {
+                m_shell->InvalidateRegion(r);
+                return true;
+            }
+            return false;
+        }
+        return false;
     }
 
     void OnLayout(const RECT& client) override {

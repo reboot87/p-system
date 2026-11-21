@@ -1,6 +1,7 @@
 #include "airui/Accessibility.h"
 #include "airui/Widgets.h"
 #include <oleacc.h>
+#include <commctrl.h>
 #include <sstream>
 #include <iomanip>
 #include <fstream>
@@ -10,6 +11,7 @@
 
 #pragma comment(lib, "oleacc.lib")
 #pragma comment(lib, "oleaut32.lib")
+#pragma comment(lib, "comctl32.lib")
 
 namespace air {
 namespace ui {
@@ -482,21 +484,141 @@ bool IsHighContrastMode()
     return SystemParametersInfoW(SPI_GETHIGHCONTRAST, 0, &hc, 0) && (hc.dwFlags & HCF_HIGHCONTRASTON);
 }
 
-static std::function<void(bool)> g_hcCallback;
+// ------------------------------------------------------------
+// 系统设置变更监听：一个 1×1 顶层弹窗收 WM_SETTINGCHANGE 广播。
+//
+// 关键点：必须是**顶层**窗口（WS_POPUP，无 owner）。message-only 窗口
+// （HWND_MESSAGE 父）收不到系统广播——BroadcastSystemMessage 只投递
+// 顶层窗口。1×1 + 不激活 + 不分层，对用户不可见且不进任务栏/Z 序。
+// 每进程至多一个（首次 SetHighContrastCallback 时创建）。
+// ------------------------------------------------------------
+struct SettingWatch
+{
+    HWND hwnd = nullptr;
+
+    static SettingWatch& Instance()
+    {
+        static SettingWatch w;
+        return w;
+    }
+
+    static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
+    {
+        if (msg == WM_SETTINGCHANGE) {
+            // SPI_SETHIGHCONTRAST 投递 "HighContrast"；其余设置也带字符串。
+            // 拿到消息后读真实状态再回调，避免重复回调半初始化的监听者。
+            const bool on = IsHighContrastMode();
+            SettingWatch& self = Instance();
+            if (self.lastHc != on) {
+                self.lastHc = on;
+                for (auto& cb : self.cbs) {
+                    if (cb) cb(on);
+                }
+            }
+        }
+        return DefWindowProcW(hwnd, msg, wp, lp);
+    }
+
+    void Ensure()
+    {
+        if (hwnd) return;
+        WNDCLASSEXW wc = { sizeof(wc) };
+        wc.lpfnWndProc   = &WndProc;
+        wc.hInstance     = GetModuleHandleW(nullptr);
+        wc.lpszClassName = L"AirUI_A11y_SettingWatch";
+        if (RegisterClassExW(&wc) || GetLastError() == ERROR_CLASS_ALREADY_EXISTS) {
+            // 顶层 popup：广播可达；1x1 且不激活，用户不可见。
+            hwnd = CreateWindowExW(WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
+                                   wc.lpszClassName, L"", WS_POPUP,
+                                   0, 0, 1, 1, nullptr, nullptr,
+                                   wc.hInstance, nullptr);
+            lastHc = IsHighContrastMode();
+        }
+    }
+
+    std::vector<std::function<void(bool)>> cbs;
+    bool lastHc = false;
+};
 
 void SetHighContrastCallback(std::function<void(bool)> cb)
 {
-    g_hcCallback = std::move(cb);
-    // TODO(a11y): 监听 WM_SETTINGCHANGE 的占位——当前为定时轮询，未真正监听
-    // 系统设置变更消息；真实实现见 docs/ROADMAP.md。
+    SettingWatch& w = SettingWatch::Instance();
+    w.cbs.clear();              // 单槽语义：后设的回调替换先前的（可传空解绑）
+    if (!cb) return;
+    w.Ensure();
+    // 注册即播报当前状态（move 之前调用，之后 cb 已是空对象）。
+    cb(IsHighContrastMode());
+    w.cbs.push_back(std::move(cb));
+}
+
+// ------------------------------------------------------------
+// 键盘导航增强：子类化参与导航的窗口，补齐标准键盘交互。
+//   Tab / Shift+Tab : 同级 tabstop 间循环（GetNextDlgTabItem 的语义，
+//                     不要求父窗口是对话框）。
+//   Enter           : 聚焦的 BUTTON 触发 BM_CLICK —— 与真实点击完全
+//                     同构（走按钮自身的命令路径，含 owner-draw）。
+//   Esc             : 交回宿主（子类不越权吞掉；模态对话框语义由
+//                     宿主的 IDCANCEL 命令承担）。
+// 方向键留给控件自身语义（EDIT 光标移动 / LISTBOX 项选择），不劫持。
+// ------------------------------------------------------------
+constexpr UINT_PTR kSubKbdNav = 0xC4;   // 与 Widgets.cpp 的 0xC1..0xC3 不冲突
+
+static HWND NextTabStop(HWND from, bool forward)
+{
+    const HWND parent = GetParent(from);
+    if (!parent) return nullptr;
+    HWND h = GetNextDlgTabItem(parent, from, forward ? FALSE : TRUE);
+    if (h && h != from) return h;
+    // 原生行为到头不回绕（返回 NULL）；键盘导航需要环形循环：
+    // hCtl=null 时 fPrevious=FALSE 取第一个 tabstop、TRUE 取最后一个。
+    h = GetNextDlgTabItem(parent, nullptr, forward ? FALSE : TRUE);
+    if (!h || h == from) return nullptr;   // 只有一个 tabstop：不重复聚焦
+    return h;
+}
+
+static LRESULT CALLBACK KbdNavProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
+                                   UINT_PTR idSub, DWORD_PTR)
+{
+    switch (msg) {
+    case WM_KEYDOWN:
+        if (wp == VK_TAB) {
+            const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+            // 从失焦窗口找下一个 tabstop：若自己是 parent 的子控件，
+            // 以自己为起点；否则（父窗自身注册）从第一个子控件起。
+            HWND next = NextTabStop(hwnd, !shift);
+            if (next) {
+                SetFocus(next);
+                return 0;
+            }
+        } else if (wp == VK_RETURN) {
+            wchar_t cls[32] = {};
+            GetClassNameW(hwnd, cls, 32);
+            if (_wcsicmp(cls, L"Button") == 0) {
+                SendMessageW(hwnd, BM_CLICK, 0, 0);
+                return 0;
+            }
+        }
+        break;
+    case WM_GETOBJECT:
+        // 与控件子类相同的 a11y 转发语义（标注过才接管）。
+        if (LRESULT acc = HandleGetObjectIfAnnotated(hwnd, wp, lp))
+            return acc;
+        break;
+    case WM_NCDESTROY:
+        ForgetWindow(hwnd);
+        RemoveWindowSubclass(hwnd, &KbdNavProc, idSub);
+        break;
+    }
+    return DefSubclassProc(hwnd, msg, wp, lp);
 }
 
 void EnableKeyboardNavigation(HWND hwnd)
 {
-    // TODO(a11y): 子类化处理 Tab/Arrow/Enter/Esc 的占位——当前只设置
-    // WS_TABSTOP，未实现真正的键盘导航；真实实现见 docs/ROADMAP.md。
-    LONG style = GetWindowLong(hwnd, GWL_STYLE);
-    SetWindowLong(hwnd, GWL_STYLE, style | WS_TABSTOP);
+    if (!hwnd) return;
+    // WS_TABSTOP 保证 Tab 序里有它（旧实现保留的行为）。
+    LONG style = GetWindowLongW(hwnd, GWL_STYLE);
+    SetWindowLongW(hwnd, GWL_STYLE, style | WS_TABSTOP);
+    SetWindowSubclass(hwnd, &KbdNavProc, kSubKbdNav, 0);
 }
 
 } // namespace a11y
