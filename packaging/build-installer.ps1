@@ -91,6 +91,24 @@ function Test-SkiaAbiV2([string]$dllPath) {
     return $false
 }
 
+# ---- Version injection (single source of truth) ----
+# Parse `project(AireRecord VERSION x.y.z)` from CMakeLists.txt -- the same
+# declaration that configure_file() turns into AIRUI_VERSION (cmake/
+# Version.h.in). Passing /DAPP_VERSION keeps the installer version, product
+# name and the uninstall-registry DisplayVersion in lockstep with the app's
+# own version string; the .nsi only carries a fallback define for direct
+# makensis invocations.
+$cmakeLists = Join-Path (Get-Location) "CMakeLists.txt"
+$appVersion = ""
+foreach ($line in Get-Content $cmakeLists -Encoding UTF8) {
+    if ($line -match '^\s*project\s*\(\s*AireRecord\s+VERSION\s+([0-9]+\.[0-9]+(\.[0-9]+)?)') {
+        $appVersion = $Matches[1]
+        break
+    }
+}
+if (-not $appVersion) { throw "Could not parse project(AireRecord VERSION ...) from CMakeLists.txt" }
+Write-Host "Installer version: $appVersion (from CMakeLists.txt)"
+
 $skiaDll = Join-Path (Get-Location) "build\ci-all\airui-skia-windows-x64\airui-skia.dll"
 $shipSkia = Test-SkiaAbiV2 $skiaDll
 if ($shipSkia) {
@@ -105,7 +123,7 @@ if ($shipSkia) {
 # of its working directory / ${__FILEDIR__} quirks.
 $repoRoot = (Get-Location).Path
 Write-Host "makensis: $Makensis (root=$repoRoot)"
-$args = @("/DROOT=$repoRoot")
+$args = @("/DROOT=$repoRoot", "/DAPP_VERSION=$appVersion")
 if ($shipSkia) { $args += "/DSHIP_SKIA=1" }
 $args += "packaging\airecord.nsi"
 & $Makensis $args

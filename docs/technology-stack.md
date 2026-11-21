@@ -101,9 +101,14 @@
 - `build-installer.ps1`：自动探测 makensis、解析 Skia bundle 导出表，**仅当 ABI v2
   （`airui_skia_describe`）才 `/DSHIP_SKIA=1`**；安装先停服务杀进程（`StopAireRecord` 宏）；
   注册 `AireRecord` SCM 服务并**修复其二进制路径**；卸载停服务删文件。
+- **版本注入**：`build-installer.ps1` 从 `CMakeLists.txt` 的
+  `project(AireRecord VERSION x.y.z)`（单一版本源，与 `AIRUI_VERSION` 同源）解析版本，
+  以 `/DAPP_VERSION=` 传给 makensis；`.nsi` 里的 `!define APP_VERSION` 仅为直接调用
+  makensis 时的兜底。
 
 ### CI（GitHub Actions）
-- 作业：`airui-core`（ubuntu/macos）、`full build`（windows x64/x86）、`skia-windows`（非阻塞）。
+- 作业：`airui-core`（ubuntu/macos）、`full build`（windows x64/x86）、`asan`（MSVC
+  AddressSanitizer，非阻塞，`continue-on-error`）、`skia-windows`（非阻塞）。
 - 门禁：`check-core-clean`（core 无平台标识符）、`check-skia-syntax`、`test_paint_recorder` 金样
   （平台无关结构断言）、`clang-format` 检查、clang-tidy 报告（非阻塞）。
 

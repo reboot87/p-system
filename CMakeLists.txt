@@ -433,6 +433,24 @@ set_target_properties(test_locale PROPERTIES
 )
 airui_console_target(test_locale)
 
+# Accessibility test: WM_GETOBJECT -> ObjectFromLresult -> IAccessible
+# round-trip through the real a11y property table (see a11y::HandleGetObject).
+add_executable(test_accessibility 
+    tests/test_accessibility.cpp
+)
+target_include_directories(test_accessibility PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/generated)
+target_link_libraries(test_accessibility 
+    PRIVATE airui-win32
+    user32 gdi32 ole32 oleaut32 oleacc uuid
+)
+set_target_properties(test_accessibility PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
+)
+airui_console_target(test_accessibility)
+
 # Component gallery renderer
 add_executable(test_component_gallery 
     tests/test_component_gallery.cpp
@@ -901,7 +919,7 @@ endif()
 # test_ui is an end-to-end script that drives a *running* airecord.exe
 # (window lookup + IPC), so it is not registered as a ctest case.
 enable_testing()
-foreach(_t test_core_layout test_declarative_layout test_declarative_json test_declarative_interact test_declarative_render test_declarative_gallery test_controls_core test_hot_state test_shell_hal test_paint_recorder test_paint_backend test_paint_runtime test_paint_frame test_paint_compare test_skia_types test_skia_backend test_skia_plugin test_data_controls test_overlay_core test_framework_extra test_advanced_controls test_enterprise_controls test_studio_controls test_control_classes test_theme_manager test_draw_calls test_locale test_component_gallery test_ipc_pipe)
+foreach(_t test_core_layout test_declarative_layout test_declarative_json test_declarative_interact test_declarative_render test_declarative_gallery test_controls_core test_hot_state test_shell_hal test_paint_recorder test_paint_backend test_paint_runtime test_paint_frame test_paint_compare test_skia_types test_skia_backend test_skia_plugin test_data_controls test_overlay_core test_framework_extra test_advanced_controls test_enterprise_controls test_studio_controls test_control_classes test_theme_manager test_draw_calls test_locale test_accessibility test_component_gallery test_ipc_pipe)
     # Several of these targets are platform-conditional (WIN32-only or
     # AIRUI_WITH_SKIA / Skia-plugin builds), so they legitimately do not exist
     # on every platform. Register the ones that ARE present; do not FATAL on a

@@ -5,7 +5,14 @@
 !include "x64.nsh"
 
 !define APP_NAME    "AireRecord"
-!define APP_VERSION "0.9.0"
+; APP_VERSION is injected by packaging\build-installer.ps1, parsed from the
+; single source of truth: project(AireRecord VERSION x.y.z) at the top of
+; CMakeLists.txt (the same declaration that becomes AIRUI_VERSION in
+; cmake/Version.h.in). The fallback below only serves a direct
+; `makensis packaging\airecord.nsi` invocation without /DAPP_VERSION.
+!ifndef APP_VERSION
+  !define APP_VERSION "0.9.0"
+!endif
 !define APP_PUBLISHER "AireRecord"
 !define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\AireRecord"
 

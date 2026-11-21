@@ -76,6 +76,23 @@ void SetAccessibleState(HWND hwnd, State state, bool on);
 void SetAccessibleValue(HWND hwnd, const std::wstring& value, 
                         const std::wstring& min = L"", const std::wstring& max = L"");
 
+// ------------------------------------------------------------
+// WM_GETOBJECT 管线（宿主 WndProc / 子类过程转发）：
+//   HandleGetObject            总是返回 AirUI 的 IAccessible 对象；
+//   HandleGetObjectIfAnnotated 仅当该窗口被 SetAccessible* 标注过才
+//                              接管，否则返回 0（未处理），让 EDIT /
+//                              LISTBOX 等标准控件继续使用原生 provider
+//                              （其 UIA Text/Value/Selection 支持比薄
+//                              包装更完整）。
+//   返回 0 表示未处理，调用方应继续 DefWindowProc / DefSubclassProc。
+// ------------------------------------------------------------
+LRESULT HandleGetObject(HWND hwnd, WPARAM wParam, LPARAM lParam);
+LRESULT HandleGetObjectIfAnnotated(HWND hwnd, WPARAM wParam, LPARAM lParam);
+
+// 窗口销毁时清理该窗口的无障碍属性表（WM_NCDESTROY 时调用一次即可；
+// 幂等，在多个销毁路径重复调用是安全的）。
+void ForgetWindow(HWND hwnd);
+
 // 批量为标准控件启用无障碍
 void EnableForWidget(Widget* w, const std::wstring& name = L"", Role role = ROLE_UNKNOWN);
 

@@ -58,10 +58,14 @@
 ### E. 代码内 TODO 检索（P3-5）
 
 把散落在注释里的未完成工作统一成 `TODO(<领域>): ...` 标记，可按域名检索：
-`git grep 'TODO('` 可一次列出全部已知欠账（项目自产约 16 处，分布在
+`git grep 'TODO('` 可一次列出全部已知欠账（项目自产约 11 处，分布在
 `src/` 与 `docs/`，含本文自引计数；另 `third_party/sqlite/sqlite3.c` 有 7 处上游自带标记，非本项目债务）。
 
-- **`a11y`**（`src/airui/platform/win32/Accessibility.cpp`，7 处）：真实 `IAccessible` / UIA `LiveSetting` / `WM_SETTINGCHANGE` 监听 / 键盘导航——目前多为占位/简化实现。
+- **`a11y`**（`src/airui/platform/win32/Accessibility.cpp`，2 处）：`WM_SETTINGCHANGE`
+  监听（高对比度回调当前为轮询）与键盘导航子类化——`IAccessible` 已是真实实现
+  （`WM_GETOBJECT` → `a11y::HandleGetObject*` → `AccessibleObject`，含
+  name/role/state/value/description/default-action/命中测试，测试
+  `test_accessibility` 走真实 `ObjectFromLresult` 往返）。
 - **`layout`**（`src/airui/core/src/Layout.cpp`，1 处）：widget preferred cross size 用字体行高估算，应改为真实行高测量。
 - **`gallery`**（`src/gallery/main.cpp`，1 处）：命中测试 / 布局更新回调为 no-op 占位，未接入 ShellCore。
 - **`theme`**（`src/airui/platform/win32/ThemeManager.cpp`，1 处）：主题名称硬编码 "Loaded"，未从 ThemeJson 读取。

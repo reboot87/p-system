@@ -1,6 +1,7 @@
 #include "airui/Widgets.h"
 #include "airui/Shell.h"
 #include "airui/Gfx.h"
+#include "airui/Accessibility.h"
 #include <commctrl.h>
 #include <cstdarg>
 #include <cstdio>
@@ -155,7 +156,14 @@ LRESULT CALLBACK TextBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
             if (self->HandleKey((UINT)wParam, ctrl, shift)) return 0;
         }
         break;
+    case WM_GETOBJECT:
+        // 被 SetAccessible* 标注过才接管；否则 EDIT 继续用系统原生
+        // provider（其 Text/Value/Selection 支持比薄包装更完整）。
+        if (LRESULT acc = a11y::HandleGetObjectIfAnnotated(hwnd, wParam, lParam))
+            return acc;
+        break;
     case WM_NCDESTROY:
+        a11y::ForgetWindow(hwnd);   // 清无障碍属性表（幂等）
         RemoveWindowSubclass(hwnd, &TextBoxProc, idSub);
         break;
     }
@@ -453,7 +461,14 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
         self->onContextMenu(pt, item);
         return 0;
     }
+    case WM_GETOBJECT:
+        // 被 SetAccessible* 标注过才接管；否则 LISTBOX 继续用系统原生
+        // provider（Item selection / focus 支持比薄包装更完整）。
+        if (LRESULT acc = a11y::HandleGetObjectIfAnnotated(hwnd, wParam, lParam))
+            return acc;
+        break;
     case WM_NCDESTROY:
+        a11y::ForgetWindow(hwnd);   // 清无障碍属性表（幂等）
         RemoveWindowSubclass(hwnd, &ListBoxProc, idSub);
         break;
     }
@@ -600,6 +615,12 @@ LRESULT CALLBACK CustomProc(HWND hwnd, UINT msg, WPARAM wParam,
     auto* self = (Custom*)ref;
 
     switch (msg) {
+    case WM_GETOBJECT:
+        // 被 SetAccessible* 标注过才接管；STATIC 无原生 a11y provider，
+        // 未标注时落回 DefWindowProc 的系统默认对象。
+        if (LRESULT acc = a11y::HandleGetObjectIfAnnotated(hwnd, wParam, lParam))
+            return acc;
+        break;
     case WM_NCHITTEST:
         if (self) {
             LRESULT r = DefSubclassProc(hwnd, msg, wParam, lParam);
@@ -622,6 +643,7 @@ LRESULT CALLBACK CustomProc(HWND hwnd, UINT msg, WPARAM wParam,
         return 0;
     }
     case WM_NCDESTROY:
+        a11y::ForgetWindow(hwnd);   // 清无障碍属性表（幂等）
         RemoveWindowSubclass(hwnd, &CustomProc, idSub);
         break;
     }

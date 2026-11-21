@@ -354,6 +354,66 @@ jobs:
           retention-days: 14
 
   # ---------------------------------------------------------------
+  # B2. AddressSanitizer gate (Windows / MSVC, NON-BLOCKING).
+  #
+  # Builds the platform-free test suite plus the Win32-linked tests with
+  # /fsanitize=address and runs them under the ASan runtime, so heap
+  # overflows / use-after-free / double-frees in core + declarative +
+  # win32 code paths surface in CI instead of in a crash report.
+  #
+  # continue-on-error mirrors skia-windows: the first runs may surface
+  # pre-existing findings; they get triaged without turning CI red.
+  #
+  # MSVC notes:
+  #   * /fsanitize=address covers compile AND link in one flag on VS2022;
+  #     it is also passed to the linker flags explicitly so the ASan
+  #     runtime is linked regardless of the CMake version's inference.
+  #   * MSVC ASan is incompatible with /INCREMENTAL linking. CMake marks
+  #     Debug incremental, so this job uses RelWithDebInfo (/INCREMENTAL:NO
+  #     by default; /O2 /Ob1 keeps frames and symbolization honest).
+  #   * Plain `ctest` needs the ASan runtime DLLs on PATH or every test
+  #     dies with a loader error before main(); the run step locates
+  #     clang_rt.asan_dynamic-x86_64.dll in the VC tools bin dir.
+  # ---------------------------------------------------------------
+  asan:
+    name: ASan (windows / VS2022, non-blocking)
+    runs-on: windows-2022
+    continue-on-error: true
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (CMake + VS2022 + ASan)
+        run: cmake -S . -B build-asan -G "Visual Studio 17 2022" -A x64 -DCMAKE_CXX_FLAGS=/fsanitize=address -DCMAKE_C_FLAGS=/fsanitize=address -DCMAKE_EXE_LINKER_FLAGS=/fsanitize=address
+
+      # Instrumented build of the high-value test targets only: ASan slows
+      # compile + link, and the full ALL build in this config would roughly
+      # double the job time for little extra coverage.
+      - name: Build test targets (ASan)
+        run: cmake --build build-asan --config RelWithDebInfo --target test_core_layout test_declarative_layout test_declarative_json test_declarative_interact test_declarative_render test_declarative_gallery test_framework_extra test_theme_manager test_locale test_shell_hal test_paint_recorder
+
+      - name: Run ctest under ASan
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vspath = & $vswhere -latest -products * -property installationPath
+          if (-not $vspath) { throw "VS installation not found via vswhere" }
+          $asanDir = Get-ChildItem "$vspath\VC\Tools\MSVC" -Directory |
+            Sort-Object Name -Descending |
+            ForEach-Object { Join-Path $_.FullName "bin\Hostx64\x64" } |
+            Where-Object { Test-Path (Join-Path $_ "clang_rt.asan_dynamic-x86_64.dll") } |
+            Select-Object -First 1
+          if ($asanDir) {
+            Write-Host "ASan runtime dir on PATH: $asanDir"
+            $env:PATH = "$asanDir;$env:PATH"
+          } else {
+            Write-Host "WARNING: clang_rt.asan_dynamic-x86_64.dll not found; tests may fail to load"
+          }
+          ctest --test-dir build-asan -C RelWithDebInfo --output-on-failure `
+            -R "^(test_core_layout|test_declarative_layout|test_declarative_json|test_declarative_interact|test_declarative_render|test_declarative_gallery|test_framework_extra|test_theme_manager|test_locale|test_shell_hal|test_paint_recorder)$"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+  # ---------------------------------------------------------------
   # B. Real Skia SDK verification — automatic on every push / PR.
   #
   # NON-BLOCKING: this job has `continue-on-error: true`. Third-party SDK

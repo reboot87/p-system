@@ -6,6 +6,7 @@
 #include "airui/Gfx.h"
 #include "airui/Responsive.h"
 #include "airui/RaII.h"
+#include "airui/Accessibility.h"
 #include <commctrl.h>
 #include <algorithm>
 #include <share.h>
@@ -1189,6 +1190,17 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     switch (msg) {
     case WM_CREATE:
         return 0;
+
+    case WM_GETOBJECT:
+        // MSAA/UIA 客户端（Narrator、AccExplorer、UIA 桥）通过
+        // WM_GETOBJECT 取 IAccessible。有界 shell 主窗直接给出 AirUI
+        // provider；无返回值时落到 DefWindowProc 的系统默认对象。
+        {
+            const LRESULT acc = a11y::HandleGetObjectIfAnnotated(
+                hwnd, wParam, lParam);
+            if (acc) return acc;
+        }
+        break;
 
     case WM_ERASEBKGND: {
         HDC dc = (HDC)wParam;
