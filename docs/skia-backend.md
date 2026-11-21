@@ -204,12 +204,14 @@ GDI 后端画字走 `Fonts`（`src/airui/platform/win32/Fonts.cpp`），来源�
 `CreateFontW(-13, ...)` 的 13 是字符格高（YaHei UI 下 ≈ 1.36 em）；把 13 直接喂给 `setSize()`，字会大 33% —— 标题压住副标题、导航项全部被省略号截断。
 用 `SkFontMetrics` 的 typo 度量反解也不行：typo 之和只有 ≈ 0.94 em，反解出来仍然放大 1.4 倍。
 
-**（2）做法：用 GDI 实测宽度反解 em（标定法）。**
-`MeasureRole()` 在与后端完全相同的 `LOGFONT`（同字族、同 cell、同字重、同 `CLEARTYPE_QUALITY`）下，**就在目标字号上**量参考串 `"AireRecord 0123456789"` 的 `GetTextExtentPoint32W` 宽度，再解出让 Skia 宽度相等的 em：
+**（2）做法：用 GDI 实测宽度反解 em（标定法），且**联合**多个参考串。**
+`MeasureRole()` 在与后端完全相同的 `LOGFONT`（同字族、同 cell、同字重、同 `CLEARTYPE_QUALITY`）下，**就在目标字号上**量三个参考串（中文 `"工作台总览"`、拉丁 `"AireRecord"`、数字 `"0123456789"`）的 `GetTextExtentPoint32W` 宽度，各自解出让 Skia 宽度相等的 em，再在这些锚点张成的 0.25px 网格上取**三串相对误差之和最小**的那个 em：
 
 ```
-em = 1000 * gdiWidth / skiaWidthAt1000
+em* = argmin_em Σ_runs |skiaW(em, run) - gdiW(run)| / gdiW(run)
 ```
+
+为什么不能只信中文串：full hinting 下每个 advance 都是字号的**台阶函数**，中文串的 1:1 关系只在 unhinted 极限成立。实测 **Display（cell 22 / 字重 600）** 上中文锚解出 23，而 GDI 的 `"Ag"` 只在 em=22 才复现——单锚点取 23 时 Skia 文字墨量 +20%、盒子宽 1px、上移 1px（`test_font_lab` 实测）。联合最小取到 22 后一致；当三锚本来就对齐（如 Body=14）时联合退化成单锚,不改变已有结果。
 
 不要"在 200px 处量完再按比例缩回目标字号"：GDI 把请求的字符高度**向上取整到字体单元格**（要 13、实际画 17），这个台阶在不同字号上不线性，缩回来的字号 GDI 根本不会画。
 
@@ -218,7 +220,7 @@ em = 1000 * gdiWidth / skiaWidthAt1000
 现在的做法：**请求的字号直测、不缩放**，并把 `RoleMetrics::cell` 取成**实际** `tmHeight`——`DrawText` 的 `DT_VCENTER` 与行高用的都是它，用请求值会让多行行距偏紧。
 
 **（4）中文不需要单独标定。**
-既然 UI 字族本身就是 YaHei UI（不是 Segoe UI + 字体链接），拉丁和中文共用一套 em，汉字步进恒为 1 em，`emCjk = em`。
+既然 UI 字族本身就是 YaHei UI（不是 Segoe UI + 字体链接），拉丁和中文共用一套 em（（2）的联合 em），汉字步进恒为 1 em，`emCjk = em`——中文串只是联合标定里的**一个锚点**，不是独立的一套字号。
 （曾经为"Segoe UI + 链接"写过单独标定：链接只在请求字号附近生效，在 200px 处量中文会解出 3.92 em 这种荒谬值；而且 GDI 对中文串的 `GetTextExtent` 与逐字步进不完全线性。换成同一字族后这些问题一并消失。）
 
 **（5）基线按 GDI 的 cell 内偏移算。**

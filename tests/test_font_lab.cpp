@@ -419,6 +419,14 @@ int main(int argc, char** argv)
         PaintTarget target{ surface.dc, Rect{ 0, 0, kW, kH } };
         std::unique_ptr<IPainter> p = reg.Begin("skia", target);
         if (!p) return {};
+        // The Skia frame owns a SEPARATE opaque DIB that starts cleared to
+        // black, and Present() BitBlts it over this surface -- so a
+        // background nobody painted arrives as black-on-black and every
+        // sample measured as "320x40 full ink". The frame's contract is the
+        // shell's: the caller fills the client area first (Shell::Paint ->
+        // gfx::Fill), THEN draws text. Fill white here for parity with the
+        // GDI columns, whose DC already starts white from surface.Clear().
+        p->FillRect(Rect{ 0, 0, kW, kH }, kBg);
         p->Text(Rect{ 2, 0, kW - 2, kH }, s.text, wcslen(s.text), s.role, kInk, dt::SingleLine);
         p.reset();
         return surface.Capture();

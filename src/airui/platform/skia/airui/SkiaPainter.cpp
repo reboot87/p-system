@@ -158,9 +158,10 @@ static void CopyFaceName(TCHAR (&dst)[32], const wchar_t* src)
 //
 // GDI and Skia do not share a font-size unit:
 //   * LOGFONT.lfHeight is a *cell* height derived from the font's win
-//     metrics, so a 13 px cell is roughly a 9.8 px em for Segoe UI;
+//     metrics, so a 13 px cell is roughly a 9.8 px em for the UI family
+//     (Microsoft YaHei UI);
 //   * SkFont::setSize takes an *em* size, and SkFontMetrics reports the
-//     typographic (OS/2 typo) metrics, which for Segoe UI add up to
+//     typographic (OS/2 typo) metrics, which for that family add up to
 //     0.9375 em.
 // Converting one to the other from Skia's side alone therefore
 // overshoots: measured on screen, "AireRecord" came out 101 px wide in
@@ -211,8 +212,8 @@ constexpr wchar_t kRefLinked = 0x25BE;
 
 struct SharedFaces
 {
-    sk_sp<SkTypeface> ui;        // Segoe UI           (UI text)
-    sk_sp<SkTypeface> uiBold;    // Segoe UI Semibold  (headings, buttons)
+    sk_sp<SkTypeface> ui;        // Microsoft YaHei UI (UI text, 400)
+    sk_sp<SkTypeface> uiBold;    // Microsoft YaHei UI (headings, buttons, 600)
     sk_sp<SkTypeface> cjk;       // Microsoft YaHei UI (what GDI font-links to)
     sk_sp<SkTypeface> cjkBold;   // Microsoft YaHei UI Semibold
     sk_sp<SkTypeface> icon;      // Segoe MDL2 Assets
@@ -462,19 +463,100 @@ RoleMetrics MeasureRole(HDC dc, const SharedFaces& f, FontRole role)
     if (isIcon) {
         solve(&kRefIcon, 1, (int)sizeof(wchar_t), face, rm.em);
     } else {
-        solve(kRefCjk, kRefCjkCount, kRefCjkCount * (int)sizeof(wchar_t), face, rm.em);
-        // A face without hanzi (or a DC that refused the run): fall back
-        // to letters, then digits.
-        if (rm.em <= 1.f)
-            solve(kRefText, (int)(sizeof(kRefText) / sizeof(wchar_t)) - 1,
-                  (int)(sizeof(kRefText) - sizeof(wchar_t)), face, rm.em);
-        if (rm.em <= 1.f)
-            solve(kRefDigits, (int)(sizeof(kRefDigits) / sizeof(wchar_t)) - 1,
-                  (int)(sizeof(kRefDigits) - sizeof(wchar_t)), face, rm.em);
+        // Solve EACH reference run on its own, then pick the size that
+        // minimises the summed relative error over ALL of them.
+        //
+        // The CJK run is only a 1:1 em anchor in the unhinted limit:
+        // with full hinting every advance is a step function of the size,
+        // and the hanzi anchor and the Latin anchor can land on different
+        // integers (measured: Display role -- the hanzi run solves 23
+        // while GDI's "Ag" run is only reproduced at 22, which came out as
+        // +20% ink and a 1px wider box). Trusting one run is the wrong
+        // estimator; the joint minimum reproduces the runs that actually
+        // get drawn, and degenerates to the common case (every anchor
+        // agrees, e.g. Body=14) when hinting lines up.
+        constexpr int kLatChars = (int)(sizeof(kRefText) / sizeof(wchar_t)) - 1;
+        constexpr int kLatBytes = (int)(sizeof(kRefText) - sizeof(wchar_t));
+        constexpr int kDigChars = (int)(sizeof(kRefDigits) / sizeof(wchar_t)) - 1;
+        constexpr int kDigBytes = (int)(sizeof(kRefDigits) - sizeof(wchar_t));
+        constexpr int kCjkBytes = kRefCjkCount * (int)sizeof(wchar_t);
 
-        // Chinese needs no separate size: the UI family *is* Microsoft
-        // YaHei UI, so GDI never font-links here and Latin and CJK share
-        // one em (a hanzi advances exactly 1 em in that face).
+        SkScalar emCjk = 0.f, emLat = 0.f, emDig = 0.f;
+        solve(kRefCjk,    kRefCjkCount, kCjkBytes, face, emCjk);
+        solve(kRefText,   kLatChars,    kLatBytes, face, emLat);
+        solve(kRefDigits, kDigChars,    kDigBytes, face, emDig);
+
+        SIZE gdiCjk{}, gdiLat{}, gdiDig{};
+        GetTextExtentPoint32W(dc, kRefCjk,    kRefCjkCount, &gdiCjk);
+        GetTextExtentPoint32W(dc, kRefText,   kLatChars,    &gdiLat);
+        GetTextExtentPoint32W(dc, kRefDigits, kDigChars,    &gdiDig);
+
+        // Relative error of one run at a candidate em, or -1 when either
+        // side refuses to measure (the run then contributes nothing).
+        auto runErr = [&](SkScalar em, const wchar_t* text, int chars,
+                          int bytes, int gdiW) -> SkScalar {
+            if (gdiW <= 0 || em < 1.f || chars <= 0) return -1.f;
+            SkFont probe;
+            probe.setTypeface(face);
+            probe.setSize(em);
+            probe.setHinting(SkFontHinting::kFull);
+            probe.setSubpixel(false);
+            probe.setEdging(SkFont::Edging::kSubpixelAntiAlias);
+            const float w =
+                probe.measureText(text, (size_t)bytes, SkTextEncoding::kUTF16);
+            if (w <= 1.f) return -1.f;
+            return std::fabs(w - (float)gdiW) / (float)gdiW;
+        };
+        auto jointErr = [&](SkScalar em) -> SkScalar {
+            SkScalar sum = 0.f, n = 0.f, e = -1.f;
+            if ((e = runErr(em, kRefCjk, kRefCjkCount, kCjkBytes,
+                            gdiCjk.cx)) >= 0) { sum += e; ++n; }
+            if ((e = runErr(em, kRefText, kLatChars, kLatBytes,
+                            gdiLat.cx)) >= 0) { sum += e; ++n; }
+            if ((e = runErr(em, kRefDigits, kDigChars, kDigBytes,
+                            gdiDig.cx)) >= 0) { sum += e; ++n; }
+            return n > 0.f ? sum / n : -1.f;
+        };
+
+        // Candidates: every anchor, plus a 0.25px grid spanning them (the
+        // error is a step function of the hinted advances, so the joint
+        // minimum may fall strictly between anchors).
+        SkScalar lo = 1e9f, hi = -1e9f;
+        for (SkScalar v : { emCjk, emLat, emDig }) {
+            if (v < 1.f) continue;
+            lo = (std::min)(lo, v);
+            hi = (std::max)(hi, v);
+        }
+        SkScalar best = 0.f;
+        if (hi >= 1.f) {
+            lo = (std::max)(1.f, lo - 1.f);
+            hi += 1.f;
+            SkScalar bestErr = -1.f;
+            // Every anchor is an explicit candidate: the 0.25 grid is
+            // aligned to (min - 1), so a lone anchor (emLat) need not fall
+            // on it (emCjk=23.4, emLat=23.0 -> 0.6 off-grid) and would be
+            // skipped if only the grid were walked.
+            auto consider = [&](SkScalar cand) {
+                if (cand < 1.f) return;
+                const SkScalar err = jointErr(cand);
+                if (bestErr < 0.f || (err >= 0.f && err < bestErr)) {
+                    bestErr = err;
+                    best = cand;
+                }
+            };
+            consider(emCjk);
+            consider(emLat);
+            consider(emDig);
+            for (SkScalar cand = lo; cand <= hi + 1e-4f; cand += 0.25f)
+                consider(cand);
+            if (bestErr < 0.f) best = 0.f;   // no run measured at all
+        }
+        rm.em = best;
+
+        // Latin and CJK share the one face (the UI family *is* Microsoft
+        // YaHei UI: GDI never font-links here) and now share the one
+        // jointly fitted size -- a hanzi advances exactly 1 em in that
+        // face, so no per-script em is needed.
         rm.emCjk = rm.em;
 
         // Symbols need their own size: the UI family has no U+2713 and
@@ -676,9 +758,9 @@ struct SkiaPainter::Impl
     // Width of "..." per role; -1 = not measured yet (see DotsWidth).
     float     dotsW[static_cast<int>(FontRole::Count)] = {};
 
-    // Faces and metrics per role: Segoe UI for UI text, Segoe MDL2
-    // Assets for icons -- exactly what the GDI backend selects -- plus a
-    // CJK face standing in for GDI's font linking.
+    // Faces and metrics per role: Microsoft YaHei UI for UI text (and for
+    // CJK -- the UI family covers hanzi, so GDI never font-links here),
+    // Segoe MDL2 Assets for icons -- exactly what the GDI backend selects.
     sk_sp<SkTypeface>      roleFace[static_cast<int>(FontRole::Count)];
     RoleMetrics            roleM[static_cast<int>(FontRole::Count)] = {};
     sk_sp<SkTypeface>      roleCjk[static_cast<int>(FontRole::Count)];
