@@ -456,6 +456,36 @@ bool NodeTypeFromName(const std::string& raw, NodeType& out)
     return false;
 }
 
+// Control 节点的 "widget" 字段；也接受把控件名直接写在 "type" 里
+// （如 {"type": "switch"}），让 JSON 更短。
+bool WidgetFromName(const std::string& raw, WidgetKind& out)
+{
+    const std::string s = LowerAscii(raw);
+    if (s == "button" || s == "btn")            { out = WidgetKind::Button;       return true; }
+    if (s == "checkbox" || s == "check")        { out = WidgetKind::Checkbox;     return true; }
+    if (s == "radio")                           { out = WidgetKind::Radio;        return true; }
+    if (s == "switch" || s == "toggle" ||
+        s == "toggleswitch")                    { out = WidgetKind::Switch;       return true; }
+    if (s == "slider")                          { out = WidgetKind::Slider;       return true; }
+    if (s == "progressbar" || s == "progress_bar" || s == "progress-bar") {
+        out = WidgetKind::ProgressBar;          return true;
+    }
+    if (s == "progressring" || s == "progress_ring" || s == "progress-ring") {
+        out = WidgetKind::ProgressRing;         return true;
+    }
+    if (s == "textfield" || s == "text_field" || s == "input" || s == "textbox") {
+        out = WidgetKind::TextField;            return true;
+    }
+    if (s == "tag" || s == "chip")              { out = WidgetKind::Tag;          return true; }
+    if (s == "stepper")                         { out = WidgetKind::Stepper;      return true; }
+    if (s == "rating" || s == "stars")          { out = WidgetKind::Rating;       return true; }
+    if (s == "segmented" || s == "segment")     { out = WidgetKind::Segmented;    return true; }
+    if (s == "combobox" || s == "combo" || s == "select") { out = WidgetKind::ComboBox; return true; }
+    if (s == "avatar")                          { out = WidgetKind::Avatar;       return true; }
+    if (s == "badge")                           { out = WidgetKind::Badge;        return true; }
+    return false;
+}
+
 bool AlignFromName(const std::string& raw, LayoutAlign& out)
 {
     const std::string s = LowerAscii(raw);
@@ -680,12 +710,17 @@ std::unique_ptr<LayoutNode> BuildNode(const JValue& v, InflateError& err, int de
     }
 
     NodeType type = NodeType::Column;
+    WidgetKind widget = WidgetKind::Button;
     if (const JValue* t = v.Get("type")) {
         if (t->kind != JValue::Kind::String) {
             return FailNode(*t, "'type' must be a string", err);
         }
         if (!NodeTypeFromName(t->str, type)) {
-            return FailNode(*t, "unknown node type '" + t->str + "'", err);
+            // 控件名直接写在 type 里（{"type":"switch"}）也认。
+            if (!WidgetFromName(t->str, widget)) {
+                return FailNode(*t, "unknown node type '" + t->str + "'", err);
+            }
+            type = NodeType::Control;
         }
     }
 
@@ -716,6 +751,56 @@ std::unique_ptr<LayoutNode> BuildNode(const JValue& v, InflateError& err, int de
     if (!OptString(v, "onClick", node->onClick, err)) return nullptr;
     if (!OptBool(v, "clip", node->clip, err)) return nullptr;
     if (!IntrinsicField(v, node->intrinsic, err)) return nullptr;
+
+    // ---- Control 的控件语义字段 ----
+    // type 速记（{"type":"switch"}）已经在上面解析进 widget；显式
+    // "widget" 字段优先级更高，两者共存时以 widget 字段为准。
+    node->widget = widget;
+    if (const JValue* w = v.Get("widget")) {
+        if (w->kind != JValue::Kind::String) {
+            return FailNode(*w, "'widget' must be a string", err);
+        }
+        if (!WidgetFromName(w->str, node->widget)) {
+            return FailNode(*w, "unknown widget '" + w->str + "'", err);
+        }
+    }
+    if (!OptBool(v, "checked", node->checked, err)) return nullptr;
+    if (!OptBool(v, "disabled", node->disabled, err)) return nullptr;
+    if (!OptBool(v, "open", node->open, err)) return nullptr;
+    if (!OptInt(v, "value", node->value, err)) return nullptr;
+    if (!OptInt(v, "min", node->sliderMin, err)) return nullptr;
+    if (!OptInt(v, "max", node->sliderMax, err)) return nullptr;
+    if (!OptInt(v, "rating", node->rating, err)) return nullptr;
+    if (!OptInt(v, "ratingMax", node->ratingMax, err)) return nullptr;
+    if (!OptInt(v, "selectedIndex", node->selectedIndex, err)) return nullptr;
+    if (!OptWString(v, "placeholder", node->placeholder, err)) return nullptr;
+    if (const JValue* pr = v.Get("progress")) {
+        if (pr->kind != JValue::Kind::Number) {
+            return FailNode(*pr, "'progress' must be a number", err);
+        }
+        node->progress = pr->num;
+    }
+    // Segmented 的选项：字符串数组，或 "A|B|C" 速记。
+    if (const JValue* opts = v.Get("options")) {
+        if (opts->kind == JValue::Kind::Array) {
+            for (const JValue& item : opts->arr) {
+                if (item.kind != JValue::Kind::String) {
+                    return FailNode(item, "'options' array must hold strings", err);
+                }
+                node->optionList.push_back(Utf8ToWide(item.str));
+            }
+        } else if (opts->kind == JValue::Kind::String) {
+            std::wstring wide = Utf8ToWide(opts->str);
+            std::wstring cur;
+            for (wchar_t ch : wide) {
+                if (ch == L'|') { node->optionList.push_back(cur); cur.clear(); }
+                else            { cur += ch; }
+            }
+            if (!cur.empty()) node->optionList.push_back(cur);
+        } else {
+            return FailNode(*opts, "'options' must be an array or a string", err);
+        }
+    }
 
     if (const JValue* align = v.Get("align")) {
         if (align->kind != JValue::Kind::String) {

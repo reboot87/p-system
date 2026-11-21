@@ -95,6 +95,39 @@ int main()
         Check(Same(padded.rect, 16, 8, 84, 92), "row: margin applied");
     }
 
+    // ---- 交叉轴对齐：PreferredSize 决定 Center/End 的真实盒子 ----
+    {
+        struct Chip : Item
+        {
+            Size pref{ 40, 20 };
+            Size PreferredSize() const override { return pref; }
+        };
+        Chip center, end, start, nostretch;
+
+        LayoutSpec sCenter, sEnd, sStart, sNoPref;
+        sCenter.widget = &center;  sCenter.align = LayoutAlign::Center; sCenter.grow = 1;
+        sEnd.widget    = &end;     sEnd.align    = LayoutAlign::End;    sEnd.grow    = 1;
+        sStart.widget  = &start;   sStart.align  = LayoutAlign::Start;  sStart.grow  = 1;
+        sNoPref.widget = &nostretch; sNoPref.grow = 1;  // 无偏好：保持满交叉尺寸
+
+        Layout().Row({ sCenter, sEnd, sStart, sNoPref }, 0).Apply(Rect(0, 0, 100, 60));
+
+        Check(Same(center.rect, 0, 20, 25, 40), "row: Center shrink-wraps to preferred height");
+        Check(Same(end.rect, 25, 40, 50, 60), "row: End pins to the bottom edge");
+        Check(Same(start.rect, 50, 0, 75, 20), "row: Start pins to the top edge");
+        Check(Same(nostretch.rect, 75, 0, 100, 60),
+              "row: no preference falls back to full cross size");
+
+        // Col：交叉轴是宽度
+        Chip wide;
+        LayoutSpec sWide;
+        sWide.widget = &wide;
+        sWide.align  = LayoutAlign::Center;
+        sWide.grow   = 1;
+        Layout().Col({ sWide }, 0).Apply(Rect(0, 0, 80, 30));
+        Check(Same(wide.rect, 20, 0, 60, 30), "col: Center centers preferred width");
+    }
+
     if (g_failures == 0) {
         std::printf("PASS\n");
         return 0;

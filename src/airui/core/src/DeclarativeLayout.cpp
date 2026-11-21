@@ -493,6 +493,19 @@ std::unique_ptr<LayoutNode> CloneTree(const LayoutNode& src)
     copy->intrinsic = src.intrinsic;
     copy->clip = src.clip;
     copy->onClick = src.onClick;
+    copy->widget = src.widget;
+    copy->checked = src.checked;
+    copy->disabled = src.disabled;
+    copy->open = src.open;
+    copy->value = src.value;
+    copy->sliderMin = src.sliderMin;
+    copy->sliderMax = src.sliderMax;
+    copy->rating = src.rating;
+    copy->ratingMax = src.ratingMax;
+    copy->selectedIndex = src.selectedIndex;
+    copy->optionList = src.optionList;
+    copy->progress = src.progress;
+    copy->placeholder = src.placeholder;
     for (const auto& child : src.children) copy->Add(CloneTree(*child));
     return copy;
 }

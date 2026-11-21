@@ -42,6 +42,18 @@ int main()
     }
     std::wcout << L"Loaded theme, name: " << tm.CurrentName() << L"\n";
 
+    // 主题名必须来自 JSON 的 "name" 字段（导出模板写的是 "Exported"），
+    // 不再是硬编码占位。
+    if (tm.CurrentName() != L"Exported") {
+        std::wcerr << L"Theme name mismatch: expected Exported, got "
+                   << tm.CurrentName() << L"\n";
+        return 1;
+    }
+    if (air::ui::LastLoadedThemeName() != L"Exported") {
+        std::wcerr << L"LastLoadedThemeName mismatch\n";
+        return 1;
+    }
+
     COLORREF primaryAfter = air::ui::Pal().primary;
     int unitAfter = air::ui::Mx().unit;
     std::wstring familyAfter = air::ui::Fonts::Default().Family();

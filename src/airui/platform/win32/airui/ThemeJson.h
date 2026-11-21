@@ -51,6 +51,9 @@ bool LoadTheme(const std::wstring& jsonPath);
 // 导出当前主题
 bool ExportTheme(const std::wstring& jsonPath);
 
+// 最近一次 LoadTheme 成功解析出的 "name" 字段（失败/未加载时不变）。
+const std::wstring& LastLoadedThemeName();
+
 // 解析十六进制颜色字符串（支持 #RRGGBB / #AARRGGBB / rgb() / rgba()）
 COLORREF ParseColor(const std::wstring& str, COLORREF fallback = 0);
 

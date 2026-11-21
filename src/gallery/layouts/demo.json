@@ -24,10 +24,29 @@
         { "type": "control", "text": "周五", "style": "ghost", "w": "match", "h": 34 },
         { "type": "control", "text": "回到顶部", "style": "ghost", "w": "match", "h": 34, "onClick": "scrollTop" }
       ]},
+      { "type": "label", "text": "— 控件直接写在 type 里 —", "font": "section", "h": 22 },
+      { "type": "row", "gap": 12, "children": [
+        { "type": "checkbox", "text": "记住我", "checked": true, "w": 88, "h": 24 },
+        { "type": "radio", "text": "单选", "checked": true, "w": 76, "h": 24 },
+        { "type": "switch", "checked": true, "w": 44, "h": 24 },
+        { "type": "rating", "rating": 4, "w": 110, "h": 22 }
+      ]},
+      { "type": "row", "gap": 12, "children": [
+        { "type": "segmented", "options": "日|周|月", "selectedIndex": 1, "w": 150, "h": 28 },
+        { "type": "combobox", "text": "请选择", "w": 110, "h": 28 },
+        { "type": "stepper", "value": 6, "min": 0, "max": 10, "w": 96, "h": 28 }
+      ]},
+      { "type": "row", "gap": 12, "children": [
+        { "type": "progressbar", "progress": 0.72, "w": 130, "h": 8, "align": "center" },
+        { "type": "progressring", "progress": 0.4, "w": 24, "h": 24 },
+        { "type": "avatar", "text": "林", "w": 28, "h": 28 },
+        { "type": "badge", "text": "99+", "w": 30, "h": 16, "align": "center" },
+        { "type": "tag", "text": "新特性", "checked": true, "w": 64, "h": 22 }
+      ]},
+      { "type": "textfield", "text": "可编辑文本", "placeholder": "请输入内容", "w": 200, "h": 30 },
       { "type": "label", "text": "· 整块区域由这份 JSON 描述", "h": 20 },
       { "type": "label", "text": "· 保存本文件立即热重载", "h": 20 },
       { "type": "label", "text": "· margin / padding / weight / align 都支持", "h": 20 },
-      { "type": "label", "text": "· 把上面 h 改小试试 Scroll 裁剪", "h": 20 },
       { "type": "label", "text": "· 字段类型写错会显示 行:列 错误", "h": 20 }
     ]}
   ]

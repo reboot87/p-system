@@ -176,17 +176,22 @@ void Layout::Compute(Node* node, const Rect& rc)
 
         int crossStart = (node->dir == Dir::Row) ? (rc.top + spec.margin.top) : (rc.left + spec.margin.left);
 
-        // 对齐调整
+        // 对齐调整：Center/End 用控件自报的偏好交叉尺寸收窄盒子；
+        // 无偏好（0）时保持 Stretch 的满交叉尺寸。
         if (spec.align != LayoutAlign::Stretch && crossSize > 0) {
             int widgetCross = 0;
-            // TODO(layout): 这里用字体行高估算 widget 的 preferred cross size，
-            // 是行高测量的占位实现；应改为查 widget->Rect() 或读取预设的真实行高。
+            if (spec.widget) {
+                const Size pref = spec.widget->PreferredSize();
+                widgetCross = (node->dir == Dir::Row) ? pref.h : pref.w;
+                if (widgetCross > crossSize) widgetCross = crossSize;
+            }
             switch (spec.align) {
                 case LayoutAlign::Start: break;
                 case LayoutAlign::Center: crossStart += (containerCross - widgetCross) / 2; break;
                 case LayoutAlign::End: crossStart += containerCross - widgetCross; break;
                 default: break;
             }
+            if (widgetCross > 0) crossSize = widgetCross;
         }
 
         Rect assigned = {};

@@ -16,6 +16,11 @@
 #include <string>
 #include <thread>
 
+// 仓库内 layouts/demo.json 的路径（测试从仓库根运行时可用）。
+#ifndef SOURCE_DIR
+#define SOURCE_DIR "."
+#endif
+
 using namespace air::ui;
 
 namespace {
@@ -203,6 +208,54 @@ int main()
         demo->paint(rec, rc2, s2, kPal, kMx);
         Check(s2.declError.empty(), "simulation layout loads without error");
         extragallery::LayoutDir().clear();
+    }
+
+    // ---- 7. 新控件全量渲染：内置 JSON 的每个 widget 都进绘制调用 ----
+    {
+        extragallery::ExtraDemoState s3;
+        PaintRecorder rec;
+        Paint(s3, rec);
+        // 选择类
+        Check(HasText(rec, L"记住我"), "checkbox label painted");
+        Check(HasText(rec, L"单选"), "radio label painted");
+        Check(HasText(rec, L"日") && HasText(rec, L"周") && HasText(rec, L"月"),
+              "segmented options painted");
+        // 展示类
+        Check(HasText(rec, L"林"), "avatar initials painted");
+        Check(HasText(rec, L"99+"), "badge text painted");
+        Check(HasText(rec, L"新特性"), "tag text painted");
+        Check(HasText(rec, L"可编辑文本"), "textfield value painted");
+        // 占位符只在 text 为空时显示（TextField 的既有语义），这里
+        // text 非空，所以画的是值而不是占位符。
+        Check(HasText(rec, L"请选择"), "combobox text painted");
+        // switch / progressbar / progressring / rating / stepper 不产文本，
+        // 用结构断言：switch = 轨道 FillRound+StrokeRound，
+        // segmented 3 段 = 3 个 FillRound 等。
+        Check(rec.Count(PaintOpKind::FillRound) >= 10,
+              "switch/segmented/progressbar fills present");
+    }
+
+    // ---- 8. 仓库 demo.json 直接 inflate + 渲染 ----
+    {
+        const std::string demoPath =
+            std::string(SOURCE_DIR) + "/src/gallery/layouts/demo.json";
+        std::ifstream f(demoPath, std::ios::binary);
+        Check(f.good(), "repo demo.json opens");
+        if (f.good()) {
+            std::string data((std::istreambuf_iterator<char>(f)),
+                             std::istreambuf_iterator<char>());
+            InflateError err;
+            std::unique_ptr<LayoutNode> root = InflateLayout(data, &err);
+            Check(root != nullptr && err.ok, "repo demo.json inflates");
+            if (root) {
+                PrepareTree(*root, Rect{0, 0, 520, 278});
+                PaintRecorder rec;
+                RenderTree(rec, *root, kPal, kMx);
+                Check(HasText(rec, L"热重载演示"), "repo demo paints its title");
+                Check(rec.Count(PaintOpKind::FillRound) >= 8,
+                      "repo demo paints widget fills");
+            }
+        }
     }
 
     if (g_failures != 0) {

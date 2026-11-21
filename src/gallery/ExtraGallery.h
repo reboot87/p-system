@@ -1861,8 +1861,31 @@ inline const char* kDeclarativeDefaultJson = R"({
     { "type": "scroll", "weight": 1, "gap": 6, "children": [
       { "type": "label", "text": "· 整块区域由 JSON 描述，页面代码没有一行坐标", "h": 20 },
       { "type": "label", "text": "· 修改 layouts/demo.json 保存即可热重载", "h": 20 },
-      { "type": "label", "text": "· 滚轮滚动本区域（Scroll 节点，视口裁剪）", "h": 20 },
+      { "type": "label", "text": "· 控件写在 type 里即可: {\"type\":\"switch\"}", "h": 20 },
       { "type": "label", "text": "· 点击沿父链上溯到最近的 onClick 命令", "h": 20 },
+      { "type": "label", "text": "— 选择类 —", "font": "section", "h": 22 },
+      { "type": "row", "gap": 12, "children": [
+        { "type": "checkbox", "text": "记住我", "checked": true, "w": 88, "h": 24 },
+        { "type": "radio", "text": "单选", "checked": true, "w": 76, "h": 24 },
+        { "type": "switch", "checked": true, "w": 44, "h": 24 },
+        { "type": "rating", "rating": 4, "w": 110, "h": 22 }
+      ]},
+      { "type": "row", "gap": 12, "children": [
+        { "type": "segmented", "options": "日|周|月", "selectedIndex": 1,
+          "w": 150, "h": 28 },
+        { "type": "combobox", "text": "请选择", "w": 110, "h": 28 },
+        { "type": "stepper", "value": 6, "min": 0, "max": 10, "w": 96, "h": 28 }
+      ]},
+      { "type": "label", "text": "— 展示类 —", "font": "section", "h": 22 },
+      { "type": "row", "gap": 12, "children": [
+        { "type": "progressbar", "progress": 0.72, "w": 130, "h": 8, "align": "center" },
+        { "type": "progressring", "progress": 0.4, "w": 24, "h": 24 },
+        { "type": "avatar", "text": "林", "w": 28, "h": 28 },
+        { "type": "badge", "text": "99+", "w": 30, "h": 16, "align": "center" },
+        { "type": "tag", "text": "新特性", "checked": true, "w": 64, "h": 22 }
+      ]},
+      { "type": "textfield", "text": "可编辑文本", "placeholder": "请输入内容",
+        "w": 200, "h": 30 },
       { "type": "control", "id": "top", "text": "回到顶部", "style": "ghost",
         "w": 96, "h": 30, "onClick": "scrollTop" },
       { "type": "spacer", "h": 8 },

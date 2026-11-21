@@ -9,7 +9,11 @@
 //
 // 节点映射：
 //   Label   -> IPainter::Text（font 角色 + align 水平对齐）
-//   Control -> PaintButton（style: primary/danger/ghost/secondary）
+//   Control -> 按 widget 字段分发：PaintButton / PaintCheckbox /
+//              PaintRadio / PaintToggleSwitch / PaintSlider / PaintStepper /
+//              PaintProgressBar / PaintProgressRing / PaintTextField /
+//              PaintTag / PaintRating / PaintSegmented / PaintComboBox /
+//              PaintAvatar / PaintBadge（见 Declarative.h 的 WidgetKind）
 //   Scroll  -> PushClip(视口) ... PopClip（clip=true 且可滚动时）
 //   容器    -> 无视觉（debugBoxes=true 时画调试边框）
 //   Spacer  -> 无视觉

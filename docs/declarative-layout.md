@@ -126,6 +126,32 @@ PrepareTree(root, Rect{0, 0, 640, 480}, env);   // measure + layout 一步到位
 - 其余字段：`minW/minH/maxW/maxH`、`align`（start/center/end/stretch）、`preferred: [w,h]`。
 - 未知字段忽略（向前兼容）；未知 type/align/font、类型不符的值 → 带行列号的错误。
 
+### 5.5.1 控件节点（widget）
+
+控件名可以直接写在 `type` 里（`{"type":"switch"}`），等价于
+`{"type":"control","widget":"switch"}`；显式 `widget` 字段优先。
+
+| type/widget | 画什么 | 专属字段 |
+|---|---|---|
+| `button`（默认） | `PaintButton` | `style`: primary/danger/ghost/secondary |
+| `checkbox` | `PaintCheckbox` | `text`、`checked` |
+| `radio` | `PaintRadio` | `text`、`checked` |
+| `switch` | `PaintToggleSwitch` | `checked` |
+| `slider` | `PaintSlider` | `value`、`min`、`max`（默认 0..100） |
+| `stepper` | `PaintStepper` | `value`、`min`、`max` |
+| `progressbar` | `PaintProgressBar` | `progress` 0..1 |
+| `progressring` | `PaintProgressRing` | `progress` 0..1 |
+| `textfield` | `PaintTextField` | `text`、`placeholder` |
+| `tag` / `chip` | `PaintTag` | `text`、`checked`（=选中） |
+| `rating` / `stars` | `PaintRating` | `rating`、`ratingMax`（默认 5） |
+| `segmented` | `PaintSegmented` | `options`: `["A","B"]` 或 `"A\|B"` 速记；`selectedIndex` |
+| `combobox` / `select` | `PaintComboBox` | `text`、`open` |
+| `avatar` | `PaintAvatar` | `text`（取首字） |
+| `badge` | `PaintBadge` | `text` |
+
+公共字段：`disabled`（全部控件）、`onClick`（可点击控件）。`value`/`progress`
+越界时在渲染层钳制，不会画穿。
+
 ## 5.6 绑定与交互（步骤 4）
 
 ```cpp
@@ -152,8 +178,9 @@ DispatchClick(*root, Point{40, 16}, [](LayoutNode& n, const std::string& cmd) {
 RenderTree(g, *root, Pal(), Mx());        // GDI / Skia / PaintRecorder 同一条路径
 ```
 
-节点映射：Label → `IPainter::Text`（font + align）；Control → `PaintButton`
-（`style`: primary/danger/ghost/secondary）；Scroll → `PushClip(视口)/PopClip`；
+节点映射：Label → `IPainter::Text`（font + align）；Control → 按 `widget` 分发到
+对应的 `Paint*` 函数（见 5.5.1 的映射表，`style`: primary/danger/ghost/secondary
+只对 button 生效）；Scroll → `PushClip(视口)/PopClip`；
 容器默认无视觉（`RenderOptions::debugBoxes` 可画调试边框）。
 测试用 `PaintRecorder` 断言绘制调用序列（平台无关，跨后端一致）。
 

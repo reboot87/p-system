@@ -592,6 +592,8 @@ add_executable(test_declarative_gallery
 target_link_libraries(test_declarative_gallery airui-core)
 target_include_directories(test_declarative_gallery PRIVATE
     ${CMAKE_SOURCE_DIR}/src)
+target_compile_definitions(test_declarative_gallery PRIVATE
+    SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 set_target_properties(test_declarative_gallery PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug

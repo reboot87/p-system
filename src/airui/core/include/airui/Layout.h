@@ -25,6 +25,10 @@ class ILayoutItem
 public:
     virtual ~ILayoutItem() = default;
     virtual void Move(const Rect& rc) = 0;
+
+    // 控件自报的理想尺寸（像素）。返回 {0,0}（默认）表示无偏好，
+    // 交叉轴对齐 Center/End 会退回 Stretch 行为。
+    virtual Size PreferredSize() const { return Size{}; }
 };
 
 // ------------------------------------------------------------

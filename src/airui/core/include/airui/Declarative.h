@@ -44,6 +44,27 @@ enum class NodeType
     Spacer    // 弹性空白（配合 weight 撑开）
 };
 
+// Control 节点画哪种控件（JSON 的 "widget" 字段）。
+// 全部映射到 core 里现成的 Paint* 函数 —— 不新增绘制代码。
+enum class WidgetKind
+{
+    Button,       // 默认：PaintButton，style 决定配色
+    Checkbox,     // PaintCheckbox，checked 状态
+    Radio,        // PaintRadio，checked 状态
+    Switch,       // PaintToggleSwitch，checked = 开
+    Slider,       // PaintSlider，value 0..100
+    ProgressBar,  // PaintProgressBar，progress 0..1
+    ProgressRing, // PaintProgressRing，progress 0..1
+    TextField,    // PaintTextField，text + placeholder
+    Tag,          // PaintTag，selected 状态
+    Stepper,      // PaintStepper，value（可点击 +/-）
+    Rating,       // PaintRating，rating 0..ratingMax
+    Segmented,    // PaintSegmented，options + selectedIndex
+    ComboBox,     // PaintComboBox，text + open
+    Avatar,       // PaintAvatar，text = 名字
+    Badge,        // PaintBadge，text = 角标内容
+};
+
 // ------------------------------------------------------------
 // 尺寸规格（wrap_content / match_parent / 固定）
 // ------------------------------------------------------------
@@ -143,6 +164,21 @@ public:
     bool         clip = true;               // Scroll: 裁掉超出盒子的内容
     std::string  onClick;                   // 点击命令名（非空 = 可点击，事件沿父链上溯）
 
+    // ---- Control 的控件语义（widget 决定 RenderNode 画哪个 Paint*） ----
+    WidgetKind   widget = WidgetKind::Button;
+    bool         checked = false;           // Checkbox/Radio/Switch/Tag(selected)
+    bool         disabled = false;          // 所有控件的禁用态
+    bool         open = false;              // ComboBox 下拉展开态
+    int          value = 0;                 // Slider/Stepper 的当前值
+    int          sliderMin = 0;             // Slider 范围
+    int          sliderMax = 100;
+    int          rating = 0;                // Rating 当前星数
+    int          ratingMax = 5;
+    int          selectedIndex = 0;         // Segmented 选中项
+    std::vector<std::wstring> optionList;   // Segmented 选项（"options" 字段）
+    double       progress = 0.0;            // ProgressBar/ProgressRing 0..1
+    std::wstring placeholder;               // TextField 占位文案
+
     // ---- 便捷链式设置 ----
     LayoutNode& SetId(std::string nodeId)          { id = std::move(nodeId); return *this; }
     LayoutNode& SetSize(Dim w, Dim h)              { width = w; height = h; return *this; }
@@ -161,6 +197,19 @@ public:
     LayoutNode& SetFont(FontRole f)                { font = f; return *this; }
     LayoutNode& SetIntrinsic(Size s)               { intrinsic = s; return *this; }
     LayoutNode& SetOnClick(std::string cmd)        { onClick = std::move(cmd); return *this; }
+
+    // ---- 控件语义 ----
+    LayoutNode& SetWidget(WidgetKind w)            { widget = w; return *this; }
+    LayoutNode& SetChecked(bool on)                { checked = on; return *this; }
+    LayoutNode& SetDisabled(bool off)              { disabled = off; return *this; }
+    LayoutNode& SetOpen(bool o)                    { open = o; return *this; }
+    LayoutNode& SetValue(int v)                    { value = v; return *this; }
+    LayoutNode& SetSliderRange(int lo, int hi)     { sliderMin = lo; sliderMax = hi; return *this; }
+    LayoutNode& SetRating(int stars, int maxStars = 5) { rating = stars; ratingMax = maxStars; return *this; }
+    LayoutNode& SetSelectedIndex(int i)            { selectedIndex = i; return *this; }
+    LayoutNode& SetOptions(std::vector<std::wstring> opts) { optionList = std::move(opts); return *this; }
+    LayoutNode& SetProgress(double p)              { progress = p; return *this; }
+    LayoutNode& SetPlaceholder(std::wstring ph)    { placeholder = std::move(ph); return *this; }
 
     // ---- 树 ----
     std::vector<std::unique_ptr<LayoutNode>> children;

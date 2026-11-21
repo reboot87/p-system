@@ -179,6 +179,101 @@ int main()
         }
     }
 
+    // ---- 6. widget 分发：switch -> 开关的轨道 + 滑块 ----
+    {
+        LayoutNode root(NodeType::Column);
+        AddControl(root, "sw", 44, 24).SetWidget(WidgetKind::Switch).SetChecked(true);
+        AddControl(root, "sw2", 44, 24).SetWidget(WidgetKind::Switch);
+        PrepareTree(root, Rect{0, 0, 100, 60});
+
+        PaintRecorder rec;
+        RenderTree(rec, root, pal, mx);
+        // 每个开关：轨道 FillRound + 轨道 StrokeRound + 滑块 FillRound + 滑块 StrokeRound
+        Check(rec.Count(PaintOpKind::FillRound) == 4, "two switches paint track + thumb fills");
+        Check(rec.Count(PaintOpKind::StrokeRound) == 4, "two switches paint track + thumb strokes");
+        Check(rec.Count(PaintOpKind::Text) == 0, "switch paints no text");
+    }
+
+    // ---- 7. widget 分发：checkbox -> 选中态画对勾 ----
+    {
+        LayoutNode root(NodeType::Column);
+        AddControl(root, "cb", 120, 24).SetWidget(WidgetKind::Checkbox)
+            .SetText(L"记住我").SetChecked(true);
+        PrepareTree(root, Rect{0, 0, 140, 40});
+
+        PaintRecorder rec;
+        RenderTree(rec, root, pal, mx);
+        Check(rec.Count(PaintOpKind::FillRound) >= 1, "checkbox paints its box");
+        Check(FindText(rec, L"\u2713") != nullptr, "checked checkbox paints the check glyph");
+        Check(FindText(rec, L"记住我") != nullptr, "checkbox paints its label");
+    }
+
+    // ---- 8. widget 分发：progressbar + progressring 数值钳制 ----
+    {
+        LayoutNode root(NodeType::Column);
+        AddControl(root, "bar", 100, 8).SetWidget(WidgetKind::ProgressBar).SetProgress(5.0);
+        AddControl(root, "ring", 24, 24).SetWidget(WidgetKind::ProgressRing).SetProgress(-1.0);
+        PrepareTree(root, Rect{0, 0, 120, 60});
+
+        PaintRecorder rec;
+        RenderTree(rec, root, pal, mx);
+        // 越界值被钳到 [0,1]：满进度条照常画，不画穿。
+        Check(rec.Count(PaintOpKind::FillRound) >= 2, "progress bar and ring both paint");
+    }
+
+    // ---- 9. widget 分发：segmented -> 选项文本 + 选中背景 ----
+    {
+        LayoutNode root(NodeType::Column);
+        AddControl(root, "seg", 180, 28).SetWidget(WidgetKind::Segmented)
+            .SetOptions({L"日", L"周", L"月"}).SetSelectedIndex(1);
+        PrepareTree(root, Rect{0, 0, 200, 40});
+
+        PaintRecorder rec;
+        RenderTree(rec, root, pal, mx);
+        Check(rec.Count(PaintOpKind::FillRound) == 3, "three segments painted");
+        Check(rec.Count(PaintOpKind::Text) == 3, "three segment labels painted");
+        Check(FindText(rec, L"周") != nullptr, "segment options reach the draw calls");
+        Check(rec.Count(PaintOpKind::FillRound) > 0, "selected segment gets a fill");
+    }
+
+    // ---- 10. widget 分发：rating / stepper / tag / avatar / badge ----
+    {
+        LayoutNode root(NodeType::Column);
+        AddControl(root, "stars", 120, 24).SetWidget(WidgetKind::Rating).SetRating(4);
+        AddControl(root, "step", 100, 28).SetWidget(WidgetKind::Stepper).SetValue(7);
+        AddControl(root, "tag", 60, 22).SetWidget(WidgetKind::Tag).SetText(L"新").SetChecked(true);
+        AddControl(root, "ava", 28, 28).SetWidget(WidgetKind::Avatar).SetText(L"林");
+        AddControl(root, "bdg", 28, 16).SetWidget(WidgetKind::Badge).SetText(L"9");
+        PrepareTree(root, Rect{0, 0, 200, 160});
+
+        PaintRecorder rec;
+        RenderTree(rec, root, pal, mx);
+        Check(rec.Count(PaintOpKind::Text) >= 4, "rating/stepper/tag/avatar/badge all paint text or glyphs");
+        Check(FindText(rec, L"新") != nullptr, "tag text painted");
+        Check(FindText(rec, L"林") != nullptr, "avatar initials painted");
+    }
+
+    // ---- 11. disabled 态传导到控件 ----
+    {
+        LayoutNode root(NodeType::Column);
+        AddControl(root, "btn", 80, 32).SetWidget(WidgetKind::Button)
+            .SetText(L"禁用").SetDisabled(true);
+        PrepareTree(root, Rect{0, 0, 100, 48});
+
+        PaintRecorder rec;
+        RenderTree(rec, root, pal, mx);
+        Check(!rec.Ops().empty(), "disabled control still paints (in disabled style)");
+    }
+
+    // ---- 12. 未知控件名是解析错误 ----
+    {
+        const char* json =
+            "{ \"type\": \"control\", \"widget\": \"no_such_widget\" }";
+        InflateError err;
+        std::unique_ptr<LayoutNode> root = InflateLayout(json, &err);
+        Check(root == nullptr && !err.ok, "unknown widget name fails inflate");
+    }
+
     if (g_failures != 0) {
         std::printf("\n%d check(s) FAILED\n", g_failures);
         return 1;

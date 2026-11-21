@@ -213,6 +213,116 @@ int main()
         Check(root == nullptr && !err.ok, "runaway nesting is rejected");
     }
 
+    // ---- 8. widget 字段解析 ----
+    {
+        InflateError err;
+        std::unique_ptr<LayoutNode> root = InflateLayout(
+            "{ \"type\": \"control\", \"id\": \"sw\", \"widget\": \"switch\", "
+            "\"checked\": true, \"disabled\": false }", &err);
+        Check(root != nullptr && err.ok, "widget field inflates");
+        LayoutNode* sw = root ? root->Find("sw") : nullptr;
+        Check(sw != nullptr && sw->type == NodeType::Control, "widget node is a control");
+        if (sw) {
+            Check(sw->widget == WidgetKind::Switch, "widget name maps to WidgetKind");
+            Check(sw->checked, "checked parsed");
+        }
+    }
+
+    // ---- 9. type 速记：控件名直接写在 type 里 ----
+    {
+        InflateError err;
+        std::unique_ptr<LayoutNode> root = InflateLayout(
+            "{ \"type\": \"slider\", \"id\": \"sl\", \"value\": 30, "
+            "\"min\": 0, \"max\": 200, \"widget\": \"slider\" }", &err);
+        Check(root != nullptr && err.ok, "widget-in-type shorthand inflates");
+        LayoutNode* sl = root ? root->Find("sl") : nullptr;
+        if (sl) {
+            Check(sl->type == NodeType::Control && sl->widget == WidgetKind::Slider,
+                  "type shorthand maps to Control + WidgetKind");
+            Check(sl->value == 30 && sl->sliderMin == 0 && sl->sliderMax == 200,
+                  "slider range parsed");
+        }
+    }
+
+    // ---- 10. options：数组与 "A|B|C" 速记两种写法 ----
+    {
+        InflateError err;
+        std::unique_ptr<LayoutNode> root = InflateLayout(
+            "{ \"type\": \"column\", \"children\": ["
+            "  { \"type\": \"segmented\", \"id\": \"a\", \"options\": [\"日\", \"周\"] },"
+            "  { \"type\": \"segmented\", \"id\": \"b\", \"options\": \"月|年\" }"
+            "]}", &err);
+        Check(root != nullptr && err.ok, "options document inflates");
+        if (root) {
+            LayoutNode* a = root->Find("a");
+            LayoutNode* b = root->Find("b");
+            Check(a != nullptr && a->optionList.size() == 2 &&
+                  a->optionList[0] == L"日" && a->optionList[1] == L"周",
+                  "options array parsed to UTF-16 list");
+            Check(b != nullptr && b->optionList.size() == 2 &&
+                  b->optionList[0] == L"月" && b->optionList[1] == L"年",
+                  "pipe-string options split");
+            if (a) Check(a->widget == WidgetKind::Segmented,
+                         "segmented shorthand sets widget kind");
+        }
+    }
+
+    // ---- 11. 其余控件字段 ----
+    {
+        InflateError err;
+        std::unique_ptr<LayoutNode> root = InflateLayout(
+            "{ \"type\": \"column\", \"children\": ["
+            "  { \"type\": \"progressbar\", \"id\": \"p\", \"progress\": 0.75 },"
+            "  { \"type\": \"textfield\", \"id\": \"t\", \"placeholder\": \"请输入\", \"text\": \"abc\" },"
+            "  { \"type\": \"rating\", \"id\": \"r\", \"rating\": 2, \"ratingMax\": 6 },"
+            "  { \"type\": \"combobox\", \"id\": \"c\", \"text\": \"选项\", \"open\": true, \"disabled\": true },"
+            "  { \"type\": \"stepper\", \"id\": \"s\", \"value\": 5, \"min\": 0, \"max\": 10 },"
+            "  { \"type\": \"badge\", \"id\": \"g\", \"text\": \"99+\" }"
+            "]}", &err);
+        Check(root != nullptr && err.ok, "control-fields document inflates");
+        if (root) {
+            LayoutNode* p = root->Find("p");
+            LayoutNode* t = root->Find("t");
+            LayoutNode* r = root->Find("r");
+            LayoutNode* c = root->Find("c");
+            LayoutNode* s = root->Find("s");
+            LayoutNode* g2 = root->Find("g");
+            if (p) Check(p->widget == WidgetKind::ProgressBar && p->progress > 0.74 &&
+                         p->progress < 0.76, "progressbar + progress parsed");
+            if (t) Check(t->widget == WidgetKind::TextField &&
+                         t->placeholder == L"请输入" && t->text == L"abc",
+                         "textfield + placeholder parsed");
+            if (r) Check(r->widget == WidgetKind::Rating && r->rating == 2 &&
+                         r->ratingMax == 6, "rating + ratingMax parsed");
+            if (c) Check(c->widget == WidgetKind::ComboBox && c->open && c->disabled &&
+                         c->text == L"选项", "combobox open/disabled parsed");
+            if (s) Check(s->widget == WidgetKind::Stepper && s->value == 5 &&
+                         s->sliderMax == 10, "stepper value/range parsed");
+            if (g2) Check(g2->widget == WidgetKind::Badge && g2->text == L"99+",
+                          "badge text parsed");
+        }
+    }
+
+    // ---- 12. 错误路径：坏字段类型 ----
+    {
+        InflateError err;
+        std::unique_ptr<LayoutNode> root = InflateLayout(
+            "{ \"type\": \"switch\", \"checked\": \"yes\" }", &err);
+        Check(root == nullptr && !err.ok, "non-bool checked is rejected");
+    }
+    {
+        InflateError err;
+        std::unique_ptr<LayoutNode> root = InflateLayout(
+            "{ \"type\": \"progressbar\", \"progress\": \"half\" }", &err);
+        Check(root == nullptr && !err.ok, "non-number progress is rejected");
+    }
+    {
+        InflateError err;
+        std::unique_ptr<LayoutNode> root = InflateLayout(
+            "{ \"type\": \"segmented\", \"options\": [1, 2] }", &err);
+        Check(root == nullptr && !err.ok, "non-string options are rejected");
+    }
+
     if (g_failures != 0) {
         std::printf("\n%d check(s) FAILED\n", g_failures);
         return 1;

@@ -9,6 +9,9 @@
 namespace air {
 namespace ui {
 
+// 最近一次 LoadTheme 成功解析出的主题名（LastLoadedThemeName 读取）。
+static std::wstring s_lastLoadedName;
+
 static std::wstring ColorToHex(COLORREF c)
 {
     int r = GetRValue(c);
@@ -238,7 +241,13 @@ bool LoadTheme(const std::wstring& jsonPath)
     }
 
     ApplyThemeJson(theme);
+    s_lastLoadedName = theme.name;
     return true;
+}
+
+const std::wstring& LastLoadedThemeName()
+{
+    return s_lastLoadedName;
 }
 
 bool ExportTheme(const std::wstring& jsonPath)
