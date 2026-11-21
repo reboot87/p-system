@@ -205,13 +205,13 @@ GDI 后端画字走 `Fonts`（`src/airui/platform/win32/Fonts.cpp`），来源�
 用 `SkFontMetrics` 的 typo 度量反解也不行：typo 之和只有 ≈ 0.94 em，反解出来仍然放大 1.4 倍。
 
 **（2）做法：用 GDI 实测宽度反解 em（标定法），且**联合**多个参考串。**
-`MeasureRole()` 在与后端完全相同的 `LOGFONT`（同字族、同 cell、同字重、同 `CLEARTYPE_QUALITY`）下，**就在目标字号上**量三个参考串（中文 `"工作台总览"`、拉丁 `"AireRecord"`、数字 `"0123456789"`）的 `GetTextExtentPoint32W` 宽度，各自解出让 Skia 宽度相等的 em，再在这些锚点张成的 0.25px 网格上取**三串相对误差之和最小**的那个 em：
+`MeasureRole()` 在与后端完全相同的 `LOGFONT`（同字族、同 cell、同字重、同 `CLEARTYPE_QUALITY`）下，**就在目标字号上**量三个参考串（中文 `"工作台总览"`、拉丁 `"AireRecord"`、数字 `"0123456789"`）的 `GetTextExtentPoint32W` 宽度，各自解出让 Skia 宽度相等的 em，再在这些锚点张成的 0.25px 网格（**三个锚点另作为显式候选参与**，防孤锚不在网格上被跳过）上取**三串相对误差之和最小**的那个 em：
 
 ```
 em* = argmin_em Σ_runs |skiaW(em, run) - gdiW(run)| / gdiW(run)
 ```
 
-为什么不能只信中文串：full hinting 下每个 advance 都是字号的**台阶函数**，中文串的 1:1 关系只在 unhinted 极限成立。实测 **Display（cell 22 / 字重 600）** 上中文锚解出 23，而 GDI 的 `"Ag"` 只在 em=22 才复现——单锚点取 23 时 Skia 文字墨量 +20%、盒子宽 1px、上移 1px（`test_font_lab` 实测）。联合最小取到 22 后一致；当三锚本来就对齐（如 Body=14）时联合退化成单锚,不改变已有结果。
+为什么不能只信单个锚：full hinting 下每个 advance 都是字号的**台阶函数**，中文串的 1:1 关系只在 unhinted 极限成立。实测 **Display（cell 22 / 字重 600）** 上中文锚解出 23，而在 23 处 Latin 串 Skia 量 32px、GDI 是 31px——两锚不一致。联合最小保证**不会比最好的单锚差**（所有锚都是候选），但当其它锚的误差压不过中文锚时仍会落在中文锚上（本机 Display 即如此，联合解仍=23，与改动前一致）。此时残留的 +1px 宽 / +20% 墨是**两套栅格化器逐字形 hinting 分歧**，不是锚点选择错误——旁证：600 字重样本的 `aa-vs-sk`（43.8）与 `ct-vs-sk`（41.6）同量级，连 GDI 自己换灰度模式都差这么多。
 
 不要"在 200px 处量完再按比例缩回目标字号"：GDI 把请求的字符高度**向上取整到字体单元格**（要 13、实际画 17），这个台阶在不同字号上不线性，缩回来的字号 GDI 根本不会画。
 

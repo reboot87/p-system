@@ -466,15 +466,18 @@ RoleMetrics MeasureRole(HDC dc, const SharedFaces& f, FontRole role)
         // Solve EACH reference run on its own, then pick the size that
         // minimises the summed relative error over ALL of them.
         //
-        // The CJK run is only a 1:1 em anchor in the unhinted limit:
-        // with full hinting every advance is a step function of the size,
-        // and the hanzi anchor and the Latin anchor can land on different
-        // integers (measured: Display role -- the hanzi run solves 23
-        // while GDI's "Ag" run is only reproduced at 22, which came out as
-        // +20% ink and a 1px wider box). Trusting one run is the wrong
-        // estimator; the joint minimum reproduces the runs that actually
-        // get drawn, and degenerates to the common case (every anchor
-        // agrees, e.g. Body=14) when hinting lines up.
+        // The CJK run is only a 1:1 em anchor in the unhinted limit: with
+        // full hinting every advance is a step function of the size, and
+        // the anchors can disagree (measured: Display role -- the hanzi
+        // run solves 23, while at 23 the Latin run measures 32px against
+        // GDI's 31). A single run is the wrong estimator; the joint
+        // minimum stops pretending any one script is ground truth. It is
+        // never worse than the best single anchor (the anchors are all
+        // candidates), and lands on the CJK answer when the other errors
+        // cannot outvote it -- which is what happens on Display (23), so
+        // the residual 1px there is per-glyph hinting divergence between
+        // the two rasterisers, not anchor selection. aa-vs-sk being as
+        // large as ct-vs-sk on the 600-weight samples is the same signal.
         constexpr int kLatChars = (int)(sizeof(kRefText) / sizeof(wchar_t)) - 1;
         constexpr int kLatBytes = (int)(sizeof(kRefText) - sizeof(wchar_t));
         constexpr int kDigChars = (int)(sizeof(kRefDigits) / sizeof(wchar_t)) - 1;
