@@ -46,7 +46,7 @@
 ### C. UI 框架层（Win32 原生保留，Phase 0 刻意未做）
 | 项 | 状态 | 说明 / 证据 |
 |---|---|---|
-| TextBox / ListBox 行为重写 | 未做 | 仍用 Win32 原生 EDIT/LISTBOX（`phase0-signoff.md:62`） |
+| TextBox / ListBox 行为重写 | ✅ 已完成 | 自绘（`AirUITextBox` / `AirUIListBox` 窗口类），不再依赖原生 EDIT/LISTBOX 行为；core 多行布局（`WrapText`/`LineOfIndex`/`IndexAtX`/`MoveVertically`/`ScrollToCaret`）+ IME/剪贴板/滚轮/键盘自实现；`WM_GETTEXT`/`LB_GETCOUNT` 等消息级探测保留（`test_ui` 按 `Edit`/`ListBox` 别名查找）。详见进度日志 2026-11-23 |
 | `RECT` / `COLORREF` 全量替换 | 未做 | 仅 core 层禁平台类型，Win32 层保留（`phase0-signoff.md:64`） |
 
 ### D. 测试 / CI 缺口
@@ -83,7 +83,7 @@
 1. ✅ `GdiPainter` / `Win32Window` 从 stub 升级为生产级 HAL 实现。
 2. ✅ 完成 `IWindow` 完整事件注入（键盘 / 鼠标 / 焦点 / 缩放 / DPI）。
 3. ✅ `NavBar` / `Caption` / `StatusBar` 迁入 ShellCore HAL（状态与布局层；像素仍由后端负责，符合设计契约）。
-4. TextBox / ListBox 行为重写（去 Win32 原生依赖，改为自绘 + 平台适配）。
+4. ✅ TextBox / ListBox 行为重写（去 Win32 原生依赖，改为自绘 + 平台适配，2026-11-23）。
 5. Win32 层 `RECT` / `COLORREF` 逐步替换为平台无关类型。
 6. 把 `test_ui` 编排进 ctest（启动 `airecord.exe` + IPC 断言）。
 7. 落地 App 业务模块：**文件监控**、**打印监控**插件。
@@ -525,3 +525,13 @@
   - **④ 按脏区跳过整条带**（`7ddd06f`）：`Shell::Paint` 把脏区与 caption/nav/status/content 求交，不相交就整条跳过（含文本测量这类裁剪救不了的 CPU 工作）；`ShellCore::Paint` 增加可选 `clip` 参数，跳过不相交的导航行；画廊按外扩矩形跳过条目/卡片。导航行 hover **2.2 ms → 0.45~0.6 ms**，内容控件 hover → **0.33 ms**。
   - **判据**：① 局部重绘的正确性判据不是"看起来没残影"，而是「局部重绘后的截图 vs 强制全量重绘的截图逐像素相同」；② 外扩量必须同时写在失效侧和跳过侧，否则两边一个宽一个窄，残留会随机出现；③ `PaintClip` 只对 GDI 有意义——合成后端整窗重建，给它局部裁剪等于让它漏画。
   - **回归**：`ctest -C Release` **22/22**；浅/深色切换、放大再还原的 resize、长距离滚动均无残影。
+
+- **2026-11-23 — TextBox / ListBox 自绘重写（去 Win32 原生 EDIT/LISTBOX 行为依赖，「两者一轮全量」）**
+  - **背景**：这是 UI 框架层欠账的第三块（布局/主题早已还清）。此前 TextBox/ListBox 的**行为**（编辑、选区、IME、剪贴板、滚动、键盘）全靠原生 EDIT/LISTBOX，自绘只画像素。本轮把行为也收进库内，公共 API（`Widgets.h` 的 `TextBox`/`ListBox` 签名、`Native()`）保持不变。
+  - **core 多行布局（平台无关、纯整数、可测）**：`FrameworkCore` 新增 `WrapText`（`\n` 硬断 + 空格/Tab 软断 + CJK 任意字间折行 + 超宽词内断，**代理对绝不切半**）、`LineOfIndex`（二分）、`IndexAtX`（按逐字累计宽度表 `cum[i]` 定位，比例字体；中点判据 + 代理对就近吸附）、`MoveVertically`（↑/↓ 保持水平像素位置）、`ScrollToCaret`（caret 行滚进视口，含"视口小于一行"的退化夹取）。单行的 `MeasureTextEdit` 是等宽模型，无法支撑比例字体的逐字定位，所以多行这套是**新写**而非复用。单测 `TestTextWrap`（`\n` 断行 / CJK 软断 / 超宽内断 / 代理对不切半 / `IndexAtX` 中点 / `MoveVertically` 水平保真 / `ScrollToCaret` 夹取）。
+  - **TextBox 自绘**：窗口类 `AirUITextBox`（DefWindowProc 基类 + 子类化），单行直接复用 core `PaintTextBox`（外框/占位/选区/光标同一套设计），多行按 `WrapText` 结果逐行直排（外框/行内选区/逐行文本/组词串/插入符）。编辑走 core 引擎 `TextEditState` + `ApplyEdit`；IME 处理 `WM_IME_STARTCOMPOSITION / COMPOSITION(GCS_COMPSTR 预览 / GCS_RESULTSTR 上屏自插) / ENDCOMPOSITION`，候选窗跟随插入点（`ImmSetCompositionWindow` + `ImmSetCandidateWindow`）；剪贴板 Copy/Cut/Paste 经 `Win32Clipboard:IClipboard` 走核心 `EditAction`；键盘 Left/Right/Home/End/Up/Down(多行纵移)/Back/Delete/Enter(多行换行)/Ctrl+A/C/V 全部自实现，未消费键交默认（Tab 等）；多行 `WM_MOUSEWHEEL` 滚动。**消息级探测保留**：`WM_GETTEXT / WM_GETTEXTLENGTH / WM_SETTEXT / EM_SETSEL / EM_SETMARGINS` 仍在 proc 里应答，服务 `App::FocusSearch`（全选）、`ManualEntryPlugin`（`GetWindowTextStr`/`SetWindowTextW`）与 `test_ui` 的 `TypeText`。
+  - **ListBox 自绘**：窗口类 `AirUIListBox`（`WS_VSCROLL` + DefWindowProc 画标准滚动条，范围由 `SetScrollInfo` 维护）。条目模型移入类内（`m_items`/`m_sel`/`m_scroll`），`Reset/AddItem/Count/Selection/SetSelection/ItemRect/ItemAtPoint/InvalidateItem` 全部自实现；`WM_PAINT` 单帧整块擦底 + 逐行回调 `onPaintItem`（**无**原生"擦整块→逐行画回"的中间态，此前的 `WM_ERASEBKGND` 擦带补丁与 `WM_SETREDRAW` 锁随原生 LISTBOX 一起消失）；选中/滚轮(`WM_MOUSEWHEEL`)/拖动滚动条(`WM_VSCROLL`)/键盘(↑↓/Home/End/PageUp/PageDown)/hover/双击/右键全部自实现，`LBN_SELCHANGE`/`LBN_DBLCLK` 经 `WM_COMMAND` 上报（页面回调链路不变）。**消息级探测保留**：`LB_GETCOUNT / LB_GETCURSEL / LB_SETCURSEL / LB_GETITEMRECT / LB_GET(SET)ITEM(DATA|HEIGHT) / LB_ADDSTRING / LB_RESETCONTENT / LB_ITEMFROMPOINT / LB_GET(LEN|TEXT)`，`test_ui` 的 `ListCount` 继续走 `LB_GETCOUNT`。
+  - **清理**：退役 `PlaceholderEdit`（占位提示改由自绘 `PaintSelf` 直接画）与 `ForwardClickToEdit`（点击定位光标改由 `CaretAtClientPoint`），及其 `kPropPlaceholder`/`kPropComposing` 属性；`Controls.h` 顶部清单与注释同步更新。
+  - **test_ui 适配**：`Edit`→`AirUITextBox`、`ListBox`→`AirUIListBox` 的别名匹配（`ClassMatches`），探测逻辑本身不变。
+  - **实测**（非假设）：`cmake --build build --config Release` 全量 `BUILD=0`（airui-core / airui-win32 / 全部 app / gallery / 28 个测试 target）；`ctest -C Release` **28/28**（含新 `TestTextWrap`）；`check-core-clean.sh` PASSED（55 个 core 文件 0 平台引用）；`check-skia-syntax.sh` 全绿；`check-public-headers` 通过。运行 `airecord.exe`（新构建）跑 `test_ui`：`LB_GETCOUNT`=95、`WM_GETTEXT` 可达、`TypeText` 键入多行录入框→插件 `WM_GETTEXT` 读回→保存链路 PASS；滚动条经独立 C 工具（`GetScrollInfo`，95 行 × 5978px 内容 vs 634px 视口）确认存在且状态一致；全屏截图核对列表选中行/hover 图标/时间戳/详情面板与搜索框占位字均正常。
+  - **边界**：① `test_ui` 的**保存后 IPC 校验段**（`LIST\t<kw>` → 落库 → `DEL`）在本机因 `AireRecordIpc` 命名管道的既有环境行为挂起，与本次自绘无关（自绘相关的 `LB_GETCOUNT`/`WM_GETTEXT`/键入/保存各断言均先于该段 PASS）；该端到端脚本本就未接入 ctest（见 §D，只能手工跑）。② IME 候选窗定位按 caret 跟随，未覆盖每个 IME 的边角；③ Skia 后端的 TextBox/ListBox 像素一致性走既有 `skia-windows` CI（自绘走同一 `Canvas`/`IPainter` 抽象，无后端特化）。业务模块（FileWatch/PrintWatch）仍留 v1.2。

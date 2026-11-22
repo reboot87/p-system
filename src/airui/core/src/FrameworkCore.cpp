@@ -768,6 +768,184 @@ TextBoxHit HitTextBox(const Rect& rc, const TextBoxState& st,
     return TextBoxHit::Body;
 }
 
+// ============================================================
+// 6b. 多行文本布局实现（接口注释见 FrameworkCore.h）
+// ============================================================
+TextLines WrapText(const std::wstring& text, const std::vector<int>& cum,
+                   int availW, int lineH)
+{
+    TextLines out;
+    if (lineH < 1) lineH = 1;
+    const int n = (int)text.size();
+    // 宽度表缺失（未量过/测量失败）：退化为单一整块行，永不崩溃。
+    if (cum.size() < 2) {
+        out.begin.push_back(0);
+        out.end.push_back(n);
+        out.contentH = lineH;
+        return out;
+    }
+    if (availW < 1) availW = 1;
+
+    // 断点合法性：不切断代理对（前一单元是前导代理 + 本单元是尾随代理
+    // → 拒绝）。POSIX 上 wchar_t 是 32 位（UTF-32，无代理对），此判断
+    // 自然恒真，行为一致。
+    auto canBreakAt = [&](int i) {
+        if (i <= 0 || i >= n) return false;
+        const unsigned prev = (unsigned)text[i - 1];
+        const unsigned cur  = (unsigned)text[i];
+        if (prev >= 0xD800u && prev <= 0xDBFFu &&
+            cur  >= 0xDC00u && cur  <= 0xDFFFu)
+            return false;
+        return true;
+    };
+    // 软断资格：断点前一个字符是空白/Tab，或属于 CJK 区段（中日韩无
+    // 空格，必须允许在任意字之间折行——和 CJK 排版引擎一致）。
+    auto softBreakBefore = [&](int i) {
+        if (i <= 0 || i >= n) return false;
+        const wchar_t p = text[i - 1];
+        if (p == L' ' || p == L'\t') return true;
+        const unsigned c = (unsigned)p;
+        return (c >= 0x2E80u && c <= 0x9FFFu) ||   // 部首..统一表意
+               (c >= 0x3000u && c <= 0x303Fu) ||   // CJK 标点
+               (c >= 0x3040u && c <= 0x30FFu) ||   // 假名
+               (c >= 0xAC00u && c <= 0xD7AFu) ||   // 谚文
+               (c >= 0xFF00u && c <= 0xFFEFu);     // 全角形式
+    };
+
+    int lineStart = 0;
+    int lastSoft  = -1;                 // 当前行里最后一个软断位置
+    int i = 0;
+    while (i < n) {
+        if (text[i] == L'\n') {
+            out.begin.push_back(lineStart);
+            out.end.push_back(i);
+            lineStart = i + 1;
+            lastSoft = -1;
+            ++i;
+            continue;
+        }
+        // 软断点记录必须在判宽【之前】：CJK 连续到恰好填满视口的第 i 个
+        // 字时，记录发生在超限的同一次迭代，断行才落在 i（行=满宽）而不是
+        // i-1（行=少一个字）。空格断点同理不受影响（text[i-1] 是字母时
+        // 本轮记录值不变，仍取上一个空格位）。
+        if (softBreakBefore(i)) lastSoft = i;
+        const int w = cum[i + 1] - cum[lineStart];   // 放下 i..i+1 的行宽
+        if (w > availW && i > lineStart) {
+            // 必须折断：优先在最后一个软断点，否则从断点往回找最近
+            // 合法位置，再不行就强制在 i 处内断（超长单词/CJK 长段）。
+            int brk = -1;
+            if (lastSoft > lineStart && canBreakAt(lastSoft)) brk = lastSoft;
+            else {
+                for (int j = i; j > lineStart; --j)
+                    if (canBreakAt(j)) { brk = j; break; }
+            }
+            if (brk < 0) {
+                // 回退失败只剩一种情形:断点正落在代理对内部,且行内再无
+                // 其它合法位置。此时把整对整体推到下一行(行尾退到对之后,
+                // canBreakAt(i+1) 恒成立),绝不切出半个代理对;比画出
+                // 半个孤代理的 .notdef 框安全。canBreakAt(i) 为真(或 i 不
+                // 在对内)则常规断在 i —— 外层已保证 i > lineStart。
+                brk = canBreakAt(i) ? i : i + 1;
+            }
+            out.begin.push_back(lineStart);
+            out.end.push_back(brk);
+            lineStart = brk;
+            lastSoft = -1;
+            i = brk;                                  // 从断点重新扫描
+            continue;
+        }
+        ++i;      // 软断点已在判宽前记录（见上），此处不再重复
+    }
+    out.begin.push_back(lineStart);
+    out.end.push_back(n);
+    out.contentH = (int)out.begin.size() * lineH;
+    return out;
+}
+
+int LineOfIndex(const TextLines& lines, int index)
+{
+    const int m = (int)lines.begin.size();
+    if (m <= 0) return 0;
+    if (index < lines.begin.front()) return 0;
+    int lo = 0, hi = m - 1;
+    while (lo < hi) {                     // 最后一个 begin<=index 的行
+        const int mid = (lo + hi + 1) / 2;
+        if (lines.begin[mid] <= index) lo = mid; else hi = mid - 1;
+    }
+    return lo;
+}
+
+int IndexAtX(const std::wstring& text, const std::vector<int>& cum,
+             int lineBeg, int lineEnd, int x)
+{
+    const int n = (int)text.size();
+    if (lineBeg < 0 || cum.size() < 2) return 0;
+    if (lineEnd > n) lineEnd = n;
+    if (lineBeg >= n) return n;
+    const int base = cum[lineBeg];
+    int idx = lineEnd;                     // x 超出行右端 → 行尾
+    for (int i = lineBeg; i < lineEnd; ++i) {
+        const int c0 = cum[i] - base;
+        const int c1 = cum[i + 1] - base;
+        if (x < c0) { idx = i; break; }
+        // 左半 -> 置于字符前；右半 -> 置于字符后（更近的边缘判据）。
+        // +1 使 1px 字格的唯一像素算「左缘」：x=c0 落在字前（比例字体的
+        // 边缘点击语义）；多像素字格仍按中点分左右。
+        if (x < c0 + (c1 - c0 + 1) / 2) { idx = i; break; }
+        if (x < c1) { idx = i + 1; break; }
+    }
+    if (idx < lineBeg) idx = lineBeg;
+    if (idx > lineEnd) idx = lineEnd;
+    // 代理对修复：光标落进对的内部（text[idx] 是尾随代理）时，按到对
+    // 两端的距离就近放到对前或对后，绝不切成半个码位。
+    if (idx > 0 && idx < n) {
+        const unsigned prev = (unsigned)text[idx - 1];
+        const unsigned cur  = (unsigned)text[idx];
+        if (prev >= 0xD800u && prev <= 0xDBFFu &&
+            cur  >= 0xDC00u && cur  <= 0xDFFFu) {
+            const int pairBeg = cum[idx - 1] - base;
+            const int pairEnd = cum[idx + 1] - base;
+            idx = (x - pairBeg <= pairEnd - x) ? idx - 1 : idx + 1;
+        }
+    }
+    return idx;
+}
+
+int MoveVertically(const std::wstring& text, const std::vector<int>& cum,
+                   const TextLines& lines, int caret, int deltaLines)
+{
+    const int n = (int)text.size();
+    if (caret < 0 || caret > n) return caret;
+    if (lines.begin.empty()) return caret;
+    const int line = LineOfIndex(lines, caret);
+    const int target = line + deltaLines;
+    if (target < 0) return 0;
+    if (target >= (int)lines.begin.size()) return n;   // 夹到末尾（与单行 End 同风格）
+    const int lb = lines.begin[target];
+    const int lx = cum[caret] - cum[lines.begin[line]];  // 保持水平像素位置
+    return IndexAtX(text, cum, lb, lines.end[target], lx);
+}
+
+int ScrollToCaret(const TextLines& lines, const std::vector<int>& cum,
+                  int caret, int scrollTop, int viewH, int lineH)
+{
+    (void)cum;                       // 行号 × lineH 即像素，无需 cum
+    // 视口可以小于一行（仍是合法滚动：只显示半行），只挡退化参数。
+    if (lineH < 1 || viewH < 1) return scrollTop;
+    const int m = (int)lines.begin.size();
+    if (m == 0) return 0;
+    const int line  = LineOfIndex(lines, caret);
+    const int top   = line * lineH;
+    const int btm   = top + lineH;
+    int s = scrollTop;
+    if (top < s) s = top;
+    else if (btm > s + viewH) s = btm - viewH;
+    const int maxS = (m * lineH > viewH) ? (m * lineH - viewH) : 0;
+    if (s < 0) s = 0;
+    if (s > maxS) s = maxS;
+    return s;
+}
+
 void PaintTextBox(IPainter& g, const Rect& rc, const TextBoxState& st,
                   const Palette& pal, const Metrics& mx)
 {

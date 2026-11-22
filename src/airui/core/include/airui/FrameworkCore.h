@@ -385,6 +385,39 @@ struct EditResult
 EditResult ApplyEdit(TextEditState& st, EditAction action,
                      const std::wstring& argument, IClipboard* clipboard);
 
+// ============================================================
+// 6b. 多行文本布局（自绘 TextBox 用；纯整数数学，平台无关）
+//
+// 单行的 TextEditLayout 假定等宽（charW 均分），做演示够用；生产控件
+// 是比例字体，光标/选区/点击必须按**逐字宽度**定位，所以这里改成给定
+// 每个 UTF-16 单元的累计宽度表（cum[i] = text[0..i) 的宽度，px）来算：
+//   · 折行：\n 硬断；软断在空格/Tab 后、CJK 字符边界后；宽于视口的
+//     单词（连 CJK 也放不下时）强行内断，保证永远前进；
+//   · 代理对（emoji 等）绝不从中间断开——断点回避到对的前一单元；
+//   · 行高 lineH 像素（调用方按 GDI 实测行高给出）。
+// ============================================================
+struct TextLines
+{
+    std::vector<int> begin;   // 行首 UTF-16 下标（每行一个）
+    std::vector<int> end;     // 行尾（不含行末 \n）
+    int contentH = 0;         // begin.size() * lineH
+};
+// widths.size() 必须 == text.size() + 1（累计表）。
+TextLines WrapText(const std::wstring& text, const std::vector<int>& cum,
+                   int availW, int lineH);
+// 光标下标所在行；二分于 lines.begin。无效下标 → 0。
+int LineOfIndex(const TextLines& lines, int index);
+// 该行内 x（行内相对 px）最近的下标（不越出行，不切断代理对）。
+int IndexAtX(const std::wstring& text, const std::vector<int>& cum,
+             int lineBeg, int lineEnd, int x);
+// 纵向移动（多行 ↑/↓）：保持水平像素位置，返回新下标。
+int MoveVertically(const std::wstring& text, const std::vector<int>& cum,
+                   const TextLines& lines, int caret, int deltaLines);
+// 确保 caret 可见：返回需要的 scrollTop（单行为 0；多行为像素）。
+int ScrollToCaret(const TextLines& lines, const std::vector<int>& cum,
+                  int caret, int scrollTop, int viewH, int lineH);
+
+
 struct TextBoxState
 {
     ControlState base = {};

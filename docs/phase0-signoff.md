@@ -59,7 +59,7 @@
 
 ## 已刻意不做（Phase 0 范围外）
 
-- TextBox/ListBox 行为重写（保持 Win32 原生）
+- ~~TextBox/ListBox 行为重写（保持 Win32 原生）~~ — **已完成（2026-11-23）**：两者均自绘（窗口类 `AirUITextBox`/`AirUIListBox`），编辑/选区/IME/剪贴板/滚动/键盘全部库内自实现，消息级探测（`WM_GETTEXT`/`LB_GETCOUNT` 等）保留；详见 `ROADMAP.md` 2026-11-23 进度日志
 - Skia 引入、跨平台窗口/绘制（Phase 1/2）
 - `RECT/COLORREF` 全量替换（仅 core 层禁止平台，Win32 层保留）
 

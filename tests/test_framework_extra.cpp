@@ -308,6 +308,125 @@ void TestTextEdit()
 }
 
 // ------------------------------------------------------------
+// 多行布局（自绘 TextBox 的 core 数学：折行 / 点击取下标 / 纵移 / 滚动）
+// 每个 UTF-16 单元 1px 宽（cum[i] = i），行高 10px，视口宽 8px —— 用
+// 手算得出的期望下标做断言，覆盖 \n 硬断、CJK 软断、超宽内断、代理对
+// 不切半、IndexAtX 中点判据、MoveVertically 水平保真与 ScrollToCaret 夹取。
+void TestTextWrap()
+{
+    auto cum100 = [](int n) {   // 单元宽度 1 的累计表
+        std::vector<int> c((size_t)n + 1, 0);
+        for (int i = 0; i < n; ++i) c[(size_t)i + 1] = i + 1;
+        return c;
+    };
+
+    // (1) \n 硬断 + 尾行保留
+    {
+        const std::wstring t = L"ab\ncd";
+        const auto c = cum100((int)t.size());
+        const TextLines ln = WrapText(t, c, 8, 10);
+        Check((int)ln.begin.size() == 2 && ln.begin[0] == 0 && ln.end[0] == 2 &&
+              ln.begin[1] == 3 && ln.end[1] == 5,
+              "WrapText: \\n splits two lines, newline excluded");
+        Check(ln.contentH == 20, "WrapText: contentH = lines * lineH");
+        // '\n' 的下标恰是行末之后（一行不包含它），begin<=idx 的二分把它
+        // 归到它结束的那一行 —— 光标停在 "ab" 后(index 2)显示在第 0 行尾。
+        Check(LineOfIndex(ln, 0) == 0 && LineOfIndex(ln, 2) == 0 &&
+              LineOfIndex(ln, 4) == 1,
+              "LineOfIndex: indexes map to their lines (binary search)");
+    }
+
+    // (2) CJK 软断：8 个 CJK、视口 5 → 行首 5 宽度超限,断到最后一个软断
+    {
+        const std::wstring t = L"\u4E00\u4E8C\u4E09\u56DB\u4E94\u516D\u4E03\u516B";
+        const auto c = cum100((int)t.size());
+        const TextLines ln = WrapText(t, c, 5, 10);
+        Check((int)ln.begin.size() == 2 && ln.begin[0] == 0 && ln.end[0] == 5 &&
+              ln.begin[1] == 5 && ln.end[1] == 8,
+              "WrapText: CJK soft-breaks at viewport width");
+    }
+
+    // (3) 无空格无 CJK 的超宽词内断（必须前进,不能死循环/漏字符）
+    {
+        const std::wstring t = L"abcdefghijklmnopqrstuvwxyz";
+        const auto c = cum100((int)t.size());
+        const TextLines ln = WrapText(t, c, 10, 10);
+        Check((int)ln.begin.size() == 3 && ln.end.back() == (int)t.size() &&
+              ln.begin[0] == 0 && ln.begin[1] == 10 && ln.begin[2] == 20,
+              "WrapText: overlong word hard-breaks at the viewport");
+        Check(ln.end[0] == 10 && ln.end[1] == 20,
+              "WrapText: hard breaks are contiguous (no gap/overlap)");
+    }
+
+    // (4) 代理对不切半：1 对 + 7 词,视口 1 → 行首 break 必须跳过对内部
+    {
+        std::wstring t;
+        t += (wchar_t)0xD83D; t += (wchar_t)0xDE00;   // U+1F600 表情
+        t += L"abcdefg";
+        const auto c = cum100((int)t.size());
+        const TextLines ln = WrapText(t, c, 1, 10);
+        bool cutHalf = false;
+        for (int k = 0; k + 1 < (int)ln.end.size(); ++k) {
+            const int end = ln.end[(size_t)k];
+            const unsigned e = (unsigned)t[(size_t)end];
+            if (end > 0 && end < (int)t.size()) {
+                const unsigned before = (unsigned)t[(size_t)end - 1];
+                if (before >= 0xD800u && before <= 0xDBFFu &&
+                    e >= 0xDC00u && e <= 0xDFFFu)
+                    cutHalf = true;
+            }
+        }
+        Check(!cutHalf, "WrapText: never splits a surrogate pair");
+        Check((int)ln.begin.size() >= 2, "WrapText: surrogate text wraps at all");
+    }
+
+    // (5) IndexAtX 中点判据 + 行内夹取
+    {
+        const std::wstring t = L"abcdef";
+        const auto c = cum100((int)t.size());
+        Check(IndexAtX(t, c, 0, 6, -3) == 0,
+              "IndexAtX: x before line clamps to line start");
+        Check(IndexAtX(t, c, 0, 6, 99) == 6,
+              "IndexAtX: x after line clamps to line end");
+        Check(IndexAtX(t, c, 0, 6, 0) == 0 && IndexAtX(t, c, 0, 6, 10) == 6,
+              "IndexAtX: midpoint rule (left half -> before char)");
+        Check(IndexAtX(t, c, 0, 6, 3) == 3,
+              "IndexAtX: right half of char 2 lands after it");
+    }
+
+    // (6) MoveVertically 水平位置保持 + 夹取
+    {
+        const std::wstring t = L"0123\n56789";
+        const auto c = cum100((int)t.size());
+        const TextLines ln = WrapText(t, c, 8, 10);
+        // 行 0 = "0123"(idx 0..4), 行 1 = "56789"(idx 5..10)
+        Check(MoveVertically(t, c, ln, 2, +1) == 7,
+              "MoveVertically: down keeps x offset (2 -> 7)");
+        Check(MoveVertically(t, c, ln, 7, -1) == 2,
+              "MoveVertically: up keeps x offset (7 -> 2)");
+        Check(MoveVertically(t, c, ln, 9, +1) == (int)t.size(),
+              "MoveVertically: past last line clamps to end");
+        Check(MoveVertically(t, c, ln, 1, -1) == 0,
+              "MoveVertically: before first line clamps to 0");
+    }
+
+    // (7) ScrollToCaret 夹取
+    {
+        const std::wstring t = L"1\n2\n3\n4\n5";
+        const auto c = cum100((int)t.size());
+        const TextLines ln = WrapText(t, c, 8, 10);
+        Check(ScrollToCaret(ln, c, 0, 0, 30, 10) == 0,
+              "ScrollToCaret: caret already visible keeps scrollTop");
+        Check(ScrollToCaret(ln, c, 8, 0, 30, 10) == 20,
+              "ScrollToCaret: caret below view scrolls minimally");
+        Check(ScrollToCaret(ln, c, 0, 40, 30, 10) == 0,
+              "ScrollToCaret: caret above view scrolls up (clamped to 0)");
+        Check(ScrollToCaret(ln, c, 2, 0, 5, 10) == 15,
+              "ScrollToCaret: view smaller than a line still scrolls (btm-view)");
+    }
+}
+
+// ------------------------------------------------------------
 void TestMigratedControls()
 {
     CardState card;
@@ -596,6 +715,7 @@ int main()
     TestScrollAndVirtual();
     TestDpiAndAnimation();
     TestTextEdit();
+    TestTextWrap();
     TestMigratedControls();
     TestInputControls();
     TestChoiceAndDisplay();

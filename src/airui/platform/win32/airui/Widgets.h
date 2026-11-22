@@ -1,8 +1,11 @@
 #pragma once
 // ============================================================
 // AirUI — Widgets.h
-// 控件包装：把 HWND / SetWindowSubclass / LB_* 消息 / EM_* 消息
-// 全部封装在库内，页面通过高级接口操作控件。
+// 控件包装：TextBox/ListBox 自绘（不再依赖 Win32 EDIT/LISTBOX 的行为），
+// HWND + SetWindowSubclass 只保留三件事：焦点与生命周期、WM_GETOBJECT
+// 转发、消息级探测（WM_GETTEXT/LB_GETCOUNT 仍被应答；窗口类名为
+// AirUITextBox/AirUIListBox，test_ui 的探测端按 Edit/ListBox 别名查找）。
+// 页面通过高级接口操作控件。
 //
 //   TextBox& search = CreateTextBox({ .id = 1, .placeholder = L"搜索…" });
 //   search.Text();
@@ -14,8 +17,10 @@
 #include <windows.h>
 #include <functional>
 #include <string>
+#include <vector>
 #include "airui/Controls.h"
 #include "airui/Canvas.h"
+#include "airui/FrameworkCore.h"   // TextEditState/TextLines/IClipboard
 
 namespace air {
 namespace ui {
@@ -91,6 +96,21 @@ public:
     // 视觉外框点击 → 进入输入态并按 x 定位光标
     void ClickAt(POINT parentPt);
 
+    // ---- 自绘内部（TextBoxProc 是 friend，直接驱动这些） ----
+    void SyncTextLayout();          // 文本/尺寸变化时重建 cum/lines
+    void PaintSelf(HDC dc);         // WM_PAINT：单行走 PaintTextBox，多行直排
+    void CaretAtClientPoint(POINT); // 客户区点击 → 光标/扩选 + 聚焦
+    POINT CaretPoint() const;       // 插入点（IME 候选窗跟随）
+    void ScrollForCaret();          // 多行：caret 行滚进视口
+    void SyncIme();                 // 组词串/候选窗跟随插入点
+    void InsertChar(wchar_t ch);    // WM_CHAR 路径（表 6：中文多行先对齐 caret）
+    void InsertText(const std::wstring& s);  // IME 结果 / 菜单粘贴
+    bool DefaultKey(UINT vk, bool ctrl, bool shift);   // 编辑语义键
+    void ApplyEditResult(EditAction action, const std::wstring& arg,
+                         IClipboard* clip);            // 统一后处理入口
+    void ApplyPostEdit();                             // 滚动/IME/重绘
+    int  MaxScroll() const;
+
 protected:
     friend class Page;
     friend LRESULT CALLBACK TextBoxProc(HWND, UINT, WPARAM, LPARAM,
@@ -100,6 +120,16 @@ protected:
 
     TextBoxDesc m_desc;
     std::function<bool(UINT, bool, bool)> m_keyCb;
+
+    TextEditState m_edit;            // core 引擎：文本/光标/选区/组词
+    std::vector<int> m_cum;          // 逐字累计宽度表（比例字体）
+    TextLines        m_lines;       // 多行折行结果
+    int  m_layW = -1, m_layH = -1;   // 布局缓存的客户区尺寸（变了才重建）
+    int  m_lineH = 21, m_ascent = 16;
+    int  m_scroll = 0;               // 多行垂直滚动（px）
+    int  m_rightInset = 0;           // 右侧留白（快捷键 chip 让位）
+    bool m_composing  = false;      // IME 组词中（吞掉重复 WM_CHAR）
+    HFONT m_font = nullptr;
 };
 
 // ============================================================
@@ -151,6 +181,13 @@ struct ListItemDraw
     bool   hovered  = false;
 };
 
+// 一行（自绘 ListBox 的内部模型；原生 LB_* 只保留给消息级探测）
+struct ListBoxItem
+{
+    int    height = 0;
+    size_t data   = 0;
+};
+
 class ListBox : public Widget
 {
 public:
@@ -158,10 +195,8 @@ public:
     int  AddItem(int height, size_t data = 0);   // 返回行下标
 
     // 批量重建：把 Reset() + N × AddItem() + SetSelection() 夹在中间，
-    // 期间不做任何呈现，结束时只提交一帧。原生 LISTBOX 的 LB_RESETCONTENT
-    // / LB_ADDSTRING 各自会带一次同步刷新，不夹住的话重建过程中屏幕上会
-    // 出现「整块擦成底色 → 逐行画回来」的中间态（Skia 一帧 30~50ms，
-    // 这段中间态能被看到好几帧）。可嵌套，按引用计数逐个配对。
+    // 期间不失效（自绘列表的重建是纯内存操作），结束时只提交一帧。
+    // 可嵌套，按引用计数逐个配对。
     void BeginUpdate();
     void EndUpdate();
     // RAII 版批量重建：构造时 BeginUpdate，析构时 EndUpdate。
@@ -208,10 +243,22 @@ protected:
                                         UINT_PTR, DWORD_PTR);
     void CreateNative() override;
     bool HandleCommand(int code) override;
-    bool HandleDrawItem(const DRAWITEMSTRUCT* dis) override;
-    bool HandleMeasureItem(MEASUREITEMSTRUCT* mis) override;
+
+    // ---- 自绘内部 ----
+    void PaintSelf(HDC dc);
+    void PaintItem(Canvas& g, int index, const RECT& rc);
+    void SelectItem(int index, bool notify);
+    void EnsureVisible(int index);
+    void SyncScrollBar();
+    int  ContentHeight() const;
+    int  VisibleHeight() const;
+    int  ScrollStep() const;
+    int  MaxScroll() const;
 
     ListBoxDesc m_desc;
+    std::vector<ListBoxItem> m_items;
+    int m_sel = -1;
+    int m_scroll = 0;
     int m_hover = -1;
     int m_updateLock = 0;      // BeginUpdate/EndUpdate 嵌套层数
     int m_fallbackH = 54;

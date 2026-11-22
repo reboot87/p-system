@@ -43,12 +43,24 @@ static void Click(HWND w, int x, int y)
     PostMessageW(w, WM_LBUTTONUP, 0, MAKELPARAM(x, y));
 }
 
+// 类名匹配：自绘 TextBox/ListBox 用 AirUI* 窗口类（原生 EDIT/LISTBOX 的
+// 类名被 user32 占用，无法复用），探测端按别名继续找旧类名。
+static bool ClassMatches(const wchar_t* actual, const wchar_t* want)
+{
+    if (_wcsicmp(actual, want) == 0) return true;
+    if (_wcsicmp(want, L"Edit") == 0 && _wcsicmp(actual, L"AirUITextBox") == 0)
+        return true;
+    if (_wcsicmp(want, L"ListBox") == 0 && _wcsicmp(actual, L"AirUIListBox") == 0)
+        return true;
+    return false;
+}
+
 static int ListCount(HWND w)
 {
     HWND list = NULL;
     EnumChildWindows(w, [](HWND h, LPARAM lp) -> BOOL {
         wchar_t cls[64]; GetClassNameW(h, cls, 64);
-        if (_wcsicmp(cls, L"ListBox") == 0) { *(HWND*)lp = h; return FALSE; }
+        if (ClassMatches(cls, L"ListBox")) { *(HWND*)lp = h; return FALSE; }
         return TRUE;
     }, (LPARAM)&list);
     return list ? (int)SendMessageW(list, LB_GETCOUNT, 0, 0) : -1;
@@ -61,7 +73,7 @@ static BOOL CALLBACK FindCb(HWND h, LPARAM lp)
 {
     auto* ctx = (FindCtx*)lp;
     wchar_t cls[64]; GetClassNameW(h, cls, 64);
-    if (_wcsicmp(cls, ctx->cls) == 0 && GetDlgCtrlID(h) == ctx->id) {
+    if (ClassMatches(cls, ctx->cls) && GetDlgCtrlID(h) == ctx->id) {
         ctx->found = h;
         return FALSE;
     }
@@ -198,7 +210,7 @@ int main(void)
     EnumChildWindows(w, [](HWND h, LPARAM lp) -> BOOL {
         wchar_t cls[64]; GetClassNameW(h, cls, 64);
         int id = GetDlgCtrlID(h);
-        if (wcscmp(cls, L"Edit") == 0 && id == 1001) { *(HWND*)lp = h; return FALSE; }
+        if (ClassMatches(cls, L"Edit") && id == 1001) { *(HWND*)lp = h; return FALSE; }
         return TRUE;
     }, (LPARAM)&search);
     if (search) {

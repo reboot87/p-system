@@ -3,7 +3,6 @@
 // AirUI — Controls.h
 // 通用控件与窗口绘制辅助
 //
-//   PlaceholderEdit  给任意 EDIT 加占位提示（含 IME / 焦点门控）
 //   DrawButton       主/次/危险按钮的统一外观
 //   AttachButton     OWNERDRAW 按钮的 hover / pressed 跟踪
 //   NavBar           侧栏导航（分组 + 条目 + 角标 + hover）
@@ -22,30 +21,9 @@ namespace air {
 namespace ui {
 
 // ============================================================
-// PlaceholderEdit —— 占位提示
-//
-// Windows 的 EM_SETCUEBANNER 有两个硬限制：多行 EDIT 不支持、
-// 且 IME 组词/输入过程中仍可能透出。本实现改为子类化自绘，规则：
-//   · 仅当「内容为空 + 未聚焦 + 不在 IME 组词」时绘制
-//   · 与真实文字同基线（DT_TOP），避免"空态居中 / 有字贴顶"错位
+// 原生 EDIT 工具（自绘 TextBox 仍走 WM_GETTEXT 兼容路径；
+// 这里的低层函数保留给集成层，页面不再使用）
 // ============================================================
-class PlaceholderEdit
-{
-public:
-    using KeyCallback = std::function<bool(HWND edit, UINT vk,
-                                           bool ctrl, bool shift)>;
-
-    static void Attach(HWND edit, const std::wstring& placeholder, HFONT font);
-    static void Detach(HWND edit);
-    static bool Attached(HWND edit);
-
-    static void SetPlaceholder(HWND edit, const std::wstring& text);
-    static void SetFont(HWND edit, HFONT font);
-
-    // 按键回调（Esc 取消 / Ctrl+Enter 提交等）。返回 true 表示已消费。
-    static void SetKeyCallback(HWND edit, KeyCallback cb);
-};
-
 // 输入框 8px 文字内边距（企业级输入规范）
 void SetEditMargins(HWND edit, int left = 8, int right = 8);
 // 清空 EDIT（EM_SETSEL + EM_REPLACESEL，多行单行均可靠）
@@ -54,10 +32,6 @@ void ClearEditText(HWND edit);
 void MoveCaretToEnd(HWND edit);
 // 读取 EDIT 文本（跨进程安全：走 WM_GETTEXT）
 std::wstring GetEditText(HWND edit);
-
-// 把父窗口坐标的点击转发给输入框：聚焦、按 x 定位光标。
-// 用于「视觉外框比 EDIT 客户区高」的场景，点外框留白也能进入输入态。
-void ForwardClickToEdit(HWND edit, HFONT font, POINT ptParent);
 
 // ============================================================
 // 按钮
