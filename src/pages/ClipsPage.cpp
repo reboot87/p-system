@@ -35,8 +35,8 @@ void OpRects(int itemW, RECT out[3])
 // ============================================================
 void ClipsPage::CreateControls()
 {
-    // 单行 EDIT 永远把文字画在客户区顶部 → 客户区压到一行文字高才真正居中
-    m_lineH = m_shell->TextLineHeight(FontRole::Body);
+    // 自绘 TextBox 自带边框与垂直居中（textRc = 客户区减 unit 内边距），
+    // 页面不再画外框、也不再为原生 EDIT 的行为把控件压到一行高。
 
     // ---- 搜索框 ----
     m_search = &CreateTextBox({ IDC_SEARCH_EDIT, false,
@@ -227,9 +227,8 @@ void ClipsPage::Relayout()
     m_rcSearchBox = { content.left, content.top,
                       content.left + searchW, content.top + kSearchBoxH };
 
-    m_search->Move(m_rcSearchBox.left + 1,
-                   m_rcSearchBox.top + (kSearchBoxH - m_lineH) / 2,
-                   searchW - 2, m_lineH);
+    m_search->Move(m_rcSearchBox.left, m_rcSearchBox.top,
+                   searchW, kSearchBoxH);
 
     // 快捷键提示 chip：右对齐，与搜索框同高居中
     {
@@ -290,10 +289,8 @@ void ClipsPage::Relayout()
         int rowY = contentY + 88 + 12;
         int btnW = 96;
         m_rcNoteBox = { fx, rowY, fx + fw - btnW - 12, rowY + m.inputH };
-        m_noteEdit->Move(m_rcNoteBox.left + 1,
-                         m_rcNoteBox.top + (m.inputH - m_lineH) / 2,
-                         m_rcNoteBox.right - m_rcNoteBox.left - 2,
-                         m_lineH);
+        m_noteEdit->Move(m_rcNoteBox.left, m_rcNoteBox.top,
+                         m_rcNoteBox.right - m_rcNoteBox.left, m.inputH);
         m_saveBtn->Move(fx + fw - btnW, rowY, btnW, m.inputH);
         m_rcFormClose = { m_rcFormCard.right - 62, m_rcFormCard.top + 14,
                           m_rcFormCard.right - 16, m_rcFormCard.top + 36 };
@@ -303,9 +300,9 @@ void ClipsPage::Relayout()
     else if (m_editingId && m_rcDetail.right > m_rcDetail.left) {
         RECT nb = DetailNoteBox(m_rcDetail);
         m_rcNoteMulti = nb;
-        // 内缩 4px 给父窗口画的边框留空间
-        m_noteMulti->Move(nb.left + 4, nb.top + 4,
-                          nb.right - nb.left - 8, nb.bottom - nb.top - 8);
+        // 自绘控件自带边框，直接铺满备注区（不再为父窗口边框内缩）
+        m_noteMulti->Move(nb.left, nb.top,
+                          nb.right - nb.left, nb.bottom - nb.top);
         m_saveBtn->Move(m_rcDetail.left + 16, nb.bottom + 10, 96, 30);
         m_rcFormClose = {};
         m_rcNoteBox = {};
@@ -551,12 +548,6 @@ void ClipsPage::DrawToolbar(Canvas& g)
     const Palette& p = Pal();
     const Metrics& m = Mx();
 
-    // 搜索框视觉外框（EDIT 只占中间一行，边框必须画在父窗口）
-    if (m_rcSearchBox.right > m_rcSearchBox.left) {
-        g.FillRound(m_rcSearchBox, p.surface, m.radiusMd);
-        g.Stroke(m_rcSearchBox, p.border, m.radiusMd);
-    }
-
     // 类型筛选胶囊
     const wchar_t* chips[4] = { L"全部", L"文本", L"链接", L"手动" };
     for (int i = 0; i < 4; ++i) {
@@ -630,17 +621,7 @@ void ClipsPage::DrawFormCard(Canvas& g)
                DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
     }
 
-    // 输入框边框（画在控件外框上）
-    if (m_rcManualBox.right > m_rcManualBox.left) {
-        RECT rr = m_rcManualBox;
-        InflateRect(&rr, 1, 1);
-        g.Stroke(rr, p.border, m.radiusSm);
-    }
-    if (m_rcNoteBox.right > m_rcNoteBox.left) {
-        RECT nr = m_rcNoteBox;
-        InflateRect(&nr, 1, 1);
-        g.Stroke(nr, p.border, m.radiusSm);
-    }
+    // 输入框边框由自绘 TextBox 自管，页面不再画
 }
 
 void ClipsPage::DrawDetailPanel(Canvas& g)
@@ -721,9 +702,8 @@ void ClipsPage::DrawDetailPanel(Canvas& g)
 
     RECT nb = DetailNoteBox(d);
     if (noteEditing) {
-        // 编辑态：常规输入框外观（白底 + 实线），不画旧备注，避免与编辑内容重叠
-        g.FillRound(nb, p.surface, m.radiusMd);
-        g.Stroke(nb, p.border, m.radiusMd);
+        // 编辑态：外观由自绘 m_noteMulti 自己画（白底+实线+焦点态），
+        // 不再画旧备注，避免与编辑内容重叠
     } else {
         // 虚线框 = "点我就能写"，悬停时描边提亮，让它看起来确实可以点
         const bool hov = m_hot.Hovered(kHotNoteBox);

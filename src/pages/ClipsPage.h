@@ -138,7 +138,6 @@ private:
     bool m_formOpen   = false;
     int  m_selEntry   = -1;
     long long m_editingId = 0;
-    int  m_lineH = 0;           // 单行 EDIT 客户区高（= 一行文字高）
     bool m_visible = false;
     int  m_bannerH = 0;      // 服务离线横幅高度（离线时 ~28px，在线 0）
 };
