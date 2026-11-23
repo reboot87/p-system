@@ -98,9 +98,12 @@ public:
 
     // ---- 自绘内部（TextBoxProc 是 friend，直接驱动这些） ----
     void SyncTextLayout();          // 文本/尺寸变化时重建 cum/lines
-    void PaintSelf(HDC dc);         // WM_PAINT：单行走 PaintTextBox，多行直排
+    void PaintSelf(HDC dc);         // WM_PAINT：单行/多行均走 m_cum 逐字宽度表
     void CaretAtClientPoint(POINT); // 客户区点击 → 光标/扩选 + 聚焦
-    POINT CaretPoint() const;       // 插入点（IME 候选窗跟随）
+    // 插入点在**文本区**（textRc）内的相对坐标（不含 unit 内边距；
+    // 多行已减去 m_scroll）。调用方：PaintSelf（+textRc 原点）、
+    // SyncIme（+unit 还原为客户区坐标给 ImmSet*Window）。
+    POINT CaretPoint() const;
     void ScrollForCaret();          // 多行：caret 行滚进视口
     void SyncIme();                 // 组词串/候选窗跟随插入点
     void InsertChar(wchar_t ch);    // WM_CHAR 路径（表 6：中文多行先对齐 caret）
@@ -110,6 +113,8 @@ public:
                          IClipboard* clip);            // 统一后处理入口
     void ApplyPostEdit();                             // 滚动/IME/重绘
     int  MaxScroll() const;
+    void RestartCaretBlink();                         // 聚焦/光标移动时重置闪烁相位
+    void StopCaretBlink();                            // 失焦：停闪烁定时器
 
 protected:
     friend class Page;
@@ -129,6 +134,7 @@ protected:
     int  m_scroll = 0;               // 多行垂直滚动（px）
     int  m_rightInset = 0;           // 右侧留白（快捷键 chip 让位）
     bool m_composing  = false;      // IME 组词中（吞掉重复 WM_CHAR）
+    bool m_caretOn    = true;       // 插入符闪烁相位（原生 EDIT 的系统 caret 由我们自管）
     HFONT m_font = nullptr;
 };
 

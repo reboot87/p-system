@@ -780,6 +780,21 @@ set_target_properties(airui_demo PROPERTIES
     LINK_FLAGS "/SUBSYSTEM:WINDOWS"
 )
 
+# AirUI TextBox lab (examples/TextBoxLab.cpp) — self-drawn TextBox
+# repro harness: single/multi-line boxes + caret-blink phase probe
+add_executable(airui_textbox_lab
+    examples/TextBoxLab.cpp
+)
+target_link_libraries(airui_textbox_lab
+    airui-win32
+    user32 gdi32 shell32 comctl32 shlwapi advapi32 ole32
+)
+set_target_properties(airui_textbox_lab PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
+    LINK_FLAGS "/SUBSYSTEM:WINDOWS"
+)
+
 # AirUI interactive component gallery (GUI)
 add_executable(airui_gallery
     src/gallery/main.cpp

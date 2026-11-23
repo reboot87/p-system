@@ -57,6 +57,8 @@ static void HoverLog(const wchar_t* fmt, ...)
 constexpr UINT_PTR kSubTextBox = 0xC1;
 constexpr UINT_PTR kSubListBox = 0xC2;
 constexpr UINT_PTR kSubCustom  = 0xC3;
+// TextBox 插入符闪烁定时器 id（自绘窗口没有系统 caret，闪烁自管）
+constexpr UINT_PTR kCaretBlinkTimerId = 0x5A7C;
 
 // 局部夹取（core 的 ClampInt 未导出，这里是同一语义的最小副本）
 static int ClampV(int v, int lo, int hi)
@@ -293,15 +295,28 @@ LRESULT CALLBACK TextBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
         if (self) {
             self->m_edit.hasFocus = true;
             self->SyncIme();
+            self->RestartCaretBlink();
             InvalidateRect(hwnd, nullptr, FALSE);
         }
         return 0;
     case WM_KILLFOCUS:
         if (self) {
             self->m_edit.hasFocus = false;
+            self->StopCaretBlink();
             InvalidateRect(hwnd, nullptr, FALSE);
         }
         return 0;
+    case WM_TIMER:
+        if (self && wParam == kCaretBlinkTimerId) {
+            self->m_caretOn = !self->m_caretOn;
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return 0;
+        }
+        break;   // 别的 id 交给默认
+    case WM_SYSCOLORCHANGE:
+        // 系统 caret 闪烁周期可能被用户/IME 改过，重新对齐
+        if (self) self->RestartCaretBlink();
+        break;
     case WM_CHAR:
         if (self) {
             const wchar_t ch = (wchar_t)wParam;
@@ -386,6 +401,7 @@ LRESULT CALLBACK TextBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
         return 1;   // 背景在 WM_PAINT 里整块画（自绘无闪烁）
     case WM_NCDESTROY:
         a11y::ForgetWindow(hwnd);   // 清无障碍属性表（幂等）
+        if (self) self->StopCaretBlink();
         RemoveWindowSubclass(hwnd, &TextBoxProc, idSub);
         break;
     }
@@ -512,7 +528,7 @@ void TextBox::SyncTextLayout()
     if (lineH > 0) m_lineH = lineH;
     if (ascent > 0) m_ascent = ascent;
 
-    // 多行折行；单行不折（avail = 无限），由 PaintTextBox 处理横向滚动。
+    // 多行折行；单行不折（avail = 无限），横向滚动由 PaintSelf 单行分支处理。
     m_lines = WrapText(m_edit.text, m_cum,
                        m_desc.multiline ? availW : 0x7fffffff, m_lineH);
     m_scroll = ClampV(m_scroll, 0, MaxScroll());
@@ -532,31 +548,31 @@ void TextBox::ScrollForCaret()
                              m_layH, m_lineH);
 }
 
+// 返回插入点在**文本区**（PaintSelf 的 textRc）内的相对坐标：
+// 单行 —— x 沿文本，y 垂直居中（文本区 = 客户区减 unit 内边距）；
+// 多行 —— x 行内相对，y 已减去 m_scroll（与 PaintSelf 的行 y 同一坐标）。
+// 之前这里直接返回客户区坐标（含 unit），PaintSelf 再 +textRc（又含
+// unit）→ 双重计入，光标/组词串整体右偏+下偏一个 unit。
 POINT TextBox::CaretPoint() const
 {
     POINT p{ 0, 0 };
     if (!m_hwnd) return p;
     RECT rc{};
     GetClientRect(m_hwnd, &rc);
-    const int unit = Mx().unit;
     const int n = (int)m_edit.text.size();
     const bool haveCum = ((int)m_cum.size() == n + 1);
     const int caret = ClampV(m_edit.cursor, 0, n);
     if (m_desc.multiline) {
-        if (!haveCum || m_lines.begin.empty()) {
-            p.x = unit;
-            p.y = unit;
-            return p;
-        }
+        if (!haveCum || m_lines.begin.empty()) return p;
         const int line = LineOfIndex(m_lines, caret);
         const int lb = m_lines.begin[line];
-        p.x = unit + (caret >= lb ? m_cum[caret] - m_cum[lb] : 0);
-        p.y = unit + line * m_lineH - m_scroll;
+        p.x = (caret >= lb ? m_cum[caret] - m_cum[lb] : 0);
+        p.y = line * m_lineH - m_scroll;
         return p;
     }
-    // 单行：文本在框内垂直居中（PaintTextBox 用 DT 单行对齐）。
-    p.x = unit + (haveCum ? m_cum[caret] : 0);
-    p.y = (int)(rc.bottom - rc.top - m_lineH) / 2;
+    // 单行：文本在文本区内垂直居中（PaintSelf 用 DT 单行 VCenter 对齐）。
+    p.x = (haveCum ? m_cum[caret] : 0);
+    p.y = (int)((rc.bottom - rc.top) - m_lineH) / 2;
     if (p.y < 0) p.y = 0;
     return p;
 }
@@ -565,14 +581,18 @@ void TextBox::SyncIme()
 {
     if (!m_hwnd) return;
     const POINT c = CaretPoint();
+    // ImmSetCompositionWindow/ImmSetCandidateWindow 的坐标是**窗口客户区**：
+    // 文本区相对坐标 + unit 内边距还原。
+    const int unit = Mx().unit;
+    const int cx = c.x + unit, cy = c.y + unit;
     // 候选窗区域：整块文本区（caret 行的上下沿）。
-    int zx = Mx().unit;
-    int zy = c.y;
-    int zr = Mx().unit + m_layW;
-    int zb = c.y + m_lineH;
+    int zx = unit;
+    int zy = cy;
+    int zr = unit + m_layW;
+    int zb = cy + m_lineH;
     if (zr < zx + 1) zr = zx + 1;
     if (zb < zy + 1) zb = zy + 1;
-    SyncImeWindow(m_hwnd, c.x, c.y, zx, zy, zr, zb);
+    SyncImeWindow(m_hwnd, cx, cy, zx, zy, zr, zb);
 }
 
 void TextBox::ApplyEditResult(EditAction action, const std::wstring& arg,
@@ -588,7 +608,26 @@ void TextBox::ApplyPostEdit()
     SyncTextLayout();
     ScrollForCaret();
     SyncIme();
+    RestartCaretBlink();        // 光标一移动就回「亮」相位（不闪半帧）
     if (m_hwnd) InvalidateRect(m_hwnd, nullptr, FALSE);
+}
+
+// ---- 插入符闪烁 ----
+// 原生 EDIT 的闪烁由系统 caret 负责；自绘窗口里 caret 是我们画的，
+// 闪烁也要自己驱动。周期/相位同步系统 GetCaretBlinkTime()（用户改
+// 系统设置或切换 IME 时系统会发 WM_SYSCOLORCHANGE，跟着对齐）。
+void TextBox::RestartCaretBlink()
+{
+    m_caretOn = true;
+    if (!m_hwnd || !m_edit.hasFocus) return;
+    KillTimer(m_hwnd, kCaretBlinkTimerId);
+    const UINT ms = GetCaretBlinkTime();
+    if (ms != INFINITE) SetTimer(m_hwnd, kCaretBlinkTimerId, ms, nullptr);
+}
+
+void TextBox::StopCaretBlink()
+{
+    if (m_hwnd) KillTimer(m_hwnd, kCaretBlinkTimerId);
 }
 
 void TextBox::InsertChar(wchar_t ch)
@@ -712,8 +751,8 @@ bool TextBox::DefaultKey(UINT vk, bool ctrl, bool shift)
     }
 }
 
-// 单行直接用 core 的 PaintTextBox（外框/占位/选区/光标同一套设计）；
-// 多行用同一组 IPainter 原语按 core 的折行结果逐行直排。
+// 单行与多行共用 m_cum（逐字 GDI 实测前缀宽度表）做光标/选区/文本几何，
+// 三者和绘制同源；单行不折行、超出时横向滚动（caret 跟进出界自动偏移）。
 void TextBox::PaintSelf(HDC dc)
 {
     if (!m_shell || !dc) return;
@@ -730,65 +769,122 @@ void TextBox::PaintSelf(HDC dc)
     if (!g) return;
     const Palette& pal = Pal();
     const Metrics& mx = Mx();
-
-    if (!m_desc.multiline) {
-        TextBoxState st;
-        st.edit = m_edit;
-        st.placeholder = m_desc.placeholder;
-        st.base.focused = m_edit.hasFocus;
-        PaintTextBox(*g, frame, st, pal, mx);
-        return;
-    }
-
-    // ---- 多行：外框 + 行内选区 + 逐行文本 + 组词串 + 插入符 ----
-    g->FillRound(frame, mx.radiusMd, pal.surface);
-    g->StrokeRound(frame, mx.radiusMd,
-                   m_edit.hasFocus ? pal.primary : pal.border, 1);
-
     const int unit = mx.unit;
+    const Color ink = m_edit.hasFocus ? pal.text : pal.textSub;
+    const bool composing = !m_edit.composition.empty();
+    const bool showCaret = m_edit.hasFocus && m_caretOn && !composing;
+
     const ::air::ui::Rect textRc(frame.left + unit, frame.top + unit,
                                  frame.right - unit - m_rightInset,
                                  frame.bottom - unit);
     if (textRc.Empty()) return;
+    const bool haveCum = ((int)m_cum.size() == (int)m_edit.text.size() + 1);
+    g->FillRound(frame, mx.radiusMd, pal.surface);
+    g->StrokeRound(frame, mx.radiusMd,
+                   m_edit.hasFocus ? pal.primary : pal.border, 1);
     g->PushClip(textRc);
 
-    const bool composing = !m_edit.composition.empty();
+    if (!m_desc.multiline) {
+        // ---- 单行 ----
+        // 不再走 core PaintTextBox：它的 caret/选区几何是等宽模型
+        // （cursor × charW("0")），比例字体下光标位置随内容漂移，且
+        // 宽度测量（IPainter::MeasureText）与 GDI 绘制字形不同源。
+        // 这里与多行共用 m_cum（逐字 GDI 实测前缀宽度表），光标、选区、
+        // 文本三者和绘制同源。
+        if (m_edit.text.empty() && !composing) {
+            const std::wstring ph = m_desc.placeholder;
+            if (!ph.empty())
+                g->Text(textRc, ph.c_str(), ph.size(), m_desc.fontRole,
+                        pal.textFaint, dt::Left | dt::VCenter | dt::SingleLine);
+        } else {
+            const int n = (int)m_edit.text.size();
+            const int caret = ClampV(m_edit.cursor, 0, n);
+            const int cx0 = haveCum ? m_cum[caret] : 0;
+            // 横向滚动：caret 出右界左移、出左界右移（EDIT 的同款语义）
+            int scrollX = 0;
+            const int avail = (int)(textRc.right - textRc.left);
+            if (cx0 > avail - unit) scrollX = cx0 - (avail - unit);
+            const int totalW = (haveCum && n > 0) ? m_cum[n] : 0;
+            if (scrollX > totalW - unit) scrollX = (totalW > unit) ? totalW - unit : 0;
+            if (HasSelection(m_edit)) {
+                const int a = SelectionBegin(m_edit), b = SelectionEnd(m_edit);
+                if (haveCum && b > a) {
+                    const int x0 = (std::max)(0, m_cum[a] - scrollX);
+                    const int x1 = m_cum[b] - scrollX;
+                    if (x1 > x0)
+                        g->FillRect(::air::ui::Rect(textRc.left + x0, textRc.top,
+                                                    textRc.left + x1, textRc.bottom),
+                                    pal.selectFill);
+                }
+            }
+            g->Text(::air::ui::Rect(textRc.left - scrollX, textRc.top,
+                                    textRc.left - scrollX + totalW + avail,
+                                    textRc.bottom),
+                    m_edit.text.c_str(), (size_t)n, m_desc.fontRole, ink,
+                    dt::Left | dt::VCenter | dt::SingleLine);
+            if (composing) {
+                const int x = textRc.left + cx0 - scrollX;
+                g->Text(::air::ui::Rect(x, textRc.top, x + avail, textRc.bottom),
+                        m_edit.composition.c_str(), m_edit.composition.size(),
+                        m_desc.fontRole, pal.primaryText,
+                        dt::Left | dt::VCenter | dt::SingleLine);
+            }
+        }
+        if (showCaret) {
+            // 空框（占位字）与有文本同一几何：caret = textRc.left + cum[cursor]
+            const int cx0 = haveCum ? m_cum[ClampV(m_edit.cursor, 0, (int)m_edit.text.size())] : 0;
+            // 窄框保护：textRc 上下各留 2px 后不足 8px 时，caret 居中保底 8px
+            // （单行框高 ≈ 一行文字高，textRc 只有几个 px，直接 inset 会变空矩形）
+            int cy0 = textRc.top + 2, cy1 = textRc.bottom - 2;
+            if (cy1 - cy0 < 8) {
+                const int mid = (textRc.top + textRc.bottom) / 2;
+                cy0 = mid - 4; cy1 = mid + 4;
+            }
+            g->FillRect(::air::ui::Rect(textRc.left + cx0, cy0,
+                                        textRc.left + cx0 + 1, cy1),
+                        pal.primary);
+        }
+        g->PopClip();
+        return;
+    }
+
+    // ---- 多行：行内选区 + 逐行文本 + 组词串 + 插入符 ----
     if (m_edit.text.empty() && !composing) {
         const std::wstring ph = m_desc.placeholder;
         if (!ph.empty())
             g->Text(textRc, ph.c_str(), ph.size(), m_desc.fontRole,
                     pal.textFaint, dt::Left | dt::Top | dt::SingleLine);
-        g->PopClip();
-        return;
-    }
+    } else {
+        const int lineH = m_lineH > 0 ? m_lineH : 1;
+        if (HasSelection(m_edit)) {
+            const int a = SelectionBegin(m_edit), b = SelectionEnd(m_edit);
+            for (size_t li = 0; li < m_lines.begin.size(); ++li) {
+                const int lb = m_lines.begin[li], le = m_lines.end[li];
+                if (le <= a || lb >= b) continue;
+                const int s = (std::max)(lb, a), e = (std::min)(le, b);
+                if (e <= s) continue;
+                const int x0 = textRc.left + (m_cum[s] - m_cum[lb]);
+                const int x1 = textRc.left + (m_cum[e] - m_cum[lb]);
+                const int y  = textRc.top + (int)li * lineH - m_scroll;
+                if (x1 > x0)
+                    g->FillRect(::air::ui::Rect(x0, y, x1, y + lineH), pal.selectFill);
+            }
+        }
 
-    const int lineH = m_lineH > 0 ? m_lineH : 1;
-    if (HasSelection(m_edit)) {
-        const int a = SelectionBegin(m_edit), b = SelectionEnd(m_edit);
         for (size_t li = 0; li < m_lines.begin.size(); ++li) {
             const int lb = m_lines.begin[li], le = m_lines.end[li];
-            if (le <= a || lb >= b) continue;
-            const int s = (std::max)(lb, a), e = (std::min)(le, b);
-            if (e <= s) continue;
-            const int x0 = textRc.left + (m_cum[s] - m_cum[lb]);
-            const int x1 = textRc.left + (m_cum[e] - m_cum[lb]);
-            const int y  = textRc.top + (int)li * lineH - m_scroll;
-            if (x1 > x0)
-                g->FillRect(::air::ui::Rect(x0, y, x1, y + lineH), pal.selectFill);
+            if (le <= lb) continue;
+            const int y = textRc.top + (int)li * lineH - m_scroll;
+            if (y >= textRc.bottom || y + lineH <= textRc.top) continue;
+            g->Text(::air::ui::Rect(textRc.left, y, textRc.right, y + lineH),
+                    m_edit.text.c_str() + lb, (size_t)(le - lb), m_desc.fontRole,
+                    ink, dt::Left | dt::Top | dt::SingleLine);
         }
     }
 
-    const Color ink = m_edit.hasFocus ? pal.text : pal.textSub;
-    for (size_t li = 0; li < m_lines.begin.size(); ++li) {
-        const int lb = m_lines.begin[li], le = m_lines.end[li];
-        if (le <= lb) continue;
-        const int y = textRc.top + (int)li * lineH - m_scroll;
-        if (y >= textRc.bottom || y + lineH <= textRc.top) continue;
-        g->Text(::air::ui::Rect(textRc.left, y, textRc.right, y + lineH),
-                m_edit.text.c_str() + lb, (size_t)(le - lb), m_desc.fontRole,
-                ink, dt::Left | dt::Top | dt::SingleLine);
-    }
-
+    // CaretPoint() 返回 textRc 相对坐标：textRc.left/top 只加一次。
+    // 空框（占位字）与有文本同一几何：caret = textRc.left + cum[cursor]。
+    const int lineH = m_lineH > 0 ? m_lineH : 1;
     if (composing) {
         const POINT c = CaretPoint();
         const int y = textRc.top + c.y;
@@ -797,7 +893,7 @@ void TextBox::PaintSelf(HDC dc)
                 m_desc.fontRole, pal.primaryText,
                 dt::Left | dt::Top | dt::SingleLine);
     }
-    if (m_edit.hasFocus && !composing) {
+    if (showCaret) {
         const POINT c = CaretPoint();
         const int y = textRc.top + c.y;
         if (y + lineH > textRc.top && y < textRc.bottom)
