@@ -553,3 +553,22 @@
   - **修法**：页面不再画任何输入框边框（自绘 TextBox 自管：占位/焦点/选区同一套外观）；搜索框给足 `searchH`(36)、表单备注给足 `inputH`(32)；详情面板备注框去掉 4px 内缩、直接铺满；删死成员 `m_lineH`。全仓只有 ClipsPage 用 TextBox，无其他页面受同类影响。
   - **实测**：`boxrect.exe` 探针确认搜索框 318x20 → **320x36**；截图裁剪核对四处（搜索框 / 表单多行 / 表单单行备注 / 详情备注编辑态）全部单层边框、占位字与实际文字大小正常且垂直居中、焦点蓝框与 caret 正常；`ctest -C Release` 28/28。
   - **判据**：自绘控件接管了"画自己"之后，页面层所有为原生控件行为做的补偿（代画边框、压行高、内缩留边）必须同步撤掉，否则两套几何互相打架——这类"自绘接管"的回归面不在控件自身，而在调用方的页面层。
+
+- **2026-11-23（跟进三）— 自绘 TextBox 三个鼠标交互补齐（双击选词 / 拖选 / 右键菜单），顺带挖出两个真缺陷**
+  - **范围**：`TextBoxProc` 原来只有左键单击定位（`WM_LBUTTONDOWN` → `CaretAtClientPoint`），相对原生 EDIT 缺三块：`WM_LBUTTONDBLCLK`（双击选词）、`WM_LBUTTONUP`/`WM_MOUSEMOVE`（按住拖选）、`WM_RBUTTONUP`/`WM_CONTEXTMENU`（右键菜单）。ListBox 侧这三样都有，TextBox 侧补齐后两者交互对齐。
+  - **实现**（复用既有 core 几何 `IndexAtX`/`LineOfIndex`，与 ListBoxProc 同模式）：
+    - `HitIndex(pt)`：客户区点 → 全局文本下标，单行/多行两路（多行先按 `m_scroll` 换算行号），四个交互共用。
+    - `BeginDrag`：左键下 = 定位 caret + 记拖选锚点 + `SetCapture`；Shift+下击保留原锚点扩选。
+    - `DragTo`：拖动中每帧重算光标下标，多行拖到上下 12px 边缘自动滚屏（±3px/帧）。
+    - `SelectWordAt`：双击选词 —— ASCII 词 = 连续字母数字（向前/向后扩到非词字符）；CJK/标点选点击处单个字符（保守行为，不引入分词依赖，与系统 EDIT"中文双击选整词"的差异已记录）。
+    - `ShowEditMenu`：右键/Shift+F10 弹**自绘浮层**菜单（`RunPopupMenu`，与 `Shell::ShowPopupMenu`/设计系统一致，不用原生 `TrackPopupMenu`）：复制/剪切（无选区时 disabled）/粘贴，走 core `EditAction::Copy/Cut/Paste` + `Win32Clipboard`。
+    - `EM_GETSEL` shim：返回 `[SelectionBegin, SelectionEnd)`，与既有 `WM_GETTEXT`/`EM_SETSEL` 并列，供跨进程选区探测（`test_ui` 尚未用到，留作标准探测面）。
+  - **挖出的真缺陷 ①（T2 拖选锚点）**：`BeginDrag` 里锚点赋值排在 `cursor = HitIndex(pt)` **之前**，普通下击时锚点拿到的是**旧光标**位置，拖选起点整体错位。修正为 cursor 定位之后取锚点。
+  - **挖出的真缺陷 ②（T3 右键清选区）**：`CaretAtClientPoint` 原来**无条件清选区**，右键定位 caret 时把选区一起清掉 → 菜单里复制/剪切永远 disabled（死项）。改为原生 EDIT 语义：右键落在已有选区内 → 保留选区（光标停到选区尾），选区外 → 定位 caret 并清。第二处坑：选区判定必须在 `IndexAtX` 移动 cursor **之前**捕获原 `[begin,end)` —— 移动后再查 `SelectionEnd` 会被收缩（`SelectionEnd = max(anchor, cursor)`），点击点被误判在选区外。
+  - **实测**（`labtest.exe` 扩了 `clear`/`getsel`/`setsel`/`dblclick`/`drag`/`rclick` 命令 + `menuclick.exe` 用 `PostMessage` 驱动自绘菜单项；跨进程 `SendMessage` 模态菜单只改发件线程栈上的 `done` 标志、循环线程永不醒，必须 `PostMessage` 投进队列由模态循环线程自己派发）：
+    - **T1 双击选词 PASS**：键入 `hello world`，双击 `world`（x=75）→ `sel=[6,11)`，键入 `x` 替换 → `hello x`。
+    - **T2 拖选 PASS**：拖 x=30..100 → `sel=[3,11)`，键入 `X` 替换 → `helX`（锚点顺序缺陷修复前为 `[11,11)` 空选区）。
+    - **T3 右键复制/粘贴往返 PASS**：双击选 `world` → 右键**选区内**（x=75）→ `sel=[6,11)` 保留（缺陷②修复前被清成 `[10,10)`）→ 菜单 复制 → 清空 → 菜单 粘贴 → 框内恢复 `world`。右键**选区外**定位 caret 不清他处选区、空框/无选区时复制剪切灰显 粘贴可用（截图核对自绘浮层样式）。
+    - `cmake --build build --config Release` 全目标无错无警；`ctest -C Release` **28/28**；`check-core-clean` PASS（55 文件 0 平台引用）；`check-public-headers` 全量子配置 PASS；`skia-syntax` 不涉及（本次改动仅 `platform/win32/Widgets.{h,cpp}`，`platform/skia/` 零改动，CI bash 侧照常跑）。
+  - **测试工具链注记（非产品缺陷）**：`labtest clear` 原实现 `EM_SETSEL(0,-1)` + `VK_BACK` 背靠背 `SendMessage`，跨进程无消息泵间隔时 Backspace 偶发不落地（拆成两个进程分开发则稳定删选区，框内"选区+Backspace"本身经双击选词+Backspace→`hello `、跨进程 setsel+key→空、粘贴替换整段等多条路径验证无误）。`clear` 已改走 `WM_SETTEXT`（框有标准 shim，确定性重置 text/cursor/selection 并重建布局）。
+  - **边界**：双击选词对 CJK 选单字（不做分词）；拖选自动滚屏阈值 12px/±3px 为经验值（与原生 EDIT 手感对齐留待后续）；菜单无快捷键列（复制/剪切/粘贴三项，后续如需 Ctrl+C/X/V 提示可加）；多行拖选的垂直滚屏只处理上下边缘（左右横向滚动沿用既有 caret 跟随，拖选横向未加自动滚）。

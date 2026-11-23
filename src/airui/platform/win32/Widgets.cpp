@@ -1,5 +1,6 @@
 #include "airui/Widgets.h"
 #include "airui/Shell.h"
+#include "airui/OverlayWindow.h"   // RunPopupMenu（TextBox 右键菜单）
 #include "airui/Gfx.h"
 #include "airui/Accessibility.h"
 #include "airui/PaintBackend.h"
@@ -275,6 +276,15 @@ LRESULT CALLBACK TextBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
         InvalidateRect(hwnd, nullptr, FALSE);
         return 0;
     }
+    if (msg == EM_GETSEL && self) {
+        // 标准 EDIT 探测：返回 [min,max) 选区（无选区 = caret, caret）
+        short* sp = (short*)lParam;
+        if (sp) {
+            sp[0] = (short)SelectionBegin(self->m_edit);
+            sp[1] = (short)SelectionEnd(self->m_edit);
+        }
+        return 0;
+    }
 
     switch (msg) {
     case WM_KEYDOWN:
@@ -285,6 +295,24 @@ LRESULT CALLBACK TextBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
             if (self->DefaultKey((UINT)wParam, ctrl, shift)) { self->ApplyPostEdit(); return 0; }
         }
         break;   // 未消费（Tab 等）→ 默认处理
+    case WM_CONTEXTMENU: {
+        // 键盘 Shift+F10：wParam=0，lParam=-1 → 锚定当前 caret
+        // （与 ListBoxProc 的 WM_CONTEXTMENU 同款处理）
+        if (!self) break;
+        POINT sp;
+        if (wParam == 0 && lParam == (LPARAM)-1) {
+            const POINT c = self->CaretPoint();
+            sp = { c.x + Mx().unit, c.y + Mx().unit };
+            ClientToScreen(hwnd, &sp);
+        } else {
+            sp = { (short)LOWORD(lParam), (short)HIWORD(lParam) };
+            ScreenToClient(hwnd, &sp);
+            self->CaretAtClientPoint(sp);
+            ClientToScreen(hwnd, &sp);
+        }
+        self->ShowEditMenu(sp);
+        return 0;
+    }
     case WM_GETOBJECT:
         // 被 SetAccessible* 标注过才接管；否则 EDIT 继续用系统原生
         // provider（其 Text/Value/Selection 支持比薄包装更完整）。
@@ -337,8 +365,33 @@ LRESULT CALLBACK TextBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
         }
         return 0;
     case WM_LBUTTONDOWN:
-        if (self) self->CaretAtClientPoint(POINT{ (short)LOWORD(lParam),
-                                                  (short)HIWORD(lParam) });
+        if (self) self->BeginDrag(POINT{ (short)LOWORD(lParam),
+                                         (short)HIWORD(lParam) });
+        return 0;
+    case WM_LBUTTONDBLCLK:
+        if (self) self->SelectWordAt(POINT{ (short)LOWORD(lParam),
+                                            (short)HIWORD(lParam) });
+        return 0;
+    case WM_LBUTTONUP:
+        if (self && self->m_dragging) {
+            self->m_dragging = false;
+            ReleaseCapture();
+        }
+        return 0;
+    case WM_MOUSEMOVE:
+        if (self && self->m_dragging)
+            self->DragTo(POINT{ (short)LOWORD(lParam),
+                                (short)HIWORD(lParam) });
+        return 0;
+    case WM_RBUTTONUP:
+        // 先定位 caret（原生 EDIT 语义），再弹菜单（lParam 已是客户区坐标）
+        if (self) {
+            const POINT cp = { (short)LOWORD(lParam), (short)HIWORD(lParam) };
+            self->CaretAtClientPoint(cp);
+            POINT sp = cp;
+            ClientToScreen(hwnd, &sp);
+            self->ShowEditMenu(sp);
+        }
         return 0;
     case WM_IME_STARTCOMPOSITION:
         if (self) {
@@ -548,6 +601,139 @@ void TextBox::ScrollForCaret()
                              m_layH, m_lineH);
 }
 
+// ============================================================
+// 鼠标交互：点击 / 拖选 / 双击选词 / 右键菜单
+// 坐标约定：HitIndex/BeginDrag/DragTo 收客户区坐标（含 unit 内边距）；
+// 内部换算成文本下标走 core 的同一套几何（IndexAtX/LineOfIndex）。
+// ============================================================
+
+// 客户区点 → 全局文本下标（点击/拖选/双击/右键共用）
+int TextBox::HitIndex(POINT pt)
+{
+    SyncTextLayout();
+    const int n = (int)m_edit.text.size();
+    const int unit = Mx().unit;
+    if (m_desc.multiline) {
+        if (m_lines.begin.empty() || n == 0) return 0;
+        const int lineH = m_lineH > 0 ? m_lineH : 1;
+        int line = (pt.y - unit + m_scroll) / lineH;
+        line = ClampV(line, 0, (int)m_lines.begin.size() - 1);
+        return IndexAtX(m_edit.text, m_cum, m_lines.begin[line],
+                        m_lines.end[line], pt.x - unit);
+    }
+    return IndexAtX(m_edit.text, m_cum, 0, n, pt.x - unit);
+}
+
+void TextBox::BeginDrag(POINT pt)
+{
+    if (!m_hwnd) return;
+    SetFocus(m_hwnd);
+    if (!m_edit.hasFocus) m_edit.hasFocus = true;
+    m_dragging = true;
+    const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+    // 点击定位本身：无 Shift → 清选区放 caret；有 Shift → 从锚点扩选
+    m_edit.cursor = HitIndex(pt);
+    if (shift) {
+        if (m_edit.selectionAnchor < 0) m_edit.selectionAnchor = m_edit.cursor;
+    } else {
+        m_edit.selectionAnchor = -1;
+    }
+    // 拖选锚点：Shift+下击扩展保留原锚点；普通下击锚点 = 下击点。
+    // 必须在 cursor 定位之后取，否则拿到的是旧光标位置（T2 回归源）。
+    m_dragAnchor = shift ? m_edit.selectionAnchor : m_edit.cursor;
+    SetCapture(m_hwnd);
+    ApplyPostEdit();
+}
+
+void TextBox::DragTo(POINT pt)
+{
+    // 拖出窗口也要有 WM_MOUSEMOVE：SetCapture 后由本窗口收。
+    // 多行：光标拖到上/下边缘附近自动滚屏（原生 EDIT 同款）
+    if (m_desc.multiline && m_hwnd) {
+        RECT rc{};
+        GetClientRect(m_hwnd, &rc);
+        const int edge = 12;
+        int dy = 0;
+        if (pt.y < edge)                      dy = -3;
+        else if (pt.y > (rc.bottom - rc.top) - edge) dy = +3;
+        if (dy != 0) {
+            m_scroll = ClampV(m_scroll + dy, 0, MaxScroll());
+            InvalidateRect(m_hwnd, nullptr, FALSE);
+        }
+    }
+    const int idx = HitIndex(pt);
+    if (m_dragAnchor < 0) m_dragAnchor = m_edit.cursor;   // 首次：锚 = 下击点
+    m_edit.cursor = idx;
+    m_edit.selectionAnchor = m_dragAnchor;
+    ApplyPostEdit();
+}
+
+// 双击选词：ASCII 词 = 连续字母数字；CJK 字符各自成词（与
+// 系统 EDIT 的"中文双击选一个词"相比我们选单字，是保守但确定的
+// 行为，不引入分词依赖）。选区 = 词的首尾，caret 落到词尾。
+void TextBox::SelectWordAt(POINT pt)
+{
+    const int n = (int)m_edit.text.size();
+    if (n == 0) return;
+    const int unit = Mx().unit;
+    int at = HitIndex(pt);
+    if (at > n) at = n;
+    const std::wstring& s = m_edit.text;
+    auto isWordChar = [](wchar_t c) {
+        return (c >= L'a' && c <= L'z') || (c >= L'A' && c <= L'Z') ||
+               (c >= L'0' && c <= L'9');
+    };
+    if (isWordChar(s[(size_t)at])) {
+        // ASCII 词：向前/向后扩到非词字符（at 可能指在词尾，从词尾
+        // 回退后再向前扫）
+        int beg = at;
+        while (beg > 0 && isWordChar(s[(size_t)(beg - 1)])) --beg;
+        int end = at;
+        while (end < n && isWordChar(s[(size_t)end])) ++end;
+        m_edit.selectionAnchor = beg;
+        m_edit.cursor = end;
+    } else {
+        // CJK/标点：选点击的那个字符（at 落在两个字符之间且前一字符
+        // 存在时视为点击前一字符）
+        int i = (at < n) ? at : at - 1;
+        m_edit.selectionAnchor = i;
+        m_edit.cursor = i + 1;
+    }
+    ApplyPostEdit();
+}
+
+// 右键 / Shift+F10 菜单：复制 / 剪切 / 粘贴（disabled 态按有无选区/剪贴板）
+void TextBox::ShowEditMenu(POINT screenPt)
+{
+    if (!m_hwnd || !m_shell) return;
+    const bool hasSel = HasSelection(m_edit);
+    std::vector< ::air::ui::OverlayMenuItem> items;
+    items.push_back({ 1, L"复制",   false, !hasSel });
+    items.push_back({ 2, L"剪切",   false, !hasSel });
+    items.push_back({ 3, L"粘贴",   false, false });
+    const int choice = ::air::ui::RunPopupMenu(
+        m_hwnd, m_shell->UiFonts(), screenPt, items);
+    switch (choice) {
+    case 1: {
+        Win32Clipboard clip;
+        ApplyEditResult(EditAction::Copy, L"", &clip);
+        break;
+    }
+    case 2: {
+        Win32Clipboard clip;
+        ApplyEditResult(EditAction::Cut, L"", &clip);
+        break;
+    }
+    case 3: {
+        Win32Clipboard clip;
+        InsertText(clip.Read());
+        break;
+    }
+    default:
+        break;
+    }
+}
+
 // 返回插入点在**文本区**（PaintSelf 的 textRc）内的相对坐标：
 // 单行 —— x 沿文本，y 垂直居中（文本区 = 客户区减 unit 内边距）；
 // 多行 —— x 行内相对，y 已减去 m_scroll（与 PaintSelf 的行 y 同一坐标）。
@@ -652,6 +838,11 @@ void TextBox::CaretAtClientPoint(POINT pt)
     m_edit.hasFocus = true;
 
     const int unit = Mx().unit;
+    // 先捕获原选区，再动 cursor：若等 IndexAtX 覆盖了 cursor 再查
+    // SelectionEnd，区间已被收缩，点击点会误判在选区外（T3 回归源）。
+    const bool hadSel = HasSelection(m_edit);
+    const int selBegin0 = hadSel ? SelectionBegin(m_edit) : 0;
+    const int selEnd0   = hadSel ? SelectionEnd(m_edit) : 0;
     if (m_desc.multiline) {
         const int lineH = m_lineH > 0 ? m_lineH : 1;
         int line = (pt.y - unit + m_scroll) / lineH;
@@ -664,6 +855,15 @@ void TextBox::CaretAtClientPoint(POINT pt)
         }
     } else {
         m_edit.cursor = IndexAtX(m_edit.text, m_cum, 0, n, pt.x - unit);
+    }
+    // 落在已有选区内 → 保留选区（原生 EDIT 语义：这正是右键菜单
+    // 复制/剪切 的工作方式）；选区外 → 定位 caret 并清选区。
+    // 用捕获的原选区判定，不读已被 cursor 移动改写的 SelectionEnd。
+    if (hadSel && m_edit.cursor >= selBegin0 && m_edit.cursor < selEnd0) {
+        m_edit.cursor = selEnd0;
+        m_edit.selectionAnchor = selBegin0;
+        ApplyPostEdit();
+        return;
     }
     if (GetKeyState(VK_SHIFT) & 0x8000) {
         if (m_edit.selectionAnchor < 0) m_edit.selectionAnchor = m_edit.cursor;

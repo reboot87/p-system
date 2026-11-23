@@ -115,6 +115,12 @@ public:
     int  MaxScroll() const;
     void RestartCaretBlink();                         // 聚焦/光标移动时重置闪烁相位
     void StopCaretBlink();                            // 失焦：停闪烁定时器
+    // ---- 鼠标交互（点击 / 拖选 / 双击选词 / 右键菜单） ----
+    int  HitIndex(POINT pt);        // 客户区点 → 文本下标（点击/拖选/双击/右键共用）
+    void BeginDrag(POINT pt);         // 左键下：定位光标 + 记锚点 + 捕获指针
+    void DragTo(POINT pt);            // 拖选（多行近边缘自动滚屏）
+    void SelectWordAt(POINT pt);      // 双击：选中点击处的词
+    void ShowEditMenu(POINT screenPt);// 右键 / Shift+F10：复制/剪切/粘贴
 
 protected:
     friend class Page;
@@ -135,6 +141,8 @@ protected:
     int  m_rightInset = 0;           // 右侧留白（快捷键 chip 让位）
     bool m_composing  = false;      // IME 组词中（吞掉重复 WM_CHAR）
     bool m_caretOn    = true;       // 插入符闪烁相位（原生 EDIT 的系统 caret 由我们自管）
+    bool m_dragging   = false;      // 左键按住拖动选区中
+    int  m_dragAnchor = -1;         // 拖选起点（全局文本下标）
     HFONT m_font = nullptr;
 };
 
