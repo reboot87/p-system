@@ -795,6 +795,17 @@ void TextBox::ApplyPostEdit()
     ScrollForCaret();
     SyncIme();
     RestartCaretBlink();        // 光标一移动就回「亮」相位（不闪半帧）
+    // 文本内容变化 → EN_CHANGE（原生 EDIT 语义，SearchPlugin 的 250ms
+    // 防抖过滤全靠它）。所有编辑路径（WM_CHAR / WM_KEYDOWN / WM_SETTEXT /
+    // 粘贴 / 菜单操作）都汇聚到本函数；纯光标/选区移动内容未变，不发，
+    // 避免白跑一次防抖查询。
+    if (m_edit.text != m_lastNotified) {
+        m_lastNotified = m_edit.text;
+        if (m_hwnd && m_hwnd != GetParent(m_hwnd))
+            SendMessageW(GetParent(m_hwnd), WM_COMMAND,
+                         MAKEWPARAM(GetDlgCtrlID(m_hwnd), EN_CHANGE),
+                         (LPARAM)m_hwnd);
+    }
     if (m_hwnd) InvalidateRect(m_hwnd, nullptr, FALSE);
 }
 
@@ -1684,9 +1695,9 @@ LRESULT CALLBACK CustomProc(HWND hwnd, UINT msg, WPARAM wParam,
             return acc;
         break;
     case WM_NCHITTEST:
-        if (self) {
+        if (self && self->m_desc.mouseTransparent) {
             LRESULT r = DefSubclassProc(hwnd, msg, wParam, lParam);
-            return (r == HTCLIENT) ? HTTRANSPARENT : r;   // 鼠标穿透
+            return (r == HTCLIENT) ? HTTRANSPARENT : r;   // 鼠标穿透（chip）
         }
         break;
     case WM_ERASEBKGND:
@@ -1704,12 +1715,60 @@ LRESULT CALLBACK CustomProc(HWND hwnd, UINT msg, WPARAM wParam,
         EndPaint(hwnd, &ps);
         return 0;
     }
+    // ---- 可交互变体（设过 OnClick 才走；纯装饰直接落 DefSubclassProc）----
+    case WM_MOUSEMOVE:
+        if (self && self->m_click && !self->m_press) {
+            if (!self->m_hover) {
+                TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hwnd, 0 };
+                TrackMouseEvent(&tme);
+            }
+            self->m_hover = true;
+            InvalidateRect(hwnd, nullptr, FALSE);
+        }
+        return 0;
+    case WM_MOUSELEAVE:
+        if (self && self->m_click && self->m_hover) {
+            self->m_hover = false;
+            InvalidateRect(hwnd, nullptr, FALSE);
+        }
+        return 0;
+    case WM_LBUTTONDOWN:
+        if (self && self->m_click) {
+            self->m_press = true;
+            SetCapture(hwnd);
+            InvalidateRect(hwnd, nullptr, FALSE);
+        }
+        return 0;
+    case WM_LBUTTONUP: {
+        if (self && self->m_click && self->m_press) {
+            self->m_press = false;
+            ReleaseCapture();
+            InvalidateRect(hwnd, nullptr, FALSE);
+            // 点在框外松手 = 取消（桌面按钮语义）
+            RECT rc; GetClientRect(hwnd, &rc);
+            POINT pt = { (short)LOWORD(lParam), (short)HIWORD(lParam) };
+            if (PtInRect(&rc, pt)) {
+                auto cb = self->m_click;
+                if (cb) cb();
+            }
+        }
+        return 0;
+    }
     case WM_NCDESTROY:
         a11y::ForgetWindow(hwnd);   // 清无障碍属性表（幂等）
         RemoveWindowSubclass(hwnd, &CustomProc, idSub);
         break;
     }
     return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+void Custom::OnClick(std::function<void()> cb)
+{
+    m_click = std::move(cb);
+    // 设了点击回调 = 交互控件，关闭穿透（创建时的 mouseTransparent 仅
+    // 适用于纯装饰用途）；回调置空则恢复穿透。
+    m_desc.mouseTransparent = !m_click;
+    if (m_hwnd) InvalidateRect(m_hwnd, nullptr, TRUE);
 }
 
 void Custom::OnPaint(std::function<void(Canvas&, const RECT&)> painter)

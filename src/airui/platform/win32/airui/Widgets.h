@@ -133,6 +133,7 @@ protected:
     std::function<bool(UINT, bool, bool)> m_keyCb;
 
     TextEditState m_edit;            // core 引擎：文本/光标/选区/组词
+    std::wstring m_lastNotified;     // 已发 EN_CHANGE 的文本内容（纯光标/选区移动不重复通知）
     std::vector<int> m_cum;          // 逐字累计宽度表（比例字体）
     TextLines        m_lines;       // 多行折行结果
     int  m_layW = -1, m_layH = -1;   // 布局缓存的客户区尺寸（变了才重建）
@@ -291,6 +292,12 @@ class Custom : public Widget
 {
 public:
     void OnPaint(std::function<void(Canvas&, const RECT&)> painter);
+    // 交互升级：设了点击回调 = 可点击（捕获鼠标、记 hover/press 态）；
+    // 不设 = 纯装饰（WM_NCHITTEST 恒 HTTRANSPARENT，鼠标穿透给下层窗口，
+    // 如搜索框上的 Ctrl+Shift+V 提示 chip）。
+    void OnClick(std::function<void()> cb);
+    bool Hovered() const { return m_hover; }
+    bool Pressed() const { return m_press; }
 
 protected:
     friend class Page;
@@ -300,6 +307,8 @@ protected:
 
     CustomDesc m_desc;
     std::function<void(Canvas&, const RECT&)> m_painter;
+    std::function<void()> m_click;
+    bool m_hover = false, m_press = false;
 };
 
 } // namespace ui

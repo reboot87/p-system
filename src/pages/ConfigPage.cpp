@@ -10,6 +10,8 @@ void ConfigPage::OnShow(bool shown)
 {
     if (!shown) {
         KillTimer(TIMER_SYSINFO);
+        m_darkHot.Leave();   // 离开页面时清掉开关的悬停/按下态
+        m_rcDarkToggle = {};
         return;
     }
     m_sys = sysinfo::Collect();
@@ -19,7 +21,7 @@ void ConfigPage::OnShow(bool shown)
 
 void ConfigPage::OnLayout(const RECT& content)
 {
-    (void)content;   // 配置页是纯绘制页，双栏流式排布，无需缓存几何
+    m_content = content;   // 输入坐标换算基准（客户区绝对几何 ↔ 内容区相对输入）
 }
 
 bool ConfigPage::OnTimer(UINT_PTR id)
@@ -28,6 +30,66 @@ bool ConfigPage::OnTimer(UINT_PTR id)
     m_sys = sysinfo::Collect();
     m_shell->InvalidateContent();
     return true;
+}
+
+// ============================================================
+// 暗色模式开关（自绘热区）
+// ============================================================
+bool ConfigPage::HitDarkToggle(POINT clientPt) const
+{
+    return m_rcDarkToggle.right > m_rcDarkToggle.left &&
+           PtInRect(&m_rcDarkToggle, clientPt);
+}
+
+// 内容区相对输入坐标 → 客户区绝对坐标（热区几何是绝对坐标）
+static POINT AbsPoint(const RECT& content, POINT rel)
+{
+    return { rel.x + content.left, rel.y + content.top };
+}
+
+bool ConfigPage::OnMouseDown(POINT pt)
+{
+    const POINT abs = AbsPoint(m_content, pt);
+    if (HitDarkToggle(abs)) {
+        SetCapture(true);   // 拖出再松手 = 取消
+        m_darkHot.Down(kHotDarkToggle);
+        InvalidateRegion(m_rcDarkToggle);
+        return true;
+    }
+    return false;
+}
+
+bool ConfigPage::OnMouseUp(POINT pt)
+{
+    if (!m_darkHot.Pressing()) return false;
+    const POINT abs = AbsPoint(m_content, pt);
+    const bool clicked = HitDarkToggle(abs) && m_darkHot.Release(kHotDarkToggle);
+    SetCapture(false);
+    if (clicked)
+        m_app.SetThemeDark(!m_app.IsDark());
+    InvalidateRegion(m_rcDarkToggle);
+    return true;
+}
+
+bool ConfigPage::OnMouseMove(POINT pt)
+{
+    const POINT abs = AbsPoint(m_content, pt);
+    const bool dirty = m_darkHot.Move(HitDarkToggle(abs) ? kHotDarkToggle : 0);
+    if (dirty) InvalidateRegion(m_rcDarkToggle);
+    return dirty;
+}
+
+bool ConfigPage::OnMouseLeave()
+{
+    const bool dirty = m_darkHot.Leave();
+    if (dirty) InvalidateRegion(m_rcDarkToggle);
+    return dirty;
+}
+
+bool ConfigPage::HandCursorAt(POINT pt)
+{
+    const POINT abs = AbsPoint(m_content, pt);
+    return HitDarkToggle(abs);
 }
 
 void ConfigPage::DrawInfoCard(Canvas& g, RECT rc, const CardData& c)
@@ -153,7 +215,16 @@ void ConfigPage::OnPaint(Canvas& g, const RECT& content)
         cards.push_back(std::move(c));
     }
 
-    // 4) 显示与图形
+    // 4) 显示与外观（暗色模式开关；绘制在卡片行区之后的固定位置）
+    {
+        CardData c = { L"\xE793", L"显示与外观", L"已应用", true, {} };
+        c.rows.push_back(std::wstring(L"主题\t") +
+                         (m_app.IsDark() ? L"暗色" : L"浅色") + L"\t-1");
+        c.rows.push_back(L"配色\tAnt Design 5 · 企业蓝\t-1");
+        cards.push_back(std::move(c));
+    }
+
+    // 5) 显示与图形
     {
         CardData c = { L"\xE7F4", L"显示与图形", L"已采集", true, {} };
         c.rows.push_back(L"显卡\t" + m_sys.gpuName + L"\t-1");
@@ -214,12 +285,47 @@ void ConfigPage::OnPaint(Canvas& g, const RECT& content)
     // 双栏：交替放入左右两列
     int yL = top, yR = top;
     int col = 0;
+    m_rcThemeCard = {};
     for (auto& c : cards) {
         int h = CardHeight((int)c.rows.size());
         RECT rc;
         if (col == 0) { rc = { x0, yL, x0 + colW, yL + h }; yL += h + 14; }
         else          { rc = { x0 + colW + 14, yR, x1, yR + h }; yR += h + 14; }
+        if (wcscmp(c.title, L"显示与外观") == 0) m_rcThemeCard = rc;
         DrawInfoCard(g, rc, c);
         col ^= 1;
     }
+
+    // 暗色开关：盖在「显示与外观」卡第一行（主题行）的取值区右侧
+    if (m_rcThemeCard.right > m_rcThemeCard.left)
+        DrawDarkToggle(g);
+}
+
+void ConfigPage::DrawDarkToggle(Canvas& g)
+{
+    const Palette& p = Pal();
+    const bool dark = m_app.IsDark();
+
+    // 开关轨道 40x22，圆心在第一行垂直中线
+    const int trackW = 40, trackH = 22;
+    const int cx = m_rcThemeCard.right - 16 - trackW;
+    const int cy = m_rcThemeCard.top + 44 + (26 - trackH) / 2;   // 第一行区
+    m_rcDarkToggle = { cx - 4, cy - 3, cx + trackW + 4, cy + trackH + 3 };
+
+    const bool hov   = m_darkHot.Hovered(kHotDarkToggle);
+    const bool press = m_darkHot.Pressed(kHotDarkToggle);
+
+    RECT track = { cx, cy, cx + trackW, cy + trackH };
+    g.FillRound(track, dark ? p.primary : p.chipBg, trackH / 2);
+    if (hov || press)
+        g.Stroke(track, press ? p.primaryDown : p.primary, trackH / 2);
+
+    // 滑块：暗色在右、浅色在左
+    const int knobD = trackH - 6;
+    int kx = dark ? cx + trackW - knobD - 3 : cx + 3;
+    RECT knob = { kx, cy + 3, kx + knobD, cy + 3 + knobD };
+    g.FillRound(knob, dark ? p.primaryText : RGB(255, 255, 255), knobD / 2);
+    // 微阴影感：滑块下缘一层深描边（浅色模式）
+    if (!dark)
+        g.Stroke(knob, p.chipBorder, knobD / 2);
 }

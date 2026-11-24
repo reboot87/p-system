@@ -126,6 +126,10 @@ int App::Run(HINSTANCE hInstance)
     opt.showOnCreate = !m_startHidden && m_showDelayMs <= 0;
     // 运行时后端选择（--paint-backend / AIRUI_PAINT_BACKEND / 默认 gdi）
     opt.paintBackend = m_paintBackend;
+    // 暗色模式（机器级 [ui] dark，默认浅色）。Shell::Create 里按 opt.dark
+    // 应用 DarkPalette；配置页「显示与外观」可运行期切换（SetThemeDark）。
+    m_dark = machine::Get(L"ui", L"dark", L"0") == L"1";
+    opt.dark = m_dark;
     // --core-shell 只切换外壳实现（简化 HAL 外壳），与渲染后端无关；
     // 后端由 PaintFrame 在帧级别覆盖整个客户区。
     opt.coreShell = m_coreShell;
@@ -316,6 +320,24 @@ int App::Run(HINSTANCE hInstance)
             // 服务端新记录通知 → 防抖后刷新（合并连续多次复制）
             if (msg == WM_APP + 2) {
                 SetTimer(hwnd, TIMER_REFRESH_NOTIFY, 300, nullptr);
+                result = 0;
+                return true;
+            }
+            // 窗口移动 / 缩放 → 800ms 防抖后持久化位置（连续拖动只存最后一次）。
+            // 只「武装」定时器、不消费消息：必须继续交给 Shell 处理（WM_SIZE
+            // 要重排布局、WM_MOVE 要重定位 Toast）。最大化 / 最小化不存
+            // （IsZoomed/IsIconic 在 SaveWindowRect 内判）。
+            if (msg == WM_MOVE || msg == WM_SIZE) {
+                if (!m_rectSaveArmed) {
+                    m_rectSaveArmed = true;
+                    SetTimer(hwnd, TIMER_WINDOW_RECT, 800, nullptr);
+                }
+            }
+            // 窗口位置防抖到期：落盘 [ui] window_rect
+            if (msg == WM_TIMER && wParam == TIMER_WINDOW_RECT) {
+                KillTimer(hwnd, TIMER_WINDOW_RECT);
+                m_rectSaveArmed = false;
+                SaveWindowRect();
                 result = 0;
                 return true;
             }
@@ -530,6 +552,11 @@ int App::Run(HINSTANCE hInstance)
     // 统计 + 同步外壳文案 + 标脏，不必再重复三次 IPC。
     m_shell.SwitchPage(0);
 
+    // 窗口位置记忆：在窗口首次显示/绘制前恢复上次的位置与尺寸（避免在
+    // 默认位置闪一帧）。放在 RunMessageLoop 之前——那时窗口已创建但尚未
+    // ShowWindow/首帧，SetWindowPos 不会引入可见抖动。
+    RestoreWindowRect();
+
     diag::Log(L"[ui] message loop begin, stats.total=%lld, svc=%d hidden=%d delay=%d",
               (long long)m_stats.total, (int)m_svcState,
               (int)m_startHidden, m_showDelayMs);
@@ -619,6 +646,83 @@ void App::Toast(const std::wstring& title, const std::wstring& message, bool ok)
 {
     m_shell.ToastManager().Show(title, message,
         ok ? air::ui::ToastKind::Success : air::ui::ToastKind::Error);
+}
+
+void App::SetThemeDark(bool dark)
+{
+    if (m_dark == dark) return;
+    m_dark = dark;
+    machine::Set(L"ui", L"dark", dark ? L"1" : L"0");
+
+    // 换整套调色板：外壳 / 页面 / 自绘控件都只读 Pal()，换色即全局生效。
+    air::ui::SetPalette(dark ? air::ui::DarkPalette() : air::ui::LightPalette());
+
+    m_shell.Invalidate();
+    // 子控件（TextBox / ListBox / Custom）是独立子窗口、各自 WM_PAINT 读
+    // Pal()；父窗 InvalidateRect(...,FALSE) 不会波及子窗口，需逐个标脏。
+    EnumChildWindows(m_shell.Hwnd(),
+        [](HWND h, LPARAM) -> BOOL {
+            InvalidateRect(h, nullptr, FALSE);
+            return TRUE;
+        }, 0);
+}
+
+void App::RestoreWindowRect()
+{
+    HWND hwnd = m_shell.Hwnd();
+    if (!hwnd) return;
+
+    const std::wstring raw = machine::Get(L"ui", L"window_rect", L"");
+    if (raw.empty()) return;   // 首次运行：沿用 Shell 的默认位置
+
+    // 解析 "x,y,w,h"
+    int x = 0, y = 0, w = 0, h = 0;
+    if (swscanf_s(raw.c_str(), L"%d,%d,%d,%d", &x, &y, &w, &h) != 4) return;
+    if (w < 200 || h < 150) return;   // 尺寸异常（损坏）→ 不恢复
+
+    // 校验落点：取窗口当前所在显示器的工作区，把保存的矩形夹进去。
+    // 处理「上次停在已拔掉的副屏」——夹回主屏可见区，而不是恢复到屏幕外。
+    HMONITOR mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi = { sizeof(mi) };
+    RECT wa{};
+    if (mon && GetMonitorInfoW(mon, &mi))
+        wa = mi.rcWork;
+    else {
+        SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0);
+    }
+    if (wa.right - wa.left <= 0) return;
+
+    // 完全落在工作区外 → 居中；否则夹入可见区（保留用户意图的相对位置）
+    bool offscreen = (x + w <= wa.left || x >= wa.right ||
+                      y + h <= wa.top || y >= wa.bottom);
+    if (offscreen) {
+        x = wa.left + ((wa.right - wa.left) - w) / 2;
+        y = wa.top + ((wa.bottom - wa.top) - h) / 2;
+    } else {
+        if (x < wa.left) x = wa.left;
+        if (y < wa.top)  y = wa.top;
+        if (x + w > wa.right) x = wa.right - w;
+        if (y + h > wa.bottom) y = wa.bottom - h;
+    }
+    SetWindowPos(hwnd, nullptr, x, y, w, h,
+                 SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOSENDCHANGING);
+}
+
+void App::SaveWindowRect()
+{
+    HWND hwnd = m_shell.Hwnd();
+    if (!hwnd) return;
+
+    // 最大化 / 最小化时 GetWindowRect 返回的是显示器边界 / 任务栏坐标，
+    // 不是用户真正摆放的位置——不保存，避免下次启动被"顶"到角落。
+    if (IsZoomed(hwnd) || IsIconic(hwnd)) return;
+
+    RECT rc{};
+    if (!GetWindowRect(hwnd, &rc)) return;
+    wchar_t buf[64];
+    swprintf_s(buf, 64, L"%d,%d,%d,%d",
+               rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top);
+    machine::Set(L"ui", L"window_rect", buf);
 }
 
 void App::FocusSearch()

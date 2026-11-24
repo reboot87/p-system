@@ -46,6 +46,7 @@ enum {
     IDC_NOTE_EDIT   = 1005,   // 备注输入框（表单卡，单行）
     IDC_SEARCH_CHIP = 1006,   // 搜索框右侧快捷键提示（独立置顶子窗口）
     IDC_NOTE_MULTI  = 1007,   // 备注输入框（详情面板，多行）
+    IDC_SEARCH_CLEAR = 1008,  // 搜索框「×」清空（独立置顶子窗口，文本非空时显示）
 };
 
 // 定时器 ID
@@ -56,6 +57,7 @@ enum {
     TIMER_SVC_HEARTBEAT   = 8, // 服务心跳 2s（PING\t<sessionId>，检测/拉起服务）
     TIMER_PROBE_HIDDEN    = 9, // 静默启动后的延迟显示（规避启动期窗口检查）
     TIMER_SVC_RECONNECT   = 10, // 服务不可用时每 3s 尝试重连（离线恢复）
+    TIMER_WINDOW_RECT     = 11, // 窗口移动/缩放后 800ms 防抖 → 持久化位置
 };
 
 // 服务统计（IPC STATS）
@@ -96,6 +98,11 @@ public:
     // 运行时绘制后端（"gdi" / "skia" / "auto"）。透传给 ShellOptions，
     // 不需要重新编译，也不需要本机安装 Skia SDK（插件按需加载）。
     void SetPaintBackend(const std::string& id) { m_paintBackend = id; }
+
+    // 暗色模式（机器级 [ui] dark）。运行期切换：换整套 Palette 后全量重绘
+    // （外壳 / 页面 / 自绘控件都读 Pal()，所以换色即全局生效），并持久化。
+    void SetThemeDark(bool dark);
+    bool IsDark() const { return m_dark; }
 
     // 启用 ShellCore / HAL 外壳渲染路径（--core-shell）。注册表只在
     // 这条路径上生效：不打开它，--paint-backend 不会改变主窗口绘制。
@@ -172,6 +179,11 @@ public:
     void Toast(const std::wstring& title,
                const std::wstring& message = L"", bool ok = true);
 
+    // 窗口位置记忆：启动时按 [ui] window_rect 恢复（需有活动显示器命中），
+    // WM_MOVE/WM_SIZE 经 800ms 防抖后持久化。最大化/最小化不保存。
+    void RestoreWindowRect();
+    void SaveWindowRect();
+
     static std::wstring GetWindowTextStr(HWND ctrl);
 
     // 应用版本（侧栏底部、配置页）—— 单一来源：生成的 Version.h
@@ -216,6 +228,8 @@ private:
     int          m_showDelayMs = 0;
     bool         m_showNoActivate = false;
     std::string  m_paintBackend;   // empty = auto (env / gdi)
+    bool         m_dark = false;   // 暗色模式（启动时从 [ui] dark 读取）
+    bool         m_rectSaveArmed = false;  // 窗口位置防抖定时器已武装
     bool         m_coreShell = false;
 };
 

@@ -67,6 +67,8 @@ private:
     void CreateControls();
     void SyncVisibility();
     void Relayout();
+    // 「×」清空按钮的显隐 + 搜索框右内边距（搜索文本非空时显示）
+    void SyncSearchClearButton();
     static RECT DetailNoteBox(RECT detail);
     static int  TypeOfEntry(const UiEntry& e);
 
@@ -103,9 +105,10 @@ private:
     App& m_app;
 
     // 控件（Widget 包装，HWND 在库内）
-    air::ui::TextBox* m_search     = nullptr;
-    air::ui::Custom*  m_searchChip = nullptr;
-    air::ui::ListBox* m_list       = nullptr;
+    air::ui::TextBox* m_search      = nullptr;
+    air::ui::Custom*  m_searchChip  = nullptr;
+    air::ui::Custom*  m_searchClear = nullptr;
+    air::ui::ListBox* m_list        = nullptr;
     air::ui::TextBox* m_manualEdit = nullptr;
     air::ui::TextBox* m_noteEdit   = nullptr;
     air::ui::TextBox* m_noteMulti  = nullptr;
@@ -116,6 +119,7 @@ private:
     RECT m_rcListCard  = {};
     RECT m_rcFormCard  = {};
     RECT m_rcSearchBox = {};
+    RECT m_rcSearchClear = {};
     RECT m_rcManualBox = {};
     RECT m_rcNoteBox   = {};
     RECT m_rcNoteMulti = {};

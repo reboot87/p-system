@@ -53,6 +53,35 @@ void ClipsPage::CreateControls()
                DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
     });
 
+    // ---- 搜索框「×」清空：覆盖在搜索框上、chip 左侧，仅文本非空时显示
+    //      （SyncSearchClearButton 由 OnCommand 的 EN_CHANGE 驱动）----
+    m_searchClear = &CreateCustom({ IDC_SEARCH_CLEAR, false });
+    m_searchClear->OnPaint([this](Canvas& g, const RECT& rc) {
+        const Palette& p = Pal();
+        const bool hov   = m_searchClear->Hovered();
+        const bool press = m_searchClear->Pressed();
+        if (hov || press)
+            g.FillRound(rc, press ? p.chipBg : p.active,
+                        (rc.bottom - rc.top) / 2);
+        // 两笔对角线画「×」（Canvas 无直线 API，走 GDI 逃生舱）
+        HDC hdc = g.Native();
+        HGDIOBJ oldPen = SelectObject(
+            hdc, CreatePen(PS_SOLID, 2, press ? p.text : p.textSub));
+        const int cx = (rc.left + rc.right) / 2;
+        const int cy = (rc.top + rc.bottom) / 2;
+        const int a  = (rc.bottom - rc.top) / 2 - 5;   // × 约 10px 见方
+        MoveToEx(hdc, cx - a, cy - a, nullptr); LineTo(hdc, cx + a, cy + a);
+        MoveToEx(hdc, cx - a, cy + a, nullptr); LineTo(hdc, cx + a, cy - a);
+        SelectObject(hdc, oldPen);
+        DeleteObject(oldPen);
+    });
+    m_searchClear->OnClick([this] {
+        // SetText("") → EN_CHANGE（TextBox 现统一发出）→ SearchPlugin 250ms
+        // 防抖 → RefreshData（清掉筛选、列表恢复全量）；焦点还回搜索框
+        m_search->SetText(L"");
+        m_search->Focus();
+    });
+
     // ---- 记录列表 ----
     m_list = &CreateListBox({ IDC_LIST, 54 });
     m_list->onPaintItem = [this](Canvas& g, const ListItemDraw& it) {
@@ -187,6 +216,7 @@ void ClipsPage::SyncVisibility()
     bool show = m_visible;
     m_search->Show(show);
     m_searchChip->Show(show);
+    SyncSearchClearButton();
     m_list->Show(show);
 
     bool form = show && m_formOpen && !m_editingId;
@@ -238,9 +268,20 @@ void ClipsPage::Relayout()
         int cx = m_rcSearchBox.right - chipW - 6;
         int cy = m_rcSearchBox.top + (kSearchBoxH - chipH) / 2;
         m_searchChip->Move(cx, cy, chipW, chipH);
-        // 右内边距让出 chip 区域，文字不压到标签下
-        m_search->SetRightInset(chipW + 10);
     }
+
+    // 「×」清空：chip 左侧（几何常驻，显示/右内边距由 SyncSearchClearButton
+    // 按文本状态决定——避免每次 Relayout 都重测 chip 宽度）
+    if (m_searchClear) {
+        int chipW = m_shell->MeasureTextWidth(L"Ctrl+Shift+V",
+                                              FontRole::Meta) + 12;
+        const int sz = 22;
+        int cx = m_rcSearchBox.right - chipW - 6 - sz - 4;
+        int cy = m_rcSearchBox.top + (kSearchBoxH - sz) / 2;
+        m_rcSearchClear = { cx, cy, cx + sz, cy + sz };
+        m_searchClear->Move(cx, cy, sz, sz);
+    }
+    SyncSearchClearButton();
 
     m_rcAddBtn = { content.right - 112, content.top + 1,
                    content.right, content.top + 35 };
@@ -333,6 +374,19 @@ RECT ClipsPage::DetailNoteBox(RECT d)
 std::wstring ClipsPage::GetSearchText()
 {
     return m_search ? m_search->Text() : std::wstring();
+}
+
+void ClipsPage::SyncSearchClearButton()
+{
+    if (!m_searchClear || !m_search) return;
+
+    const bool nonEmpty = !m_search->Text().empty();
+    m_searchClear->Show(m_visible && nonEmpty);
+
+    // 搜索框右内边距 = chip 区域（常驻）+ 清空按钮（非空时）。
+    // 文字最多排到可见内容区左缘，任何时刻都不被上层控件压住。
+    int chipW = m_shell->MeasureTextWidth(L"Ctrl+Shift+V", FontRole::Meta) + 12;
+    m_search->SetRightInset(chipW + 10 + (nonEmpty ? 22 + 4 : 0));
 }
 
 int ClipsPage::TypeOfEntry(const UiEntry& e)
@@ -988,6 +1042,10 @@ void ClipsPage::OnSetFocus()
 
 bool ClipsPage::OnCommand(int ctrlId, int code)
 {
+    // 搜索框文本变化（TextBox 统一发 EN_CHANGE）→「×」按钮显隐 + 文字区伸缩
+    if (ctrlId == IDC_SEARCH_EDIT && code == EN_CHANGE)
+        SyncSearchClearButton();
+
     // 过插件（F3 搜索防抖、保存按钮等由插件处理；
     // 列表选中/双击已由 ListBox 回调消费，不会到这里）
     m_app.Plugins().DispatchCommand(m_app, ctrlId, code);
