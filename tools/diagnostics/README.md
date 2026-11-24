@@ -42,3 +42,38 @@ assertion.
   page draw calls to `gallery_page_drawcalls_enabled/disabled.txt`.
 - `test_gallery_shellcore_drawcalls.cpp` — prints the ShellCore draw op count
   (asserts an expected count of 13, so it can fail) and lists the first ops.
+
+## TextBox lab drivers (Windows only)
+
+Cross-process drivers for the `airui_textbox_lab.exe` repro harness
+(`examples/TextBoxLab.cpp`, window class `AirUiTextBoxLab`). Built as
+console targets on WIN32 (`labtest` / `menuclick` / `boxrect`), not
+registered in ctest — `textbox_lab_suite.ps1` drives them end to end:
+
+- `labtest.c` — sends real `WM_*`/`EM_*` messages to the lab's child boxes
+  (ids 3001..3004): `info`/`rect`/`type`/`key`/`focus`/`clear`/`setsel`/
+  `getsel`/`getraw`/`dblclick`/`drag`/`rclick`. Text is read via `getraw`
+  (`WM_GETTEXT`) and selection via `getsel` (`EM_GETSEL`) —
+  `GetWindowTextW` returns empty across processes. `rclick` **blocks** while
+  the self-drawn edit menu is open (its modal loop), so the suite runs it in
+  the background.
+- `menuclick.c` — finds the self-drawn popup menu window
+  (`AirUiOverlayWnd`, 192x110 for the 3-item edit menu) and clicks one of its
+  items with `PostMessage` (NOT `SendMessage`: the modal loop lives in the
+  `rclick` process, so a same-call `SendMessage` would flip the `done` flag on
+  the wrong thread's stack and the loop would never wake). Waits up to 3 s
+  for the menu window to be destroyed.
+- `boxrect.c` — prints the screen rects of the `AirUITextBox` children of a
+  given shell hwnd (screenshot-crop helper).
+
+Run the full mouse-interaction suite (T1 double-click word select /
+T2 drag-select / T3 right-click copy-paste round trip) with:
+
+```
+cmake --build build --config Release `
+    --target airui_textbox_lab labtest menuclick boxrect
+powershell -ExecutionPolicy Bypass -File tools\diagnostics\textbox_lab_suite.ps1
+```
+
+Exit code 0 = all three scenarios pass; the script kills all
+`airui_textbox_lab`/`labtest` processes when it is done.

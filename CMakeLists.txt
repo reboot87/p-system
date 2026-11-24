@@ -795,6 +795,23 @@ set_target_properties(airui_textbox_lab PROPERTIES
     LINK_FLAGS "/SUBSYSTEM:WINDOWS"
 )
 
+# Cross-process drivers for the TextBox lab (tools/diagnostics/*.c).
+# Manual diagnostics, NOT assertion tests -> not registered in ctest.
+# They send real WM_* messages to a running airui_textbox_lab.exe and
+# print measurements; textbox_lab_suite.ps1 drives the T1/T2/T3 mouse
+# scenarios end to end. See tools/diagnostics/README.md.
+if(WIN32)
+    foreach(_drv labtest menuclick boxrect)
+        add_executable(${_drv} tools/diagnostics/${_drv}.c)
+        target_link_libraries(${_drv} PRIVATE user32)
+        set_target_properties(${_drv} PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+            RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
+        )
+        airui_console_target(${_drv})
+    endforeach()
+endif()
+
 # AirUI interactive component gallery (GUI)
 add_executable(airui_gallery
     src/gallery/main.cpp
