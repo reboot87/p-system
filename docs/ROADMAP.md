@@ -583,3 +583,31 @@
     - **实测**（`AireRecord` 服务 Running）：修复前保存后 IPC 段**永久挂起**（历史记录）；修复后完整跑完 `exit=0`、~7s——`PASS entry saved via IPC (id=375)`、`PASS cleanup DEL ok (1 entries removed)`、`PASS original note restored`，全链路 PASS（主窗口/列表 122 行/搜索框/表单开关/备注编辑）。
     - **遗留 WARN（非缺陷）**：`list count 122 -> 123` 快照差 ±1——`DATA_CHANGED` 广播后 UI 列表**异步**重填，`cntAfter` 采样早于删除后的刷新落地；DB 实际行数与初始一致（非数据泄漏），纯采样时机问题，已加注释。
   - **边界**：`test_ui` 仍不接 ctest（需运行中 `airecord.exe` + 服务 + 可见窗口，手工跑）；B1（IME 各家边角）、B2（GDI vs Skia GUI 级像素 diff）不在本轮范围，仍在 B 清单。
+
+- **2026-11-25（跟进五）— UI 优化第一批：搜索清空 + 实时搜索根因修复 + 暗色模式入口 + 窗口位置记忆**
+  - **范围**（按用户批准的优先级 1→3→4；2 撤销/重做单独下一轮，它要动 core 引擎）：
+    1. 搜索框「×」清空按钮（P2 高频小活）
+    3. 暗色模式设置入口（P3，框架全在只差入口 + 持久化）
+    4. 窗口位置/尺寸记忆（P3 小活）
+  - **P1-1 根因（比预期更根本）**：实现清空按钮时发现 `SearchPlugin`（250ms 防抖 → `RefreshData`）依赖 `EN_CHANGE`，但全仓 `EN_CHANGE` **只有消费方、没有发送方**——自绘 `TextBox` 改文本后从不发 `WM_COMMAND(EN_CHANGE)`，**实时搜索过滤一直是死的**（输入不触发过滤，只有 F3/切页/新记录才刷新）。
+    - **修法**（`Widgets.cpp` `TextBox::ApplyPostEdit()`）：所有编辑路径（WM_CHAR / WM_KEYDOWN / WM_SETTEXT / 粘贴 / 菜单操作 / IME 结果）都汇聚到 `ApplyPostEdit()`，在那里加「内容变了才通知」的门控——新增 `m_lastNotified` 成员（`Widgets.h`），`m_edit.text != m_lastNotified` 时发 `WM_COMMAND(EN_CHANGE)` 给父窗；纯光标/选区移动内容未变不发（避免白跑防抖查询）；`m_hwnd != GetParent(m_hwnd)` 守卫防顶层自通知。分发链：TextBox → Shell `WM_COMMAND`（`Shell.cpp:1633`）→ `ClipsPage::OnCommand` → `Plugins().DispatchCommand` → `SearchPlugin`。
+  - **P2-1 搜索框「×」清空按钮**（`ClipsPage`）：
+    - 库层：`Custom` 控件升级出**可交互变体**——`OnClick(cb)` 设回调即捕获鼠标、自管 hover/press（`WM_NCHITTEST` 不再强制 `HTTRANSPARENT`；`CustomDesc.mouseTransparent` 字段此前是死的，实现里恒穿透，现在尊重它）；不设回调 = 纯装饰，维持原穿透语义（chip 不受影响）。
+    - 页面层：`IDC_SEARCH_CLEAR = 1008`，22x22 子窗口覆盖在搜索框上、chip 左侧；`SyncSearchClearButton()`（`OnCommand` 的 `EN_CHANGE` + `Relayout` + `SyncVisibility` 三处驱动）按文本非空显隐，并联动 `SetRightInset`（chip 常驻 + 清空按钮）保证文字任何时刻不被压。点击 → `m_search->SetText(L"")` → EN_CHANGE → 防抖 → `RefreshData`（清筛选恢复全量）+ 焦点还回搜索框。「×」两笔对角线走 `Canvas::Native()` GDI 逃生舱（Canvas 无直线 API）。
+  - **P3-3 暗色模式入口**（`App` + `ConfigPage`）：框架早已齐全（`DarkPalette()` 完整调色板、`ShellOptions.dark`、`Shell.cpp:242` 启动时 `SetPalette`），只缺 UI 入口与持久化。
+    - `App::SetThemeDark(bool)`：`machine::Set(L"ui", L"dark", ...)` 持久化 + `SetPalette(DarkPalette()/LightPalette())` 运行期换肤 + 全量重绘（`Shell::Invalidate()` 只及父窗，子控件是独立子窗口各自读 `Pal()` 自绘，须 `EnumChildWindows` 逐个 `InvalidateRect`）。
+    - `App::Run` 启动读 `[ui] dark` 填 `ShellOptions.dark`（与 `close_behavior` 同模式）。
+    - `ConfigPage` 新增「显示与外观」卡（主题 / 配色两行），右上角自绘开关（HotState 热区 + 轨道/滑块绘制，按下-抬起语义与 ClipsPage 按钮一致）→ `m_app.SetThemeDark(!m_app.IsDark())`。
+  - **P3-4 窗口位置记忆**（`App`，不动 Shell 库）：
+    - 消息钩子里 `WM_MOVE`/`WM_SIZE` **只武装不消费**（消费会吞掉 Shell 自己的 `WM_SIZE` 布局）→ `TIMER_WINDOW_RECT`（11）800ms 防抖 → `SaveWindowRect()`：`GetWindowRect` → `machine::Set(L"ui", L"window_rect", L"x,y,w,h")`；`IsZoomed/IsIconic` 时不存（最大化矩形是显示器边界，不是用户摆放位）。
+    - `RestoreWindowRect()` 在 `RunMessageLoop` 前（窗口已建未显示，`SetWindowPos` 无可见抖动）：解析 + 尺寸合法性校验（`w<200||h<150` 视为损坏不恢复）+ 显示器工作区夹取（落点全在工作区外 → 居中到最近显示器，处理「上次停在已拔掉的副屏」）。
+  - **实测**（停服务隔离看门狗、新构建 `build\Release\airecord.exe` + 跨进程探针）：
+    - 实时搜索：输入不存在关键词 `zzzzqqqq` → 900ms 后列表 140 → **0**、清空按钮出现（修复前该链路完全不通）。
+    - 清空按钮：点「×」→ 列表恢复 **140**、按钮消失（EN_CHANGE → 防抖 → RefreshData 全链路）。
+    - 暗色：配置页点开关 → 像素采样卡片 **33,36,41** / 侧栏 **28,31,36**（与 `DarkPalette` 精确一致）、`ini: dark=1`；再点切回 → **255,255,255** / `dark=0`；截图确认整屏（侧栏/卡片/标题栏/状态栏/开关）一致。
+    - 窗口记忆：`SetWindowPos (400,120) 980x660` → 800ms 后 `ini: window_rect=400,120,980,660`；重启 → 恢复 `rect=(400,120,1380,780) 980x660` 精确命中。
+    - 回归：`ctest -C Release` **28/28**；`check-core-clean` PASS（55 文件 0 平台引用）；x86 构建树（`-A Win32`，CI 同款）全新 configure + 构建 `airecord` 通过。
+  - **边界**：
+    - 自绘控件的暗色换肤靠「各自读 `Pal()` 重绘」，`SetThemeDark` 时一次性 `InvalidateRect` 全部子窗口——若将来新增自绘控件类型，需确认其 `WM_PAINT` 读 `Pal()` 而非缓存颜色（现有 TextBox/ListBox/Custom/Button 都符合）。
+    - 窗口记忆不跨 DPI 缩放比例保存（96 DPI 逻辑像素；缩放比变化后位置可能偏移，未做 `WM_DPICHANGED` 适配——那是 P3 清单另一项）。
+    - 撤销/重做（P1-2）、maxLength/password 透出（P1-3）、高 DPI 动态适配、列表多选/分页仍在本清单后续。
