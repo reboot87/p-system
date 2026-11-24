@@ -12,8 +12,9 @@ static const wchar_t* kClass = L"AirUiOverlayWnd";
 static HWND g_menu = NULL;
 static int  g_cand = 0;
 
-static BOOL enumCb(HWND h, LPARAM lp)
+static BOOL CALLBACK enumCb(HWND h, LPARAM lp)
 {
+    (void)lp;
     wchar_t cls[64] = {0};
     GetClassNameW(h, cls, 64);
     if (wcscmp(cls, kClass) == 0 && IsWindowVisible(h)) {
