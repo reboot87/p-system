@@ -127,3 +127,22 @@ SendMessage(WM_USER+9000, 150)
 I.e. the shell recreates the fonts (`m_fonts.Create(dpi)`) and rescales
 `Metrics().ForDpi()` from the 96-DPI baseline, the page relayouts, and the
 list rows are rebuilt at the new heights - no compounding between changes.
+
+## ListBox multi-select drivers (3b, Windows only)
+
+Drives the irui_textbox_lab.exe --listbox ListBox page (3201 multi,
+3202 single, 3203 native EDIT mirror) - cross-process, via posted clicks:
+
+- listtest.c - ect <hwnd> (screen rects + client row rects of both lists),
+  click <hwnd> <id> <x> <y> [modsHex] (posts WM_LBUTTONDOWN+UP to the list;
+  mods in wParam: MK_CONTROL=0x8, MK_SHIFT=0x4 - ListBoxProc reads the
+  wParam bits, real clicks carry them too), selstate <hwnd> (mirror text
+  + LB_GETCURSEL/LB_GETSELCOUNT/LB_GETSEL).
+- list_lab_suite.ps1 - L1..L8 scenarios (plain/Ctrl/Shift click semantics,
+  toggle, range, single-select replace). Exit 0 = ALL PASS.
+
+## 3a DPI drivers
+
+See the section above for the 3a measurement methodology
+(posted WM_USER+9000 -> Shell ApplyDpiChange; read back via boxread.exe /
+dpik.c).
