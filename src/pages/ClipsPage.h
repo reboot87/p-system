@@ -51,6 +51,10 @@ public:
     std::vector<UiEntry> FetchEntries(const std::wstring& filter, bool* outOk = nullptr);
     void                 RefreshList(const std::wstring& filter = L"");
     void                 ApplyEntries();   // 仅从 m_app.Entries() 重建列表，不 Request（UI 线程）
+    // DPI 变化后强制重建列表（不重取数据）：行高（groupH/itemH）是
+    // AddItem 时按当时 Mx() 定死的像素值，DPI 变了必须重排。重置数据
+    // 指纹（ApplyEntries 的早退判据）后走纯内存重建，无 IPC、离线安全。
+    void                 RebuildListForDpi();
     std::wstring         GetSearchText();
 
     bool IsEditingNote() const { return m_editingId != 0; }

@@ -221,6 +221,13 @@ public:
     void SetPaintBackendChangedHandler(
         std::function<void(const std::string&, bool)> handler);
 
+    // DPI change hook: called (on the UI thread) after the shell has
+    // rebuilt fonts + metrics in response to WM_DPICHANGED.  The app
+    // layer uses it to rebuild page content whose geometry was cached
+    // in pixels at the old DPI (e.g. ListBox row heights).
+    void SetDpiChangedHandler(std::function<void(int dpi)> handler);
+    int  Dpi() const { return m_dpi; }
+
     // Platform-free shell state / layout / hit test. Core owns state,
     // the Win32 backend owns pixels (see ShellCore.h).
     ShellCore&       Core()       { return m_shellCore; }
@@ -255,6 +262,7 @@ private:
     bool RegisterWindowClass(HINSTANCE);
     void CreateNavItems();
     void LayoutAll();
+    void ApplyDpiChange(int newDpi);
     void Paint(HDC dc);
     void InitPaintBackends();
 
@@ -306,6 +314,11 @@ private:
     PaintDC::BackBuffer m_backBuffer;
 
     int           m_dpi     = 96;
+    // 96-DPI baseline metrics (the theme's raw values). WM_DPICHANGED
+    // rescales this baseline to the new DPI via ForDpi(); re-deriving
+    // from Mx() (already scaled) would compound the scaling.
+    Metrics       m_baseMetrics = Metrics();
+    std::function<void(int)> m_dpiChanged;
     int           m_capHover = 0;
     bool          m_paintBtnHover = false;
     bool          m_active  = true;

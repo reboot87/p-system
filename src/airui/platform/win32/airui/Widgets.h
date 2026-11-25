@@ -174,6 +174,8 @@ protected:
     std::vector<int> m_cum;          // 逐字累计宽度表（比例字体，按显示串测）
     TextLines        m_lines;       // 多行折行结果（按显示串折）
     int  m_layW = -1, m_layH = -1;   // 布局缓存的客户区尺寸（变了才重建）
+    int  m_layFontDpi = -1;          // 上次布局所用的字体 DPI（DPI 变了字形
+                                     // 宽度全变，即使客户区尺寸不变也要重测）
     int  m_lineH = 21, m_ascent = 16;
     int  m_scroll = 0;               // 多行垂直滚动（px）
     int  m_rightInset = 0;           // 右侧留白（快捷键 chip 让位）

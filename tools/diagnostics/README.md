@@ -91,3 +91,39 @@ powershell -ExecutionPolicy Bypass -File tools\diagnostics\textbox_lab_suite.ps1
 
 Exit code 0 = all five scenarios pass; the script kills all
 `airui_textbox_lab`/`labtest` processes when it is done.
+## High-DPI dynamic-adaptation drivers (AirUI 3a, Windows only)
+
+Environment note (measured 2026-11-26, pid 525984, `build\Release\airecord.exe`):
+both monitors here are 96 DPI, so a real cross-monitor DPI change cannot be
+produced; this Windows build also refuses to deliver a synthetic
+`WM_DPICHANGED` to a window (PostMessage and SendMessage both fail - verified
+with a dedicated in-process probe). The runtime adaptation path was therefore
+verified through the handler entry that shares the `WM_DPICHANGED` body:
+
+- `dpik` (see `dpik.c`) - sends `WM_USER+9000` with a dpi value to a running
+  airecord (`case WM_DPICHANGED: case WM_USER+9000:` in
+  `Shell::HandleMessage`, so the test message exercises the real handler body),
+  then reports the shell window rect + client size.
+- `boxread` (`boxread.c`) - reads cross-process geometry: client rects of the
+  `AirUITextBox` children and the first two rows of the `AirUIListBox` via the
+  `LB_GETITEMRECT` shim.
+
+Measured round trip (log lines from `%LOCALAPPDATA%\AireRecord\client.log`,
+written by the app via `diag::Log`):
+
+```
+SendMessage(WM_USER+9000, 150)
+  [dpi] case body dpi=150 m_dpi=96
+  [dpi] after ApplyDpiChange m_dpi=150 Mx.searchH=56 Mx.itemH=100
+  boxread: list row0 h=47, row1 h=100     (96 baseline: 30 / 64)
+SendMessage(WM_USER+9000, 96)
+  [dpi] after ApplyDpiChange m_dpi=96 Mx.searchH=36 Mx.itemH=64
+  boxread: list row0 h=30, row1 h=64      (restored)
+SendMessage(WM_USER+9000, 150)
+  [dpi] after ApplyDpiChange m_dpi=150 Mx.searchH=56 Mx.itemH=100
+  boxread: list row0 h=47, row1 h=100
+```
+
+I.e. the shell recreates the fonts (`m_fonts.Create(dpi)`) and rescales
+`Metrics().ForDpi()` from the 96-DPI baseline, the page relayouts, and the
+list rows are rebuilt at the new heights - no compounding between changes.

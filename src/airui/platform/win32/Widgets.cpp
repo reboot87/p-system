@@ -610,13 +610,17 @@ void TextBox::SyncTextLayout()
     const int availH = (int)(rc.bottom - rc.top);
     // 判据用「上次布局所用显示串」而非仅长度：等长换文本、密码开/关
     // （掩码与真实串等长）都会让显示串变化，必须重建 m_cum，否则光标
-    // /选区读到的是旧字形宽度。
+    // /选区读到的是旧字形宽度。字体 DPI 同样入键：DPI 变化时客户区
+    // 尺寸可能不变（多行框填满固定区）但字形变宽，旧判据会误命中
+    // 缓存、光标/选区沿用上 DPI 的宽度表。
     const std::wstring& shown = ShownText();
+    const int fontDpi = m_shell->UiFonts().Dpi();
     const bool same = (m_layW == availW && m_layH == availH &&
-                       m_laidShown == shown);
+                       m_laidShown == shown && m_layFontDpi == fontDpi);
     if (same) return;
     m_layW = availW;
     m_layH = availH;
+    m_layFontDpi = fontDpi;
 
     HDC dc = GetDC(nullptr);
     // 按**显示串**测宽/折行（password 时是等长掩码 •；与真实文本 1:1，

@@ -473,6 +473,17 @@ int App::Run(HINSTANCE hInstance)
     m_shell.AddPage(1, std::move(clips));
     m_shell.AddPage(2, std::move(config));
 
+    // ---- 高 DPI 动态适配（WM_DPICHANGED → Shell 已重建字体/度量） ----
+    // 页面层在此重建「按旧 DPI 像素缓存的几何」：ClipsPage 列表行高
+    // （groupH/itemH）是 AddItem 时定死的老 DPI 值，不重建则高 DPI 下
+    // 行高偏小、选中/命中错位。ApplyEntries 纯内存重建（ScopedBatch
+    // 只提交一帧），UI 线程安全。回调在 WM_DPICHANGED 处理中途触发，
+    // 此刻 m_dpi 已更新、Metrics/Fonts 已是新 DPI 的值。
+    m_shell.SetDpiChangedHandler([this](int dpi) {
+        (void)dpi;
+        if (m_clips) m_clips->RebuildListForDpi();
+    });
+
     // ---- 侧栏结构（功能模块 / 快捷操作 / 系统） ----
     {
         std::vector<NavGroup> groups;

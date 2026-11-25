@@ -452,6 +452,21 @@ void ClipsPage::RefreshList(const std::wstring& filter)
     ApplyEntries();
 }
 
+// DPI 变化后强制重建列表（不重取数据）。行高 groupH/itemH 在 AddItem
+// 时按当时 Mx() 取定（像素值），DPI 变了若复用旧行，高 DPI 下行高偏小、
+// 命中/选中错位。做法：把数据指纹置成不可能命中的值，让 ApplyEntries
+// 跳过「条目未变」早退、重跑 Reset + 逐行 AddItem（行高此刻从新 DPI 的
+// Mx() 取）。纯内存、无 IPC：离线也能跑（离线时绝不能 RefreshList，那
+// 会 FetchEntries 拿到空集、把现成列表清掉）。
+void ClipsPage::RebuildListForDpi()
+{
+    if (!m_list) return;
+    // 任何真实指纹都不等于它（指纹 = typeFilter*1000003 + …，非负起点）→ 必重建。
+    // 用字面量避免为 LLONG_MIN 引入 <climits>。
+    m_appliedFp = -9223372036854775807LL - 1;
+    ApplyEntries();
+}
+
 // 仅从应用层共享快照（m_app.Entries()）重建分组行模型与列表，不做任何
 // Request。必须只在 UI 线程调用（操作 ListBox 控件）；数据本身由后台
 // 刷新线程写好、经 WM_APP+6 回 UI 线程后再进这里。

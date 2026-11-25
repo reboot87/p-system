@@ -7,6 +7,7 @@
 #include "airui/Responsive.h"
 #include "airui/RaII.h"
 #include "airui/Accessibility.h"
+#include "core/DiagLog.h"
 #include <commctrl.h>
 #include <algorithm>
 #include <share.h>
@@ -28,6 +29,34 @@ static bool PaintTraceEnabled()
         on = (n > 0 && n < 8 && v[0] != L'0') ? 1 : 0;
     }
     return on != 0;
+}
+
+// 进程级 DPI 感知：优先 Per-Monitor-V2（窗口跨不同缩放比的显示器拖动时
+// 逐个缩放），不支持的系统退回 System-aware（整体按系统 DPI 缩放）。
+// 从 shcore 动态加载：Windows 7 没有 SetProcessDpiAwarenessContext，
+// 保持 unaware（系统虚拟化，UI 偏大但清晰），WM_DPICHANGED 永不投递，
+// 行为与升级前一致。幂等：先成功调用者生效（host 若已 SetProcessDPIAware
+// 则第二次调用返回 E_ACCESSDENIED，忽略即可）。
+static void EnsureProcessDpiAwareness()
+{
+    static bool done = false;
+    if (done) return;
+    done = true;
+    HMODULE shcore = LoadLibraryW(L"shcore.dll");
+    if (!shcore) return;   // 极老系统：保持 unaware
+    using SetCtx = BOOL(WINAPI*)(HANDLE);
+    auto pSetCtx = (SetCtx)(void*)GetProcAddress(
+        shcore, "SetProcessDpiAwarenessContext");
+    if (pSetCtx) {
+        if (pSetCtx((HANDLE)-4)) return;            // PER_MONITOR_AWARE_V2
+        if (pSetCtx((HANDLE)-1)) return;            // SYSTEM_AWARE
+    }
+    // 最后手段：Vista+ 的系统感知 API
+    using SetAware = BOOL(WINAPI*)();
+    auto pSetAware = (SetAware)(void*)GetProcAddress(
+        GetModuleHandleW(L"user32.dll"), "SetProcessDPIAware");
+    if (pSetAware) pSetAware();
+    FreeLibrary(shcore);
 }
 
 // Microsecond clock for frame timing. GetTickCount64 only steps at the
@@ -222,6 +251,17 @@ bool Shell::Create(HINSTANCE hInstance, const ShellOptions& options)
 {
     m_hinst = hInstance;
     m_opt   = options;
+
+    // Opt the process into high-DPI awareness BEFORE the window exists so
+    // Windows hands us real (unscaled) coordinates and delivers
+    // WM_DPICHANGED when the window's monitor scale changes. Loaded from
+    // shcore at runtime: Windows 7 lacks the API, in which case the process
+    // stays DPI-unaware (Windows virtualizes) and the WM_DPICHANGED handler
+    // below is simply never delivered. First call wins; a host that already
+    // called SetProcessDPIAware() (system-aware, e.g. the gallery) is left
+    // unchanged on success.
+    EnsureProcessDpiAwareness();
+
     InitPaintBackends();
     if (m_opt.className.empty()) m_opt.className = L"AirUiShellWnd";
     if (m_opt.appName.empty())   m_opt.appName   = L"App";
@@ -238,7 +278,11 @@ bool Shell::Create(HINSTANCE hInstance, const ShellOptions& options)
         if (dc) ReleaseDC(nullptr, dc);
         if (m_dpi <= 0) m_dpi = 96;
     }
-    SetMetrics(Metrics().ForDpi(m_dpi));
+    // 96-DPI 基线：此刻 Mx() 还是主题的原始（96-DPI）度量——新进程里
+    // g_metrics 是默认 Metrics()（或 JSON 主题的 96-DPI 值），尚未被任何
+    // 缩放改过。存下来供 WM_DPICHANGED 时重新 ForDpi，避免对已缩放值二次放大。
+    m_baseMetrics = Mx();
+    SetMetrics(m_baseMetrics.ForDpi(m_dpi));
     if (m_opt.dark) SetPalette(DarkPalette());
 
     if (!RegisterWindowClass(hInstance)) {
@@ -668,6 +712,39 @@ void Shell::LayoutAll()
     m_shellCore.Layout(Rect{ 0, 0, W, H });
 
     if (IPage* p = CurrentPage()) p->OnLayout(m_content);
+}
+
+// ============================================================
+// 高 DPI 动态适配（WM_DPICHANGED）
+//
+// 进程以 Per-Monitor-V2 感知运行（见 EnsureProcessDpiAwareness），
+// 窗口所在显示器缩放比变化时收到 WM_DPICHANGED。这里做三件事：
+//   1. 按新 DPI 重建字体（Fonts::Create 内部按 dpi 缩放各角色字号）；
+//   2. 从 96-DPI 基线（m_baseMetrics）重新 ForDpi 缩放全局 Metrics
+//      —— 绝不能对已缩放过的 Mx() 再 ForDpi，否则二次放大；
+//   3. 通知页面层重建「按像素缓存的几何」（如 ListBox 行高）。
+// 窗口位置/大小由 WM_DPICHANGED 的 lParam 建议矩形驱动（调用方在
+// 本函数之后 SetWindowPos），尺寸变化自动走 WM_SIZE → LayoutAll。
+// ============================================================
+void Shell::ApplyDpiChange(int newDpi)
+{
+    if (newDpi <= 0) newDpi = m_dpi;
+    if (newDpi == m_dpi) {
+        diag::Log(L"[dpi] ApplyDpiChange no-change %d == %d", newDpi, m_dpi);
+        return;
+    }
+    const int oldDpi = m_dpi;
+    m_dpi = newDpi;
+    m_fonts.Create(m_dpi);
+    SetMetrics(m_baseMetrics.ForDpi(m_dpi));
+    diag::Log(L"[dpi] ApplyDpiChange %d -> %d Mx.searchH=%d Mx.itemH=%d",
+              oldDpi, m_dpi, Mx().searchH, Mx().itemH);
+    if (m_dpiChanged) m_dpiChanged(m_dpi);
+}
+
+void Shell::SetDpiChangedHandler(std::function<void(int dpi)> handler)
+{
+    m_dpiChanged = std::move(handler);
 }
 
 // ============================================================
@@ -1187,6 +1264,9 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
     const Metrics& m = Mx();
 
+    if (msg == WM_DPICHANGED)
+        diag::Log(L"[dpi] HandleMessage pre-switch dpi=%d", (int)LOWORD(wParam));
+
     switch (msg) {
     case WM_CREATE:
         return 0;
@@ -1526,6 +1606,35 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         // The exposed area is on screen now: stop allowing background
         // erases until the next size/show change asks for one.
         m_eraseCount = 0;
+        return 0;
+    }
+
+    case WM_DPICHANGED:
+    case WM_USER + 9000: {
+        // WM_DPICHANGED：窗口所在显示器的缩放比变了（Per-Monitor-V2 下跨
+        // 屏拖动 / 系统缩放设置变化）。lParam 带系统建议的新窗口矩形
+        // （屏幕坐标）：按它重定位（SetWindowPos 尺寸变化 → WM_SIZE →
+        // LayoutAll）。注意 lParam 是指针：真实消息里由 Windows 提供、
+        // 跨进程无效；诊断探针从别的进程投递时 lParam=0（不带矩形），
+        // 此时跳过 SetWindowPos，只在当前窗口原地重排。
+        // WM_USER+9000：与 WM_DPICHANGED 共享同一 handler 体，作为
+        // 「手动触发 DPI 重适配」的测试入口（见工具 dpired/dpick 说明）。
+        const int newDpi = (int)LOWORD(wParam);
+        diag::Log(L"[dpi] case body dpi=%d m_dpi=%d", newDpi, m_dpi);
+        ApplyDpiChange(newDpi);
+        diag::Log(L"[dpi] after ApplyDpiChange m_dpi=%d Mx.searchH=%d Mx.itemH=%d",
+                  m_dpi, Mx().searchH, Mx().itemH);
+        if (lParam) {
+            const RECT* sr = (const RECT*)lParam;
+            SetWindowPos(hwnd, nullptr, sr->left, sr->top,
+                         sr->right - sr->left, sr->bottom - sr->top,
+                         SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+        // LayoutAll 幂等（重读客户区 + 重排子控件）：上面尺寸已变时
+        // WM_SIZE 已跑过一次，这里再跑一次无害；尺寸未变 / lParam=0
+        // 时它就是唯一的重排入口。
+        LayoutAll();
+        ::InvalidateRect(hwnd, nullptr, FALSE);
         return 0;
     }
 

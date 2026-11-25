@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.15)
+﻿cmake_minimum_required(VERSION 3.15)
 project(AireRecord VERSION 0.9.0)
 
 # ------------------------------------------------------------
@@ -629,7 +629,7 @@ set_target_properties(test_controls_core PROPERTIES
 )
 airui_console_target(test_controls_core)
 
-# HotState test - 自绘热区的悬停/按下/拖出取消语义（平台无关）
+# HotState test - 自绘热区的悬�?按下/拖出取消语义（平台无关）
 add_executable(test_hot_state
     tests/test_hot_state.cpp
 )
@@ -766,7 +766,7 @@ if(AIRUI_WITH_SKIA)
     endif()
 endif()
 
-# AirUI reuse demo (examples/DemoWindow.cpp) — minimal Shell+Page example
+# AirUI reuse demo (examples/DemoWindow.cpp) �?minimal Shell+Page example
 add_executable(airui_demo
     examples/DemoWindow.cpp
 )
@@ -780,7 +780,7 @@ set_target_properties(airui_demo PROPERTIES
     LINK_FLAGS "/SUBSYSTEM:WINDOWS"
 )
 
-# AirUI TextBox lab (examples/TextBoxLab.cpp) — self-drawn TextBox
+# AirUI TextBox lab (examples/TextBoxLab.cpp) �?self-drawn TextBox
 # repro harness: single/multi-line boxes + caret-blink phase probe
 add_executable(airui_textbox_lab
     examples/TextBoxLab.cpp
@@ -802,7 +802,7 @@ set_target_properties(airui_textbox_lab PROPERTIES
 # end to end (T4 = undo/redo through the edit menu, T5 = maxLength /
 # password). See tools/diagnostics/README.md.
 if(WIN32)
-    foreach(_drv labtest menuclick boxrect pixhash)
+    foreach(_drv labtest menuclick boxrect pixhash dpirel dpick boxread)
         add_executable(${_drv} tools/diagnostics/${_drv}.c)
         target_link_libraries(${_drv} PRIVATE user32)
         set_target_properties(${_drv} PROPERTIES
