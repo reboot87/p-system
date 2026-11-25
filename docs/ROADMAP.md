@@ -610,7 +610,7 @@
   - **边界**：
     - 自绘控件的暗色换肤靠「各自读 `Pal()` 重绘」，`SetThemeDark` 时一次性 `InvalidateRect` 全部子窗口——若将来新增自绘控件类型，需确认其 `WM_PAINT` 读 `Pal()` 而非缓存颜色（现有 TextBox/ListBox/Custom/Button 都符合）。
     - 窗口记忆不跨 DPI 缩放比例保存（96 DPI 逻辑像素；缩放比变化后位置可能偏移，未做 `WM_DPICHANGED` 适配——那是 P3 清单另一项）。
-    - 撤销/重做（P1-2）见下一节跟进六；maxLength/password 透出（P1-3）、高 DPI 动态适配、列表多选/分页仍在本清单后续。
+    - 撤销/重做（P1-2）见下一节跟进六；maxLength/password 透出（P1-3）见跟进七；高 DPI 动态适配、列表多选/分页仍在本清单后续。
 
 - **2026-11-25（跟进六）— 自绘 TextBox 撤销/重做（Ctrl+Z / Ctrl+Y / 菜单「撤销/重做」）**
   - **范围**：用户批准顺序里的第 1 项。把自绘 `TextBox` 的编辑历史补全到原生 EDIT 语义：可撤销/重做的键盘快捷键（Ctrl+Z 撤销、Ctrl+Y 与 Ctrl+Shift+Z 重做）+ 右键菜单「撤销/重做」（无历史时灰显）。**core 引擎保持纯函数不动**——`ApplyEdit` 是无状态变换，历史属于**控件实例**，所以快照栈放在平台层 `TextBox`，不给 `EditAction` 加状态。
@@ -630,3 +630,26 @@
     - **合成键盘无法可靠投到跨进程子窗口**（本轮最重要的环境结论）：`TextBoxProc` 用 `GetKeyState(VK_CONTROL)` 判 Ctrl，posted `WM_KEYDOWN` 伪造不了；`SendInput` 虽返回 1、前台也是 lab 壳，但键始终落不进子框（跨线程 `SetFocus` 是 no-op，`SendInput` 只路由到前台窗口焦点控件，抢前台又受前台锁规则制约、时灵时不灵）。因此 **T4 改走右键菜单**——菜单「撤销/重做」与 Ctrl+Z/Ctrl+Y 调的是**同一个** `Undo()`/`Redo()`，逻辑与菜单集成都被完整验证，且全程用可靠的 `PostMessage`。真实键盘上的 Ctrl+Z/Y 路径（`DefaultKey`）代码就位、由与 T4 相同的 `Undo()/Redo()` 兜底，但**跨进程自动化无法直接断言**该快捷键，此为已知局限（记入 README）。
     - 右键菜单复制/粘贴/撤销/重做依赖「右键落点」：落**选区内**保留选区（复制/剪切才有效），落**选区外**先定位 caret 并清选区（此时复制/剪切灰显）——这是跟进三修过的原生 EDIT 语义，T4 的复制步骤因此要先 `setsel 0 -1` 全选且右键 x 落在文本宽度内（`"hell"` ≈ x8..36，取 x=20）。
     - 撤销/重做栈是**纯内存**的（不持久化、跨进程/重启不保留，与原生 EDIT 一致）；未做「按词/按行」的合并粒度（每个字符/动作一条，与当前原生 EDIT 默认一致）；未做撤销上限（内存小、文本框内容有限，暂不设 `kMaxUndo`）。
+
+- **2026-11-25（跟进七）— 自绘 TextBox maxLength / password 平台 API 透出（P1-3）**
+  - **范围**：用户批准顺序里的第 2 项。把 core 引擎**已有**的两个能力透出到平台公共 API（`Widgets.h` 的 `TextBox`/`TextBoxDesc`，签名保持不变）：`maxLength`（最大字符数）与 `password`（密码掩码绘制）。**core 零改动**——`InsertAtCursor` 早已按 `TextEditState::maxLength` 截断（room≤0 拒插、超长粘贴截到 room），`DisplayText(st, true)` 早已是 1:1 等长 bullet（每个 UTF-16 单元 → `•`），本轮只把 desc 的声明接进引擎、把显示串接进绘制/布局。
+  - **实现**（仅 `platform/win32/airui/Widgets.{h,cpp}`，core 零改动）：
+    - **`TextBoxDesc` 加两字段**：`int maxLength = 0`（0 = 不限，UTF-16 单元计数，与 core `TextLength = s.size()` 同口径）、`bool password = false`。公共 API 加 `SetMaxLength(int)`/`MaxLength()`/`SetPassword(bool)`/`IsPassword()`（运行期可改，`SetPassword` 切换触发重绘）。
+    - **maxLength 双路径**：键入/粘贴/选区删除后的插入走 core `InsertAtCursor`（按 `m_edit.maxLength` 强制）；`CreateNative` 把 `m_desc.maxLength` 同步进 `m_edit.maxLength`（desc 是页面侧唯一声明点）。**`SetText`（程序化）也截断**——否则 `WM_SETTEXT` 成为绕过上限的旁路（截到前 maxLen 单元，再置 cursor/基线）。`SetMaxLength` 运行期改上限时对已超限内容立即截断 + 光标夹取。
+    - **password = 显示串掩码，数据路径不动**：真实文本只存在于 `m_edit.text`（`Text()`/`WM_GETTEXT`/编辑/EN_CHANGE/剪贴板复制全部读真实值，与原生 EDIT 一致）。`ShownText()` 返回 `m_desc.password ? DisplayText(m_edit,true) : m_edit.text`（缓存进 `m_shown`）。掩码与真实文本 **1:1 等长**（每 UTF-16 单元一个 `•`），所以光标/选区/折行的**几何全部按显示串算**、下标语义不变，无需第二套布局。
+    - **布局/命中/绘制切到显示串**：`SyncTextLayout` 按 `ShownText()` 测 `m_cum`/`WrapText`；**布局缓存判据**从「尺寸 + `m_cum.size() == text.size()+1`」改为「尺寸 + `m_laidShown == ShownText()`」——等长换文本、password 开/关（掩码与真实串等长）都会让显示串变化，旧判据会读到旧字形宽度，必须重建。`HitIndex` 命中按显示串（与 `m_cum`/`m_lines` 同源）；`PaintSelf` 单行/多行文本绘制源改 `ShownText()`。`SelectWordAt` 仍用真实文本扩词（掩码 1:1，下标等价；复制得到真实文本，正确）。
+    - **Undo/Redo 的 maxLength 再同步**：跟进六的快照整个 `TextEditState`（含 `maxLength` 字段），运行期 `SetMaxLength` 改过上限后撤销会把**旧快照里的 stale maxLength** 带回。`Undo()`/`Redo()` 还原后统一用 `m_desc.maxLength` 回写 `m_edit.maxLength`（desc 是运行期真值）。
+  - **lab 扩展**（`examples/TextBoxLab.cpp`，4 框 → 7 框，前四框坐标不变、T1–T4 不受影响）：⑤ `3005 maxLength=5`、⑥ `3006 password`、⑦ `3007` = ⑥ 的**明文孪生**（同文本不掩码，像素对照用）。窗口 760×640 → 760×760。
+  - **诊断工具链同步**（`tools/diagnostics/`）：
+    - `labtest.c` 的 `rect`/`getraw` 循环 3001–3004 → **3001–3007**；新增 `settext <id> "text"`（完整 `WM_SETTEXT` 串，确定性程序化路径，供 maxLength 截断断言）。
+    - 新增 `pixhash.c`（`<x> <y> <w> <h>` → BitBlt 屏幕矩形 + FNV-1a64，打印 `pixhash <16-hex> <w>x<h>`）：T5 的「渲染不同」断言用，不依赖字体度量假设。
+    - `textbox_lab_suite.ps1` 新增 **T5**（maxLength + password），CMake 驱动 foreach 加 `pixhash`。
+  - **实测**（非假设）：
+    - `textbox_lab_suite.ps1` **T1–T5 全 PASS，exit 0**。T5 覆盖：`type 3005 "abcdefghij"` → 截到 **5**（`abcde`）；`clear` + `settext 3005`（20 字符）→ 程序化也截到 **5**（`WM_SETTEXT` 不是旁路）；`secret` 同文本入 3006（掩码）/3007（明文），`getraw` 两框都报 **6 字符明文**（数据路径不被掩码污染）；`pixhash` 3006 vs 3007 屏幕矩形**不同**（`87FCD0773643CAD1` ≠ `C5667C7A887406A1`，掩码≠明文）、同矩形二拍**相同**（稳定对照）。
+    - `cmake --build build --config Release` 全量 `BUILD=0`；`ctest -C Release` **28/28**；`check-core-clean` **PASSED**（55 core 文件 0 平台引用，core 确实零改动）；`build-x86`（`-A Win32`，CI `windows-x86` 同款）全新 configure + 构建 `airecord`/`airui_textbox_lab` 通过。
+  - **边界 / 踩坑**：
+    - password **只掩码绘制**，`Text()`/`WM_GETTEXT` 仍返回真实明文（与原生 EDIT 一致）；本轮**不做**明文切换（reveal 眼睛按钮）、不做「复制时写掩码」——复制始终写真实文本（密码框复制真实值是原生 EDIT 默认，更安全，避免用户粘到别处是乱码点）。
+    - 掩码 bullet `•` 是单 UTF-16 单元，与真实文本 1:1 等长是**设计前提**——core `DisplayText` 已是该语义，`m_cum`/`IndexAtX`/`WrapText` 因此无需知道「这是掩码」。若将来 `DisplayText` 改成非等长（如按码点合并），几何源必须同步改，不能只改绘制。
+    - maxLength 按 **UTF-16 单元**计数（与 core `TextLength` 同口径），**不是**码点/字数——含代理对的 emoji 一个码点占 2 单元。与原生 `EM_SETPASSWORDCHAR`/`SetLimitText` 的「字符」口径可能有差，当前按 UTF-16 单元是有意选择（与引擎一致、可预测）。
+    - `SetMaxLength(0)` = 不限（负数按 0 处理）；`SetPassword` 运行期切换只改绘制（掩码与真实串等长，几何源不变），但 `•` 与原字形宽度不同 → `m_laidShown` 判据自动触发 `m_cum` 重建。
+    - 本轮未接 Skia 双后端像素 diff（password 走同一 `g->Text` 原语，由 CI `skia-windows` 的 G5 parity 兜底）；高 DPI 动态适配、列表多选/分页仍在本清单后续（第 3 项）。
