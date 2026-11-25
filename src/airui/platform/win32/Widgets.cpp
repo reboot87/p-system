@@ -480,6 +480,9 @@ void TextBox::SetText(const std::wstring& s)
     m_edit.selectionAnchor = -1;
     m_edit.composition.clear();
     m_edit.compositionCursor = 0;
+    m_undoStack.clear();          // 程序化重置：历史作废（原生 EDIT 语义）
+    m_redoStack.clear();
+    m_lastNotified = s;           // EN_CHANGE 基线 = 新文本（SetText 自身不发）
     m_layW = -1;                  // 强制重建 cum/lines（同长替换也要重算）
     ApplyPostEdit();
 }
@@ -708,23 +711,31 @@ void TextBox::ShowEditMenu(POINT screenPt)
     if (!m_hwnd || !m_shell) return;
     const bool hasSel = HasSelection(m_edit);
     std::vector< ::air::ui::OverlayMenuItem> items;
-    items.push_back({ 1, L"复制",   false, !hasSel });
-    items.push_back({ 2, L"剪切",   false, !hasSel });
-    items.push_back({ 3, L"粘贴",   false, false });
+    // 撤销/重做（无历史时置灰，点击无效）；随后是原生 EDIT 的
+    // 复制/剪切/粘贴。分隔符把两组操作分开（行高不同，menuclick
+    // 按像素定位而不是均分行数）。
+    items.push_back({ 1, L"撤销",   false, !CanUndo() });
+    items.push_back({ 2, L"重做",   false, !CanRedo() });
+    items.push_back({ 0, L"",       true,  false });
+    items.push_back({ 3, L"复制",   false, !hasSel });
+    items.push_back({ 4, L"剪切",   false, !hasSel });
+    items.push_back({ 5, L"粘贴",   false, false });
     const int choice = ::air::ui::RunPopupMenu(
         m_hwnd, m_shell->UiFonts(), screenPt, items);
     switch (choice) {
-    case 1: {
+    case 1: Undo();  break;
+    case 2: Redo();  break;
+    case 3: {
         Win32Clipboard clip;
         ApplyEditResult(EditAction::Copy, L"", &clip);
         break;
     }
-    case 2: {
+    case 4: {
         Win32Clipboard clip;
         ApplyEditResult(EditAction::Cut, L"", &clip);
         break;
     }
-    case 3: {
+    case 5: {
         Win32Clipboard clip;
         InsertText(clip.Read());
         break;
@@ -784,8 +795,40 @@ void TextBox::SyncIme()
 void TextBox::ApplyEditResult(EditAction action, const std::wstring& arg,
                               IClipboard* clip)
 {
+    // 快照判据 = 「该动作能不能改文本」，与参数无关（Insert 传空串、
+    // Cut 无选区都不会真正变化，多存一个快照无害）。粘贴/IME 结果/
+    // 选区删除都会改变内容，因此也纳入。移动/全选/复制不动文本。
+    const bool mayEdit = (action == EditAction::Insert ||
+                          action == EditAction::Backspace ||
+                          action == EditAction::Delete ||
+                          action == EditAction::Cut ||
+                          action == EditAction::Paste);
+    if (mayEdit) {
+        m_undoStack.push_back(m_edit);
+        m_redoStack.clear();       // 新编辑使 redo 链作废
+    }
     const EditResult r = air::ui::ApplyEdit(m_edit, action, arg, clip);
     if (r.consumed) ApplyPostEdit();
+}
+
+void TextBox::Undo()
+{
+    if (m_undoStack.empty()) return;
+    m_redoStack.push_back(m_edit);
+    m_edit = m_undoStack.back();
+    m_undoStack.pop_back();
+    m_layW = -1;                   // 快照文本/光标都变了：重建 cum/lines
+    ApplyPostEdit();
+}
+
+void TextBox::Redo()
+{
+    if (m_redoStack.empty()) return;
+    m_undoStack.push_back(m_edit);
+    m_edit = m_redoStack.back();
+    m_redoStack.pop_back();
+    m_layW = -1;
+    ApplyPostEdit();
 }
 
 void TextBox::ApplyPostEdit()
@@ -901,11 +944,21 @@ bool TextBox::DefaultKey(UINT vk, bool ctrl, bool shift)
             m_edit.selectionAnchor = 0;
             m_edit.cursor = n;
             return true;
+        case 'Z':
+            // Ctrl+Z 撤销；Ctrl+Shift+Z 是标准 IDE 的重做约定（与
+            // Ctrl+Y 并存）。Shift 从 WM_KEYDOWN 的 GetKeyState 传入。
+            if (shift) { Redo(); } else { Undo(); }
+            return true;
+        case 'Y':
+            Redo();
+            return true;
         case 'C': case 'X': {
             Win32Clipboard clip;
-            const EditResult r = air::ui::ApplyEdit(
-                m_edit, vk == 'C' ? EditAction::Copy : EditAction::Cut, L"", &clip);
-            return r.consumed;
+            // 不再直调 core ApplyEdit：统一走 ApplyEditResult，快照语义
+            // 与菜单复制/剪切一致（Ctrl+X 因此可撤销）。
+            ApplyEditResult(vk == 'C' ? EditAction::Copy : EditAction::Cut,
+                            L"", &clip);
+            return true;
         }
         case 'V': {
             Win32Clipboard clip;

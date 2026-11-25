@@ -56,18 +56,26 @@ registered in ctest — `textbox_lab_suite.ps1` drives them end to end:
   (`WM_GETTEXT`) and selection via `getsel` (`EM_GETSEL`) —
   `GetWindowTextW` returns empty across processes. `rclick` **blocks** while
   the self-drawn edit menu is open (its modal loop), so the suite runs it in
-  the background.
+  the background. `key` posts a raw `WM_KEYDOWN`, which the proc's
+  `GetKeyState(VK_CONTROL)`-based Ctrl/Shift test cannot see — so the
+  Ctrl+Z/Ctrl+Y undo/redo shortcuts are driven through the **edit menu**
+  (the menu's 撤销/重做 call the same `TextBox::Undo()/Redo()`).
 - `menuclick.c` — finds the self-drawn popup menu window
-  (`AirUiOverlayWnd`, 192x110 for the 3-item edit menu) and clicks one of its
-  items with `PostMessage` (NOT `SendMessage`: the modal loop lives in the
-  `rclick` process, so a same-call `SendMessage` would flip the `done` flag on
-  the wrong thread's stack and the loop would never wake). Waits up to 3 s
-  for the menu window to be destroyed.
+  (`AirUiOverlayWnd`) and clicks one of its items with `PostMessage` (NOT
+  `SendMessage`: the modal loop lives in the `rclick` process, so a
+  same-call `SendMessage` would flip the `done` flag on the wrong thread's
+  stack and the loop would never wake). Takes `<itemIndex> <pixelY>`: the
+  edit menu mixes row heights (item rows 36px, the separator 6px), so the
+  click point is a measured client y, not an even split. Current edit menu
+  (撤销/重做 / --- / 复制/剪切/粘贴, 188px window = 186 client): row centers
+  0 撤销 y=18, 1 重做 y=54, 2 separator y=75, 3 复制 y=96, 4 剪切 y=132,
+  5 粘贴 y=168. Waits up to 3 s for the menu window to be destroyed.
 - `boxrect.c` — prints the screen rects of the `AirUITextBox` children of a
   given shell hwnd (screenshot-crop helper).
 
-Run the full mouse-interaction suite (T1 double-click word select /
-T2 drag-select / T3 right-click copy-paste round trip) with:
+Run the full suite (T1 double-click word select / T2 drag-select /
+T3 right-click copy-paste round trip / T4 undo-redo through the edit menu)
+with:
 
 ```
 cmake --build build --config Release `
@@ -75,5 +83,5 @@ cmake --build build --config Release `
 powershell -ExecutionPolicy Bypass -File tools\diagnostics\textbox_lab_suite.ps1
 ```
 
-Exit code 0 = all three scenarios pass; the script kills all
+Exit code 0 = all four scenarios pass; the script kills all
 `airui_textbox_lab`/`labtest` processes when it is done.

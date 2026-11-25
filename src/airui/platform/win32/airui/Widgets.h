@@ -120,7 +120,11 @@ public:
     void BeginDrag(POINT pt);         // 左键下：定位光标 + 记锚点 + 捕获指针
     void DragTo(POINT pt);            // 拖选（多行近边缘自动滚屏）
     void SelectWordAt(POINT pt);      // 双击：选中点击处的词
-    void ShowEditMenu(POINT screenPt);// 右键 / Shift+F10：复制/剪切/粘贴
+    void ShowEditMenu(POINT screenPt);// 右键 / Shift+F10：撤销/重做/复制/剪切/粘贴
+    void Undo();                     // 平台级撤销：恢复编辑前快照（Ctrl+Z / 菜单）
+    void Redo();                     // 平台级重做：恢复被撤销的文本（Ctrl+Y 等 / 菜单）
+    bool CanUndo()  const { return !m_undoStack.empty(); }
+    bool CanRedo()  const { return !m_redoStack.empty(); }
 
 protected:
     friend class Page;
@@ -134,6 +138,16 @@ protected:
 
     TextEditState m_edit;            // core 引擎：文本/光标/选区/组词
     std::wstring m_lastNotified;     // 已发 EN_CHANGE 的文本内容（纯光标/选区移动不重复通知）
+
+    // ---- 撤销 / 重做（平台级）----
+    // 核心引擎保持纯函数：TextBox 在**可能改文本**的动作执行前把整个
+    // TextEditState 快照进 m_undoStack（文本/光标/选区一起还原），
+    // 被撤销的状态进 m_redoStack（重做后丢弃）。快照只进不改，
+    // 因此「改文本的操作」与「只挪光标的操作」在 m_lastNotified 上
+    // 天然可区分——纯移动不产生新条目。SetText / WM_SETTEXT 是
+    // 程序化重置，清空两栈并把基线设为当前文本（原生 EDIT 语义）。
+    std::vector<air::ui::TextEditState> m_undoStack;
+    std::vector<air::ui::TextEditState> m_redoStack;
     std::vector<int> m_cum;          // 逐字累计宽度表（比例字体）
     TextLines        m_lines;       // 多行折行结果
     int  m_layW = -1, m_layH = -1;   // 布局缓存的客户区尺寸（变了才重建）

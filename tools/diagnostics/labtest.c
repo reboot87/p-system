@@ -8,6 +8,11 @@
 //   labtest.exe rect                       screen rects of boxes 3001..3004
 //   labtest.exe type  <id> "text"          WM_CHAR per char (simulate typing)
 //   labtest.exe key   <id> <vkHex>         press a key (vk hex, e.g. 08 = Back)
+//                                         RAW posted WM_KEYDOWN: the proc
+//                                         decides Ctrl from GetKeyState, so
+//                                         Ctrl combos (Ctrl+Z/Y) are NOT
+//                                         reachable this way - drive them
+//                                         through the edit menu instead
 //   labtest.exe focus <id> <x> <y>         click client (x,y) (left down+up)
 //   labtest.exe clear <id>                 WM_SETTEXT "" (deterministic reset)
 //   labtest.exe setsel <id> <start> <end>  EM_SETSEL (end may be -1 = to end)
