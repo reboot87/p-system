@@ -653,3 +653,23 @@
     - maxLength 按 **UTF-16 单元**计数（与 core `TextLength` 同口径），**不是**码点/字数——含代理对的 emoji 一个码点占 2 单元。与原生 `EM_SETPASSWORDCHAR`/`SetLimitText` 的「字符」口径可能有差，当前按 UTF-16 单元是有意选择（与引擎一致、可预测）。
     - `SetMaxLength(0)` = 不限（负数按 0 处理）；`SetPassword` 运行期切换只改绘制（掩码与真实串等长，几何源不变），但 `•` 与原字形宽度不同 → `m_laidShown` 判据自动触发 `m_cum` 重建。
     - 本轮未接 Skia 双后端像素 diff（password 走同一 `g->Text` 原语，由 CI `skia-windows` 的 G5 parity 兜底）；高 DPI 动态适配、列表多选/分页仍在本清单后续（第 3 项）。
+
+- **2026-11-26（跟进八）— 高 DPI 动态适配（第 3 项之 a：DPI）**
+  - **范围**：用户批准第 3 项「高 DPI 动态适配 / 列表多选 / 分页」中的 DPI 部分；**core 零改动**（`Metrics::ForDpi`、`Fonts::Create(dpi)` 基建已在位）。
+  - **实现**（`src/airui/platform/win32/Shell.cpp/h`、`src/airui/platform/win32/Widgets.cpp/h`、`src/core/App.cpp`、`src/pages/ClipsPage.cpp/h`、`CMakeLists.txt`、`tools/diagnostics/`）：
+    - **进程感知**：`Shell::Create` 顶部调用 `EnsureProcessDpiAwareness()`（动态加载 `shcore`，优先 `SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2)`，退而 `SYSTEM_AWARE`，再退而 `SetProcessDPIAware`；Win7 无 shcore 则保持 unaware，行为不变）。要在任何窗口创建前执行，且幂等。
+    - **96-DPI 基线**：`Shell::Create` 新增 `m_baseMetrics`，在第一次 `SetMetrics(ForDpi(m_dpi))` 之前以 `Mx()` 原值落地——防止以后对已缩放的 Mx() 再 ForDpi 二次放大。
+    - **处理器**：`Shell::HandleMessage` 新增 `case WM_DPICHANGED`（见 `case WM_DPICHANGED: case WM_USER + 9000:`）：1. `diag::Log("[dpi] case body ...")`（保留可观测日志）；2. `ApplyDpiChange(newDpi)`：`m_dpi`→`m_fonts.Create(newDpi)`→`SetMetrics(m_baseMetrics.ForDpi(newDpi))`→经 `m_dpiChanged` 通知 app；3. 按 lParam 建议矩形 `SetWindowPos`（真实消息；跨进程无效，见边界）；4. `LayoutAll()` + `InvalidateRect`（幂等重排，覆盖「未变化」分支）。
+    - **`WM_USER + 9000` 共享处理体**：测试入口，与 WM_DPICHANGED 同体（驱动 `dpik` 实测）；`WM_USER + 9001` 调试探针已删。
+    - **App 回调**：`App::Run` 注册 `m_shell.SetDpiChangedHandler` → `m_clips->RebuildListForDpi()`（指纹置 `LLONG_MIN` 强制重建，用 `-9223372036854775807LL - 1` 避免 `<climits>`）。
+    - **ClipsPage**：`RebuildListForDpi()` 新增（注释含离线安全：不重取数据、离线也不清列表）。
+    - **TextBox 缓存键**：`m_layFontDpi` 加入 `SyncTextLayout` 的 `same` 判据（DPI 变化即使客户区尺寸不变也重测宽度表）。
+  - **实测（非假设，本节记录）**：
+    - 环境：两块屏均 96 DPI；本构建的 Windows **拒绝跨进程投递合成 WM_DPICHANGED**（PostMessage/SendMessage 均返回失败 GLE 1159，进程内 SendMessage 也不派发——独立探针 `build\dpiinproc.exe` 实证）。
+    - 实测驱动：`dpik` + `boxread`（新增 `tools/diagnostics/` 并登记 CMake foreach，`README.md` 加「High-DPI dynamic-adaptation drivers」节）。
+    - **Round-trip（pid 525984，`build\Release\airecord.exe`）**：`SendMessage(WM_USER+9000, 150)` → `client.log` 含 `[dpi] case body dpi=150 m_dpi=96` 与 `[dpi] after ApplyDpiChange m_dpi=150 Mx.searchH=56 Mx.itemH=100`，`boxread`: `row0=47, row1=100`（96 基线 30/64）；`SendMessage(WM_USER+9000, 96)` → `m_dpi=96 Mx.searchH=36 Mx.itemH=64`，`boxread`: `row0=30, row1=64`（恢复）；`SendMessage(WM_USER+9000, 150)` → `Mx.searchH=56 Mx.itemH=100`，`boxread`: `row0=47, row1=100`（再度缩放）——**96↔150↔96 正常往返，无复合放大**。
+    - 全量门：`cmake --build build --config Release --target airecord`（BUILD=0）、`ctest -C Release` **28/28**、`check-core-clean` PASSED、x86 `build-x86` 重建 `airecord.exe` 通过。
+  - **边界 / 踩坑**：
+    - 真跨屏 DPI 变化未在本机可测（两屏同值 96）；`WM_USER+9000` 是共享处理体的测试替身，与真派发走同一 `ApplyDpiChange`。
+    - `m_baseMetrics` 取自 `Shell::Create` 时的全局 `Mx()`；若以后有人在其前调 `SetMetrics`，会被视为基线（airecord 启动不加载 JSON 主题）。
+    - 真实 lParam 指针仅系统派发时有效；测试驱动不依赖它（lParam=0 走原地重排分支）。
