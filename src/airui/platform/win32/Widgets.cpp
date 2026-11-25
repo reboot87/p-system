@@ -229,6 +229,9 @@ void TextBox::CreateNative()
 
     m_font = m_shell ? m_shell->UiFonts().Get(m_desc.fontRole) : nullptr;
     m_edit.hasFocus = false;
+    m_edit.maxLength = (m_desc.maxLength > 0) ? m_desc.maxLength : 0;
+    // 键入/粘贴等走 core 引擎的路径由 InsertAtCursor 按 m_edit.maxLength
+    // 强制；这里把 desc 的声明同步进引擎（desc 是页面侧的唯一声明点）。
     SyncTextLayout();
     SetWindowSubclass(m_hwnd, &TextBoxProc, kSubTextBox, (DWORD_PTR)this);
 }
@@ -475,14 +478,19 @@ std::wstring TextBox::Text() const
 
 void TextBox::SetText(const std::wstring& s)
 {
-    m_edit.text = s;
-    m_edit.cursor = (int)s.size();
+    // 程序化设文本同样受 maxLength 约束（与键入/粘贴同口径，UTF-16 单元）：
+    // 否则 SetText 成为绕过上限的旁路。截断到前 maxLen 单元。
+    std::wstring v = s;
+    if (m_edit.maxLength > 0 && (int)v.size() > m_edit.maxLength)
+        v = v.substr(0, (size_t)m_edit.maxLength);
+    m_edit.text = v;
+    m_edit.cursor = (int)v.size();
     m_edit.selectionAnchor = -1;
     m_edit.composition.clear();
     m_edit.compositionCursor = 0;
     m_undoStack.clear();          // 程序化重置：历史作废（原生 EDIT 语义）
     m_redoStack.clear();
-    m_lastNotified = s;           // EN_CHANGE 基线 = 新文本（SetText 自身不发）
+    m_lastNotified = v;           // EN_CHANGE 基线 = 新文本（SetText 自身不发）
     m_layW = -1;                  // 强制重建 cum/lines（同长替换也要重算）
     ApplyPostEdit();
 }
@@ -503,6 +511,32 @@ void TextBox::SetPlaceholder(const std::wstring& s)
 {
     m_desc.placeholder = s;
     if (m_hwnd) InvalidateRect(m_hwnd, nullptr, FALSE);
+}
+
+void TextBox::SetMaxLength(int maxLen)
+{
+    const int v = (maxLen > 0) ? maxLen : 0;
+    m_desc.maxLength = v;
+    m_edit.maxLength = v;
+    // 若当前文本已超限，截断并重建（光标夹取到新长度内）。
+    if (v > 0 && (int)m_edit.text.size() > v) {
+        m_edit.text = m_edit.text.substr(0, (size_t)v);
+        m_edit.cursor = ClampV(m_edit.cursor, 0, v);
+        m_edit.selectionAnchor = (m_edit.selectionAnchor > v) ? v
+                                   : ((m_edit.selectionAnchor < 0) ? -1 : m_edit.selectionAnchor);
+        m_layW = -1;
+    }
+    if (m_hwnd) ApplyPostEdit();
+}
+
+void TextBox::SetPassword(bool on)
+{
+    if (m_desc.password == on) return;
+    m_desc.password = on;
+    // 掩码与真实文本等长，但字形宽度不同（• vs 原字符）→ 必须重建
+    // m_cum（SyncTextLayout 的判据用 m_laidShown 对比显示串，会触发重建）。
+    m_layW = -1;
+    if (m_hwnd) ApplyPostEdit();
 }
 
 void TextBox::OnKey(std::function<bool(UINT, bool, bool)> cb)
@@ -553,6 +587,18 @@ std::vector<int> MeasureCum(HDC dc, HFONT font, const std::wstring& s)
     return cum;
 }
 
+// 密码掩码：core DisplayText 的 1:1 等长映射（每个 UTF-16 单元 → •）。
+// 等长是关键——m_cum/折行/光标/选区全部按掩码几何算，与真实文本一一对应，
+// 无需第二套布局；真实文本只存在于 m_edit.text（读取/编辑/EN_CHANGE）。
+const std::wstring& TextBox::ShownText() const
+{
+    if (m_desc.password)
+        m_shown = ::air::ui::DisplayText(m_edit, true);
+    else
+        m_shown = m_edit.text;
+    return m_shown;
+}
+
 void TextBox::SyncTextLayout()
 {
     if (!m_shell || !m_shell->UiFonts().Valid()) return;
@@ -562,14 +608,21 @@ void TextBox::SyncTextLayout()
     if (m_hwnd) GetClientRect(m_hwnd, &rc);
     const int availW = (int)(rc.right - rc.left) - Mx().unit * 2 - m_rightInset;
     const int availH = (int)(rc.bottom - rc.top);
+    // 判据用「上次布局所用显示串」而非仅长度：等长换文本、密码开/关
+    // （掩码与真实串等长）都会让显示串变化，必须重建 m_cum，否则光标
+    // /选区读到的是旧字形宽度。
+    const std::wstring& shown = ShownText();
     const bool same = (m_layW == availW && m_layH == availH &&
-                       (int)m_cum.size() == (int)m_edit.text.size() + 1);
+                       m_laidShown == shown);
     if (same) return;
     m_layW = availW;
     m_layH = availH;
 
     HDC dc = GetDC(nullptr);
-    m_cum = MeasureCum(dc, m_font, m_edit.text);
+    // 按**显示串**测宽/折行（password 时是等长掩码 •；与真实文本 1:1，
+    // 下标语义不变）。宽度表必须和绘制用的字形同源，否则光标/选区错位。
+    m_cum = MeasureCum(dc, m_font, shown);
+    m_laidShown = shown;
     int lineH = 0, ascent = 0;
     if (dc && m_font) {
         HGDIOBJ old = SelectObject(dc, m_font);
@@ -585,7 +638,7 @@ void TextBox::SyncTextLayout()
     if (ascent > 0) m_ascent = ascent;
 
     // 多行折行；单行不折（avail = 无限），横向滚动由 PaintSelf 单行分支处理。
-    m_lines = WrapText(m_edit.text, m_cum,
+    m_lines = WrapText(shown, m_cum,
                        m_desc.multiline ? availW : 0x7fffffff, m_lineH);
     m_scroll = ClampV(m_scroll, 0, MaxScroll());
 }
@@ -614,17 +667,20 @@ void TextBox::ScrollForCaret()
 int TextBox::HitIndex(POINT pt)
 {
     SyncTextLayout();
-    const int n = (int)m_edit.text.size();
+    // 命中按显示串（与 m_cum/m_lines 同源）；掩码与真实文本 1:1，
+    // 返回的下标对两者等价。
+    const std::wstring& shown = ShownText();
+    const int n = (int)shown.size();
     const int unit = Mx().unit;
     if (m_desc.multiline) {
         if (m_lines.begin.empty() || n == 0) return 0;
         const int lineH = m_lineH > 0 ? m_lineH : 1;
         int line = (pt.y - unit + m_scroll) / lineH;
         line = ClampV(line, 0, (int)m_lines.begin.size() - 1);
-        return IndexAtX(m_edit.text, m_cum, m_lines.begin[line],
+        return IndexAtX(shown, m_cum, m_lines.begin[line],
                         m_lines.end[line], pt.x - unit);
     }
-    return IndexAtX(m_edit.text, m_cum, 0, n, pt.x - unit);
+    return IndexAtX(shown, m_cum, 0, n, pt.x - unit);
 }
 
 void TextBox::BeginDrag(POINT pt)
@@ -817,6 +873,9 @@ void TextBox::Undo()
     m_redoStack.push_back(m_edit);
     m_edit = m_undoStack.back();
     m_undoStack.pop_back();
+    // 快照里带着当时的 m_edit.maxLength：若运行期 SetMaxLength 改过
+    // 上限，还原后必须用 m_desc 的当前值回写，否则上限会被旧快照带回。
+    m_edit.maxLength = (m_desc.maxLength > 0) ? m_desc.maxLength : 0;
     m_layW = -1;                   // 快照文本/光标都变了：重建 cum/lines
     ApplyPostEdit();
 }
@@ -827,6 +886,7 @@ void TextBox::Redo()
     m_undoStack.push_back(m_edit);
     m_edit = m_redoStack.back();
     m_redoStack.pop_back();
+    m_edit.maxLength = (m_desc.maxLength > 0) ? m_desc.maxLength : 0;
     m_layW = -1;
     ApplyPostEdit();
 }
@@ -1042,7 +1102,8 @@ void TextBox::PaintSelf(HDC dc)
                                  frame.right - unit - m_rightInset,
                                  frame.bottom - unit);
     if (textRc.Empty()) return;
-    const bool haveCum = ((int)m_cum.size() == (int)m_edit.text.size() + 1);
+    const std::wstring& shown = ShownText();   // password → 掩码；绘制只认它
+    const bool haveCum = ((int)m_cum.size() == (int)shown.size() + 1);
     g->FillRound(frame, mx.radiusMd, pal.surface);
     g->StrokeRound(frame, mx.radiusMd,
                    m_edit.hasFocus ? pal.primary : pal.border, 1);
@@ -1084,7 +1145,7 @@ void TextBox::PaintSelf(HDC dc)
             g->Text(::air::ui::Rect(textRc.left - scrollX, textRc.top,
                                     textRc.left - scrollX + totalW + avail,
                                     textRc.bottom),
-                    m_edit.text.c_str(), (size_t)n, m_desc.fontRole, ink,
+                    shown.c_str(), shown.size(), m_desc.fontRole, ink,
                     dt::Left | dt::VCenter | dt::SingleLine);
             if (composing) {
                 const int x = textRc.left + cx0 - scrollX;
@@ -1141,7 +1202,7 @@ void TextBox::PaintSelf(HDC dc)
             const int y = textRc.top + (int)li * lineH - m_scroll;
             if (y >= textRc.bottom || y + lineH <= textRc.top) continue;
             g->Text(::air::ui::Rect(textRc.left, y, textRc.right, y + lineH),
-                    m_edit.text.c_str() + lb, (size_t)(le - lb), m_desc.fontRole,
+                    shown.c_str() + lb, (size_t)(le - lb), m_desc.fontRole,
                     ink, dt::Left | dt::Top | dt::SingleLine);
         }
     }

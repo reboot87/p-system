@@ -47,19 +47,21 @@ assertion.
 
 Cross-process drivers for the `airui_textbox_lab.exe` repro harness
 (`examples/TextBoxLab.cpp`, window class `AirUiTextBoxLab`). Built as
-console targets on WIN32 (`labtest` / `menuclick` / `boxrect`), not
-registered in ctest — `textbox_lab_suite.ps1` drives them end to end:
+console targets on WIN32 (`labtest` / `menuclick` / `boxrect` / `pixhash`),
+not registered in ctest — `textbox_lab_suite.ps1` drives them end to end:
 
 - `labtest.c` — sends real `WM_*`/`EM_*` messages to the lab's child boxes
-  (ids 3001..3004): `info`/`rect`/`type`/`key`/`focus`/`clear`/`setsel`/
-  `getsel`/`getraw`/`dblclick`/`drag`/`rclick`. Text is read via `getraw`
-  (`WM_GETTEXT`) and selection via `getsel` (`EM_GETSEL`) —
-  `GetWindowTextW` returns empty across processes. `rclick` **blocks** while
-  the self-drawn edit menu is open (its modal loop), so the suite runs it in
-  the background. `key` posts a raw `WM_KEYDOWN`, which the proc's
-  `GetKeyState(VK_CONTROL)`-based Ctrl/Shift test cannot see — so the
-  Ctrl+Z/Ctrl+Y undo/redo shortcuts are driven through the **edit menu**
-  (the menu's 撤销/重做 call the same `TextBox::Undo()/Redo()`).
+  (ids 3001..3007): `info`/`rect`/`type`/`key`/`focus`/`clear`/`settext`/
+  `setsel`/`getsel`/`getraw`/`dblclick`/`drag`/`rclick`. Text is read via
+  `getraw` (`WM_GETTEXT`) and selection via `getsel` (`EM_GETSEL`) —
+  `GetWindowTextW` returns empty across processes. `settext` sends a full
+  `WM_SETTEXT` string (the deterministic programmatic-set path, e.g. for
+  maxLength clipping). `rclick` **blocks** while the self-drawn edit menu is
+  open (its modal loop), so the suite runs it in the background. `key` posts
+  a raw `WM_KEYDOWN`, which the proc's `GetKeyState(VK_CONTROL)`-based
+  Ctrl/Shift test cannot see — so the Ctrl+Z/Ctrl+Y undo/redo shortcuts are
+  driven through the **edit menu** (the menu's 撤销/重做 call the same
+  `TextBox::Undo()/Redo()`).
 - `menuclick.c` — finds the self-drawn popup menu window
   (`AirUiOverlayWnd`) and clicks one of its items with `PostMessage` (NOT
   `SendMessage`: the modal loop lives in the `rclick` process, so a
@@ -72,16 +74,20 @@ registered in ctest — `textbox_lab_suite.ps1` drives them end to end:
   5 粘贴 y=168. Waits up to 3 s for the menu window to be destroyed.
 - `boxrect.c` — prints the screen rects of the `AirUITextBox` children of a
   given shell hwnd (screenshot-crop helper).
+- `pixhash.c` — fingerprints the pixels of a screen rectangle (BitBlt +
+  FNV-1a 64). T5 uses it to assert that a password box (• mask) and its
+  plaintext twin with the same text render *differently*, and that the same
+  rect hashes identically on a second pass (stability control).
 
 Run the full suite (T1 double-click word select / T2 drag-select /
-T3 right-click copy-paste round trip / T4 undo-redo through the edit menu)
-with:
+T3 right-click copy-paste round trip / T4 undo-redo through the edit menu /
+T5 maxLength + password) with:
 
 ```
 cmake --build build --config Release `
-    --target airui_textbox_lab labtest menuclick boxrect
+    --target airui_textbox_lab labtest menuclick boxrect pixhash
 powershell -ExecutionPolicy Bypass -File tools\diagnostics\textbox_lab_suite.ps1
 ```
 
-Exit code 0 = all four scenarios pass; the script kills all
+Exit code 0 = all five scenarios pass; the script kills all
 `airui_textbox_lab`/`labtest` processes when it is done.

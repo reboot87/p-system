@@ -1,11 +1,11 @@
 // labtest.c - TextBoxLab cross-process driver (manual diagnostic)
 //
 // Requires a running airui_textbox_lab.exe (window class AirUiTextBoxLab).
-// All commands address the boxes by dialog control id (3001..3004).
+// All commands address the boxes by dialog control id (3001..3007).
 //
 // Usage:
 //   labtest.exe info                       list boxes + system caret blink time
-//   labtest.exe rect                       screen rects of boxes 3001..3004
+//   labtest.exe rect                       screen rects of boxes 3001..3007
 //   labtest.exe type  <id> "text"          WM_CHAR per char (simulate typing)
 //   labtest.exe key   <id> <vkHex>         press a key (vk hex, e.g. 08 = Back)
 //                                         RAW posted WM_KEYDOWN: the proc
@@ -15,6 +15,10 @@
 //                                         through the edit menu instead
 //   labtest.exe focus <id> <x> <y>         click client (x,y) (left down+up)
 //   labtest.exe clear <id>                 WM_SETTEXT "" (deterministic reset)
+//   labtest.exe settext <id> "text"        WM_SETTEXT with a full string
+//                                         (deterministic programmatic-set
+//                                          path, e.g. to test maxLength
+//                                          clipping on SetText)
 //   labtest.exe setsel <id> <start> <end>  EM_SETSEL (end may be -1 = to end)
 //   labtest.exe getsel <id>                EM_GETSEL -> "sel=[begin,end)"
 //   labtest.exe getraw                     WM_GETTEXTLENGTH/WM_GETTEXT per box
@@ -86,7 +90,7 @@ int main(int argc, char** argv)
         return 0;
     }
     if (argc >= 2 && !strcmp(argv[1], "rect")) {
-        for (int i = 3001; i <= 3004; ++i) {
+        for (int i = 3001; i <= 3007; ++i) {
             g_found = 0;
             EnumChildWindows(g_shell, CbFind, (LPARAM)i);
             if (!g_found) continue;
@@ -108,6 +112,21 @@ int main(int argc, char** argv)
         SetFocus(g_found);
         SendMessageW(g_found, WM_SETTEXT, 0, (LPARAM)L"");
         printf("cleared\n");
+        return 0;
+    }
+    if (argc >= 2 && !strcmp(argv[1], "settext")) {
+        // settext <id> <text> - deterministic WM_SETTEXT (the WM_SETTEXT
+        // shim resets text/cursor/selection + history). argv arrives in the
+        // ANSI code page; convert to UTF-16. Fixed buffer: test strings are
+        // short (maxLength probes).
+        if (!NeedBox("settext", argc, argv)) return 1;
+        if (argc < 4) { printf("usage: settext <id> <text>\n"); return 1; }
+        int len = MultiByteToWideChar(CP_ACP, 0, argv[3], -1, NULL, 0);
+        if (len <= 1) { printf("settext: empty text\n"); return 1; }
+        wchar_t buf[1024] = {0};
+        MultiByteToWideChar(CP_ACP, 0, argv[3], -1, buf, len < 1024 ? len : 1024);
+        SendMessageW(g_found, WM_SETTEXT, 0, (LPARAM)buf);
+        printf("settext %d chars sent\n", len - 1);
         return 0;
     }
     if (argc >= 2 && !strcmp(argv[1], "setsel")) {
@@ -168,7 +187,7 @@ int main(int argc, char** argv)
         // which returns empty across processes)
         int i = 0;
         HWND h;
-        for (i = 3001; i <= 3004; ++i) {
+        for (i = 3001; i <= 3007; ++i) {
             g_found = 0;
             EnumChildWindows(g_shell, CbFind, (LPARAM)i);
             if (!g_found) { printf("  id=%d missing\n", i); continue; }
@@ -214,8 +233,8 @@ int main(int argc, char** argv)
         return 0;
     }
     printf("usage: labtest.exe info | rect | type <id> <text> | key <id> <vkHex>\n"
-           "             | clear <id> | setsel <id> <a> <b> | getsel <id>\n"
-           "             | getraw | dblclick <id> <x> <y> | rclick <id> <x> <y>\n"
-           "             | drag <id> <x1> <x2> <y>\n");
+           "             | clear <id> | settext <id> <text> | setsel <id> <a> <b>\n"
+           "             | getsel <id> | getraw | dblclick <id> <x> <y>\n"
+           "             | rclick <id> <x> <y> | drag <id> <x1> <x2> <y>\n");
     return 1;
 }

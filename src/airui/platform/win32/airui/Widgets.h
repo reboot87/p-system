@@ -78,6 +78,14 @@ struct TextBoxDesc
     bool         multiline   = false;
     std::wstring placeholder;                 // 空 = 无占位提示
     FontRole     fontRole    = FontRole::Body;
+    // 最大字符数（0 = 不限）。键入/粘贴/选区删除后的插入由 core
+    // InsertAtCursor 强制；SetText（程序化）同样截断，与键入语义一致。
+    // 按 UTF-16 单元计数（与 TextEditState::text.size() 同口径）。
+    int  maxLength = 0;
+    // 密码框：绘制掩码（core DisplayText → 等长 •），真实文本仍存
+    // m_edit.text；WM_GETTEXT/Text() 读出的是真实值（原生 EDIT 语义），
+    // 光标/选区几何与真实文本同源（掩码与其 1:1 等长）。
+    bool password  = false;
 };
 
 class TextBox : public Widget
@@ -88,6 +96,15 @@ public:
     void Clear();
     void CaretToEnd();
     void SetPlaceholder(const std::wstring& s);
+    // 最大字符数（0 = 不限；负数按 0 处理）。创建后经 desc.maxLength
+    // 设定，运行期也可改。约束作用于后续所有编辑路径（键入/粘贴/
+    // 程序化 SetText），已有超长内容在下次编辑时被截断。
+    void SetMaxLength(int maxLen);
+    int  MaxLength() const { return m_desc.maxLength; }
+    // 密码框掩码（创建时 desc.password，运行期可切换 → 触发重绘）。
+    // 掩码只影响绘制：Text()/WM_GETTEXT 仍返回真实文本。
+    void SetPassword(bool on);
+    bool IsPassword() const { return m_desc.password; }
 
     // 按键回调：返回 true 表示已消费（Esc 取消 / Ctrl+Enter 提交…）
     void OnKey(std::function<bool(UINT vk, bool ctrl, bool shift)> cb);
@@ -117,6 +134,10 @@ public:
     void StopCaretBlink();                            // 失焦：停闪烁定时器
     // ---- 鼠标交互（点击 / 拖选 / 双击选词 / 右键菜单） ----
     int  HitIndex(POINT pt);        // 客户区点 → 文本下标（点击/拖选/双击/右键共用）
+    // 显示串 = password ? 掩码(• × N) : 真实文本。掩码与真实文本
+    // 1:1 等长（core DisplayText），所以布局/命中/绘制全部走它，
+    // 编辑/读取/EN_CHANGE 走 m_edit.text（真实）。
+    const std::wstring& ShownText() const;
     void BeginDrag(POINT pt);         // 左键下：定位光标 + 记锚点 + 捕获指针
     void DragTo(POINT pt);            // 拖选（多行近边缘自动滚屏）
     void SelectWordAt(POINT pt);      // 双击：选中点击处的词
@@ -148,8 +169,10 @@ protected:
     // 程序化重置，清空两栈并把基线设为当前文本（原生 EDIT 语义）。
     std::vector<air::ui::TextEditState> m_undoStack;
     std::vector<air::ui::TextEditState> m_redoStack;
-    std::vector<int> m_cum;          // 逐字累计宽度表（比例字体）
-    TextLines        m_lines;       // 多行折行结果
+    mutable std::wstring m_shown;    // 显示串缓存（password 时 = 掩码；与 m_edit.text 同步重建）
+    std::wstring m_laidShown;        // 上次布局所用的显示串（判据：同串+同尺寸才复用 m_cum）
+    std::vector<int> m_cum;          // 逐字累计宽度表（比例字体，按显示串测）
+    TextLines        m_lines;       // 多行折行结果（按显示串折）
     int  m_layW = -1, m_layH = -1;   // 布局缓存的客户区尺寸（变了才重建）
     int  m_lineH = 21, m_ascent = 16;
     int  m_scroll = 0;               // 多行垂直滚动（px）

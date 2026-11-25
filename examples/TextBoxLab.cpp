@@ -74,23 +74,42 @@ public:
         m_multiLong->SetText(longText);
         m_multiLong->CaretToEnd();
 
+        // ⑤⑥⑦ 功能验证框：maxLength / password / password 明文孪生（跨进程 T5 用）。
+        // 放在 3004 之后，前四个框位置不变（T1-T4 依赖 3001 的坐标）。
+        // ⑥ password 与 ⑦ 同文本明文孪生：T5 用「两框像素不同」证明
+        // ⑥ 渲染的是掩码而非明文（不依赖字体度量假设）。
+        TextBoxDesc dMax; dMax.id = 3005; dMax.multiline = false;
+        dMax.placeholder = L"maxLen=5：键入超过 5 字符被截断…"; dMax.maxLength = 5;
+        m_maxLen = &CreateTextBox(dMax);
+        TextBoxDesc dPwd; dPwd.id = 3006; dPwd.multiline = false;
+        dPwd.placeholder = L"password：显示 • 掩码…"; dPwd.password = true;
+        m_password = &CreateTextBox(dPwd);
+        TextBoxDesc dPlain; dPlain.id = 3007; dPlain.multiline = false;
+        dPlain.placeholder = L"同文本明文（3006 的孪生，对照用）";
+        m_plainTwin = &CreateTextBox(dPlain);
+
         StartTimer(1, 200);
     }
 
-    // 顺序级联：标签 → 控件 → 间距，逐行往下排（④ 铺满剩余高度）
+    // 顺序级联：标签 → 控件 → 间距，逐行往下排（④ 给足高度看滚动，
+    // ⑤⑥⑦ 功能验证框固定行高，铺满由 ④ 承担而非最后那个框）
     void OnLayout(const RECT& content) override
     {
         m_content = content;
         const int x = content.left;
         const int w = (int)(content.right - content.left);
         const int lineH = Fonts().BodyLineHeight();
-        TextBox* boxes[4] = { m_single, m_singleLong, m_multi, m_multiLong };
+        TextBox* boxes[7] = { m_single, m_singleLong, m_multi, m_multiLong,
+                              m_maxLen, m_password, m_plainTwin };
         int y = content.top;
-        for (int i = 0; i < 4; ++i) {
+        for (int i = 0; i < 7; ++i) {
             m_rows[i].labelY = y;
             y += kLabelH + 4;
-            m_rows[i].h = (i < 3) ? (i == 2 ? lineH * 4 + 12 : lineH)
-                                  : (content.bottom - y - 40);
+            switch (i) {
+            case 2:  m_rows[i].h = lineH * 4 + 12; break;   // ③ 多行短
+            case 3:  m_rows[i].h = lineH * 6 + 12; break;   // ④ 多行长
+            default: m_rows[i].h = lineH; break;            // 单行
+            }
             if (m_rows[i].h < lineH) m_rows[i].h = lineH;
             m_rows[i].top = y;
             y += m_rows[i].h + kGap;
@@ -101,13 +120,16 @@ public:
     void OnPaint(Canvas& g, const RECT&) override
     {
         const Palette& p = Pal();
-        const std::wstring labels[4] = {
+        const std::wstring labels[7] = {
             L"① 单行（聚焦后光标应闪烁；键入后光标紧跟文字）",
             L"② 单行长内容（横向滚动：光标跟进出界自动偏移）",
             L"③ 多行（短，可换行/键入）",
             L"④ 多行长内容（60 行；键入深处 caret 行自动滚入视口）",
+            L"⑤ maxLength=5（键入/粘贴超 5 字符被截断；WM_GETTEXT 读回真实值）",
+            L"⑥ password（绘制 • 掩码；WM_GETTEXT 读回真实明文）",
+            L"⑦ 与 ⑥ 同文本的明文框（对照：⑥ 应渲染成掩码而非此处的明文）",
         };
-        for (int i = 0; i < 4; ++i)
+        for (int i = 0; i < 7; ++i)
             Label(g, labels[i], m_content.top + m_rows[i].labelY);
         Label(g, m_probe.label, m_content.bottom - 32);   // 底部探针行
     }
@@ -127,6 +149,9 @@ public:
         if (m_singleLong) m_singleLong->Show(shown);
         if (m_multi)      m_multi->Show(shown);
         if (m_multiLong)  m_multiLong->Show(shown);
+        if (m_maxLen)     m_maxLen->Show(shown);
+        if (m_password)   m_password->Show(shown);
+        if (m_plainTwin)  m_plainTwin->Show(shown);
     }
 
 private:
@@ -147,9 +172,12 @@ private:
     TextBox* m_singleLong = nullptr;
     TextBox* m_multi      = nullptr;
     TextBox* m_multiLong  = nullptr;
+    TextBox* m_maxLen     = nullptr;   // ⑤ maxLength=5
+    TextBox* m_password   = nullptr;   // ⑥ password 掩码
+    TextBox* m_plainTwin  = nullptr;   // ⑦ ⑥ 的明文孪生（像素对照）
     BlinkProbe m_probe;
     RECT m_content = {};
-    Row  m_rows[4];
+    Row  m_rows[7];
 };
 
 int APIENTRY wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
@@ -160,7 +188,7 @@ int APIENTRY wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
     opt.appName    = L"TextBox Lab";
     opt.logoLetter = L"T";
     opt.width      = 760;
-    opt.height     = 640;
+    opt.height     = 760;
 
     if (!shell.Create(hInst, opt)) return 1;
 

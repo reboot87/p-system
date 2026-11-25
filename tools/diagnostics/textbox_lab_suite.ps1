@@ -1,10 +1,11 @@
-# textbox_lab_suite.ps1 - T1/T2/T3/T4 end-to-end scenarios for the
-# self-drawn TextBox: mouse interactions (T1/T2/T3) and undo/redo (T4),
-# driven cross-process against a running airui_textbox_lab.exe.
+# textbox_lab_suite.ps1 - T1/T2/T3/T4/T5 end-to-end scenarios for the
+# self-drawn TextBox: mouse interactions (T1/T2/T3), undo/redo (T4) and
+# maxLength/password (T5), driven cross-process against a running
+# airui_textbox_lab.exe.
 #
 # Prereq (Windows, repo already configured + built):
 #   cmake --build build --config Release `
-#       --target airui_textbox_lab labtest menuclick boxrect
+#       --target airui_textbox_lab labtest menuclick boxrect pixhash
 #
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File tools\diagnostics\textbox_lab_suite.ps1
@@ -245,7 +246,72 @@ $mcG = Menu-Click 0 $rowUndo "fin" 40
 if ($null -eq $mcG -or $mcG -notmatch "menu closed") { Write-Host "  -> T4 final undo failed"; $script:fail++ }
 Step "T4 final" @("getraw") "id=3001 GETTEXTLENGTH=0"
 
+# ------------------------------------------------------------------
+# T5: maxLength + password (boxes 3005/3006/3007 in the lab)
+#   (a) maxLength=5 typing:    type 3005 "abcdefghij" -> "abcde" (5 units)
+#   (b) maxLength=5 programmatic: clear + settext 3005 (20 chars) -> "12345"
+#       (WM_SETTEXT is clipped to the limit too - no bypass)
+#   (c) password data: type the SAME text into 3006 (masked) and 3007
+#       (plain twin); getraw reports the REAL plaintext in both - masking
+#       never touches the data path (Text/WM_GETTEXT stay real)
+#   (d) password rendering: screen-rect pixel hashes of 3006 vs 3007 must
+#       DIFFER (bullets vs glyphs; no font-metric assumption) while a second
+#       hash of the same 3006 rect must be IDENTICAL (stable control)
+# ------------------------------------------------------------------
+Write-Host ""
+Write-Host "=== T5 maxLength + password (boxes 3005/3006/3007) ==="
+$ph = Join-Path $rel "pixhash.exe"
+if (-not (Test-Path $ph)) {
+    Write-Host "  -> T5 pixhash.exe missing (build the pixhash target)"; $script:fail++
+}
+
+Step "T5 max-type" @("type", "3005", "abcdefghij") "" -Soft
+Step "T5 max-clipped" @("getraw") "id=3005 GETTEXTLENGTH=5"
+Step "T5 max-clear" @("clear", "3005")
+Step "T5 max-settext" @("settext", "3005", "12345678901234567890") "" -Soft
+Step "T5 max-set-clipped" @("getraw") "id=3005 GETTEXTLENGTH=5"
+
+Step "T5 pwd-type-3006" @("type", "3006", "secret") "" -Soft
+Step "T5 pwd-type-3007" @("type", "3007", "secret") "" -Soft
+Step "T5 real-text-3006" @("getraw") "id=3006 GETTEXTLENGTH=6"
+Step "T5 real-text-3007" @("getraw") "id=3007 GETTEXTLENGTH=6"
+
+if (Test-Path $ph) {
+    # screen rects from the driver (client == child window here)
+    $rects = & $driver rect 2>&1 | Out-String
+    $r3006 = ($rects -split "`n") | Select-String "id=3006 screen=\((\d+),(\d+),(\d+),(\d+)\)"
+    $r3007 = ($rects -split "`n") | Select-String "id=3007 screen=\((\d+),(\d+),(\d+),(\d+)\)"
+    if (-not $r3006 -or -not $r3007) {
+        Write-Host "  -> T5 box rect not found in driver output"; $script:fail++
+    } else {
+        $c6 = $r3006.Matches[0].Groups; $c7 = $r3007.Matches[0].Groups
+        $x6 = [int]$c6[1].Value; $y6 = [int]$c6[2].Value
+        $w6 = [int]$c6[3].Value - $x6;    $h6 = [int]$c6[4].Value - $y6
+        $x7 = [int]$c7[1].Value; $y7 = [int]$c7[2].Value
+        $w7 = [int]$c7[3].Value - $x7;    $h7 = [int]$c7[4].Value - $y7
+        Start-Sleep -Milliseconds 300
+        $h1 = (& $ph $x6 $y6 $w6 $h6 2>&1 | Out-String).Trim()
+        $h2 = (& $ph $x7 $y7 $w7 $h7 2>&1 | Out-String).Trim()
+        $h1b = (& $ph $x6 $y6 $w6 $h6 2>&1 | Out-String).Trim()
+        Write-Host "  3006(mask)  = $h1"
+        Write-Host "  3007(plain) = $h2"
+        Write-Host "  3006 again  = $h1b"
+        if ($h1 -notmatch "^pixhash [0-9A-F]{16}") {
+            Write-Host "  -> T5 mask hash failed"; $script:fail++
+        } elseif ($h1 -eq $h2) {
+            Write-Host "  -> T5 FAIL: 3006 and 3007 render identically (mask not applied)"; $script:fail++
+        } else {
+            Write-Host "  -> T5 mask-vs-plain render-differs PASS"
+        }
+        if ($h1 -ne $h1b) {
+            Write-Host "  -> T5 FAIL: same-region hash unstable"; $script:fail++
+        } else {
+            Write-Host "  -> T5 hash-stable control PASS"
+        }
+    }
+}
+
 KillAll
 Write-Host ""
-if ($script:fail -eq 0) { Write-Host "ALL PASS (T1/T2/T3/T4)"; exit 0 }
+if ($script:fail -eq 0) { Write-Host "ALL PASS (T1/T2/T3/T4/T5)"; exit 0 }
 else { Write-Host "$($script:fail) FAILURE(S)"; exit 1 }

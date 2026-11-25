@@ -798,11 +798,11 @@ set_target_properties(airui_textbox_lab PROPERTIES
 # Cross-process drivers for the TextBox lab (tools/diagnostics/*.c).
 # Manual diagnostics, NOT assertion tests -> not registered in ctest.
 # They send real WM_* messages to a running airui_textbox_lab.exe and
-# print measurements; textbox_lab_suite.ps1 drives the T1..T4 scenarios
-# end to end (T4 = undo/redo through the edit menu). See
-# tools/diagnostics/README.md.
+# print measurements; textbox_lab_suite.ps1 drives the T1..T5 scenarios
+# end to end (T4 = undo/redo through the edit menu, T5 = maxLength /
+# password). See tools/diagnostics/README.md.
 if(WIN32)
-    foreach(_drv labtest menuclick boxrect)
+    foreach(_drv labtest menuclick boxrect pixhash)
         add_executable(${_drv} tools/diagnostics/${_drv}.c)
         target_link_libraries(${_drv} PRIVATE user32)
         set_target_properties(${_drv} PROPERTIES
