@@ -610,4 +610,23 @@
   - **边界**：
     - 自绘控件的暗色换肤靠「各自读 `Pal()` 重绘」，`SetThemeDark` 时一次性 `InvalidateRect` 全部子窗口——若将来新增自绘控件类型，需确认其 `WM_PAINT` 读 `Pal()` 而非缓存颜色（现有 TextBox/ListBox/Custom/Button 都符合）。
     - 窗口记忆不跨 DPI 缩放比例保存（96 DPI 逻辑像素；缩放比变化后位置可能偏移，未做 `WM_DPICHANGED` 适配——那是 P3 清单另一项）。
-    - 撤销/重做（P1-2）、maxLength/password 透出（P1-3）、高 DPI 动态适配、列表多选/分页仍在本清单后续。
+    - 撤销/重做（P1-2）见下一节跟进六；maxLength/password 透出（P1-3）、高 DPI 动态适配、列表多选/分页仍在本清单后续。
+
+- **2026-11-25（跟进六）— 自绘 TextBox 撤销/重做（Ctrl+Z / Ctrl+Y / 菜单「撤销/重做」）**
+  - **范围**：用户批准顺序里的第 1 项。把自绘 `TextBox` 的编辑历史补全到原生 EDIT 语义：可撤销/重做的键盘快捷键（Ctrl+Z 撤销、Ctrl+Y 与 Ctrl+Shift+Z 重做）+ 右键菜单「撤销/重做」（无历史时灰显）。**core 引擎保持纯函数不动**——`ApplyEdit` 是无状态变换，历史属于**控件实例**，所以快照栈放在平台层 `TextBox`，不给 `EditAction` 加状态。
+  - **实现**（仅 `platform/win32/airui/Widgets.{h,cpp}`，core 零改动）：
+    - **快照点**：`TextBox::ApplyEditResult()` 是**所有**编辑动作（WM_CHAR / Backspace / Delete / Cut / Paste / 菜单复制剪切 / IME 结果 / 选区删除）的唯一汇聚点。在调 core `ApplyEdit` **之前**，若该动作**可能改文本**（Insert/Backspace/Delete/Cut/Paste，按动作类型判断、与参数无关——Insert 传空串、Cut 无选区不会真改，多存一个快照无害）就把整个 `TextEditState`（文本/光标/选区/组词一起）压入 `m_undoStack`，并清空 `m_redoStack`（新编辑使 redo 链作废）。移动/全选/纯复制不动文本，不产生条目。
+    - **Undo()/Redo()**：栈顶 `TextEditState` 还原进 `m_edit`、当前态入对侧栈，`m_layW=-1` 强制重建 `m_cum`/`m_lines`（快照里光标/文本都变），再走 `ApplyPostEdit()`——复用跟进五的 EN_CHANGE 门控（撤销后文本变化照常通知，纯光标态不通知）。`CanUndo()/CanRedo()` 暴露栈非空给菜单置灰。
+    - **快捷键**：`DefaultKey` 的 Ctrl 分支加 `'Z'`（`shift` ? Redo : Undo，Ctrl+Shift+Z 是标准 IDE 重做约定）、`'Y'`（Redo）。**Ctrl+C/X 从直调 core `ApplyEdit` 改走 `ApplyEditResult`**——否则 Ctrl+X 剪切不经过快照点，会变成不可撤销（与菜单剪切语义分叉）。
+    - **程序化重置**：`SetText`（含 `WM_SETTEXT` shim）清空两栈并把 `m_lastNotified` 基线设为新文本——原生 EDIT 语义：外部整体设文本后历史作废，EN_CHANGE 基线同步避免空通知。
+    - **菜单**：`ShowEditMenu` 由 3 项（复制/剪切/粘贴）扩为 **6 项 + 1 分隔符**：撤销 / 重做 / —— / 复制 / 剪切 / 粘贴。撤销/重做无历史时 `disabled`（灰显、点击无效，`RunPopupMenu` 的 `MenuItemAt` 对 disabled 项返回 -1）。**菜单几何随之变化**：项行 36px、分隔符 6px，窗口由 192×110 变 **192×188**（client 186）。
+  - **诊断工具链同步**（`tools/diagnostics/`，与菜单几何变化绑定，必须一起改）：
+    - `menuclick.c` 从「`<item> <rows>` 均分高度」改为「`<item> <pixelY>` 按像素定位」——菜单混了两种行高（项 36 / 分隔 6），均分法在菜单变大后必错位。当前 6 项菜单的行中心 y：**撤销 18 / 重做 54 / 分隔 75 / 复制 96 / 剪切 132 / 粘贴 168**。
+    - `textbox_lab_suite.ps1` 的 **T3**（右键复制/粘贴往返）改用新行中心 y（复制 96 / 粘贴 168），并修掉原 getraw 断言会匹配到 3002/3003/3004 的空文本行造成假 PASS（锚定 `id=3001 .*[文本]`）。新增 **T4**（撤销/重做）：`clear`（SetText 清栈）后菜单撤销为 no-op → 键入 `hello`（5 条历史）→ 菜单撤销 ×5 → 空 → 菜单重做 ×5 → `hello` → 撤销/重做交替（`hell`↔`hello`）→ 全选+复制+清空+粘贴还原 → 撤销还原粘贴。
+  - **实测**（非假设）：
+    - `textbox_lab_suite.ps1` **T1/T2/T3/T4 全 PASS，exit 0**（T4 覆盖：无历史撤销 no-op、撤销清空、重做还原、交替撤销重做、复制粘贴往返+粘贴可撤销）。
+    - `cmake --build build --config Release` 全量 `BUILD=0`；`ctest -C Release` **28/28**；`check-core-clean` **PASSED**（55 core 文件 0 平台引用，core 确实零改动）；`build-x86`（`-A Win32`，CI `windows-x86` 同款）全新 configure + 构建 `airecord` 通过。
+  - **边界 / 踩坑**：
+    - **合成键盘无法可靠投到跨进程子窗口**（本轮最重要的环境结论）：`TextBoxProc` 用 `GetKeyState(VK_CONTROL)` 判 Ctrl，posted `WM_KEYDOWN` 伪造不了；`SendInput` 虽返回 1、前台也是 lab 壳，但键始终落不进子框（跨线程 `SetFocus` 是 no-op，`SendInput` 只路由到前台窗口焦点控件，抢前台又受前台锁规则制约、时灵时不灵）。因此 **T4 改走右键菜单**——菜单「撤销/重做」与 Ctrl+Z/Ctrl+Y 调的是**同一个** `Undo()`/`Redo()`，逻辑与菜单集成都被完整验证，且全程用可靠的 `PostMessage`。真实键盘上的 Ctrl+Z/Y 路径（`DefaultKey`）代码就位、由与 T4 相同的 `Undo()/Redo()` 兜底，但**跨进程自动化无法直接断言**该快捷键，此为已知局限（记入 README）。
+    - 右键菜单复制/粘贴/撤销/重做依赖「右键落点」：落**选区内**保留选区（复制/剪切才有效），落**选区外**先定位 caret 并清选区（此时复制/剪切灰显）——这是跟进三修过的原生 EDIT 语义，T4 的复制步骤因此要先 `setsel 0 -1` 全选且右键 x 落在文本宽度内（`"hell"` ≈ x8..36，取 x=20）。
+    - 撤销/重做栈是**纯内存**的（不持久化、跨进程/重启不保留，与原生 EDIT 一致）；未做「按词/按行」的合并粒度（每个字符/动作一条，与当前原生 EDIT 默认一致）；未做撤销上限（内存小、文本框内容有限，暂不设 `kMaxUndo`）。
