@@ -22,6 +22,11 @@
 
 using namespace air::ui;
 
+// ListLabPage 子控件 id（3b 第 3 项列表多选用）
+static const int IDC_LBL_MULTI  = 3201;
+static const int IDC_LBL_SINGLE = 3202;
+static const int IDC_LBL_MIRROR = 3203;
+
 // 光标闪烁相位探针：周期 = GetCaretBlinkTime()（系统值，默认 530ms），
 // 每半个周期翻一次相位。
 struct BlinkProbe
@@ -181,7 +186,107 @@ private:
     Row  m_rows[7];
 };
 
-int APIENTRY wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
+// ============================================================
+// ListLabPage — 第 3 项列表多选实验页（跨进程驱动：listtest.c + list_lab_suite.ps1）
+// ------------------------------------------------------------
+// 左侧列表(3201, SetMultiSelect(true))+ 映射 native EDIT(3203, 跨进程可读
+// GetWindowText)；右侧列表(3202, 单选)。Row 文字 = 行下标,选中行画标记。
+// ============================================================
+class ListLabPage : public Page
+{
+public:
+    const wchar_t* Title() const override { return L"ListBox 多选实验"; }
+    const wchar_t* NavGlyph() const override { return L"\xE8FD"; }
+    const wchar_t* NavLabel() const override { return L"ListBox 多选"; }
+
+    void OnAttach(Shell& shell) override
+    {
+        (void)shell;
+        m_list = &CreateListBox({ IDC_LBL_MULTI, 48 });
+        m_list->SetMultiSelect(true);
+        for (int i = 0; i < 12; ++i) m_list->AddItem(48, (size_t)(0xB000 + i));
+        m_list->onPaintItem = [this](Canvas& g, const ListItemDraw& it) { DrawRow(g, it); };
+        m_list->onSelectChanged = [this](int sel) { (void)sel; UpdateMirror(); };
+
+        m_single = &CreateListBox({ IDC_LBL_SINGLE, 48 });
+        for (int i = 0; i < 12; ++i) m_single->AddItem(48, (size_t)(0xC000 + i));
+        m_single->onPaintItem = [this](Canvas& g, const ListItemDraw& it) { DrawRow(g, it); };
+        m_single->onSelectChanged = [this](int sel) { (void)sel; UpdateMirror(); };
+
+        m_mirror = CreateWindowExW(0, L"EDIT", L"multi=[] single=-1",
+                                   WS_CHILD | ES_READONLY | ES_AUTOHSCROLL,
+                                   0, 0, 0, 0, ParentWnd(),
+                                   (HMENU)(INT_PTR)IDC_LBL_MIRROR,
+                                   GetModuleHandleW(nullptr), nullptr);
+        UpdateMirror();
+    }
+
+    void OnLayout(const RECT& content) override
+    {
+        const int gap = 14;
+        const int w = (int)(content.right - content.left);
+        const int leftW = w * 3 / 5;
+        m_rcMulti  = { content.left, content.top + 24,
+                       content.left + leftW, content.bottom };
+        m_rcMirror = { content.left, content.bottom - 26,
+                       content.left + leftW, content.bottom - 6 };
+        m_rcSingle = { content.left + leftW + gap, content.top + 24,
+                       content.right, content.bottom };
+        if (m_list)   m_list->Move(m_rcMulti.left, m_rcMulti.top,
+                                   m_rcMulti.right - m_rcMulti.left,
+                                   m_rcMulti.bottom - m_rcMulti.top);
+        if (m_mirror)
+            SetWindowPos(m_mirror, nullptr, m_rcMirror.left, m_rcMirror.top,
+                         m_rcMirror.right - m_rcMirror.left,
+                         m_rcMirror.bottom - m_rcMirror.top,
+                         SWP_NOZORDER | SWP_NOACTIVATE);
+        if (m_single) m_single->Move(m_rcSingle.left, m_rcSingle.top,
+                                     m_rcSingle.right - m_rcSingle.left,
+                                     m_rcSingle.bottom - m_rcSingle.top);
+        UpdateMirror();
+    }
+
+private:
+    void DrawRow(Canvas& g, const ListItemDraw& it)
+    {
+        const Palette& p = Pal();
+        const int h = it.rc.bottom - it.rc.top;
+        if (it.selected)
+            g.FillRound(it.rc, p.primarySoft, 0);
+        else if (it.hovered)
+            g.FillRound(it.rc, p.hover, 0);
+        g.Text(RECT{ it.rc.left + 10, it.rc.top + 2, it.rc.left + 40, it.rc.bottom },
+               std::to_wstring(it.index), FontRole::Body,
+               p.text, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+        if (it.selected) {
+            const int gy = it.rc.top + h / 2 - 8;
+            g.Text(RECT{ it.rc.left + 10, gy, it.rc.left + 40, gy + 16 },
+                   L"\xE91B", FontRole::Icon, p.primary,
+                   DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+        }
+    }
+
+    // 映射文本（原生 EDIT）：multi=[3,5,] 形式；single=<主选下标或 -1>。
+    void UpdateMirror()
+    {
+        if (!m_mirror) return;
+        std::wstring s = L"multi=[";
+        for (int i : m_list ? m_list->SelectedItems() : std::vector<int>())
+            s += std::to_wstring(i) + L",";
+        s += L"] single=" +
+             std::to_wstring(m_single ? m_single->Selection() : -1);
+        SendMessageW(m_mirror, WM_SETTEXT, 0, (LPARAM)s.c_str());
+    }
+
+    ListBox* m_list   = nullptr;   // 3201
+    ListBox* m_single = nullptr;   // 3202
+    HWND     m_mirror = nullptr;   // 3203
+    RECT     m_rcMulti  = {};
+    RECT     m_rcMirror = {};
+    RECT     m_rcSingle = {};
+};
+
+int APIENTRY wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR lpCmdLine, int)
 {
     Shell shell;
     ShellOptions opt;
@@ -194,9 +299,12 @@ int APIENTRY wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
     if (!shell.Create(hInst, opt)) return 1;
 
     shell.AddPage(1, std::make_unique<LabPage>());
+    shell.AddPage(2, std::make_unique<ListLabPage>());
+    // --listbox 从 ListBox 页开始（3b 列表多选跨进程套件使用；默认行为不变）
+    const bool listBoxPage = lpCmdLine && wcsstr(lpCmdLine, L"--listbox");
+    shell.SwitchPage(listBoxPage ? 2 : 1);
     shell.SetCaptionBadge(L"自绘测试", true);
     shell.SetStatus(L"聚焦任一输入框：光标应闪烁（周期=系统 GetCaretBlinkTime）", true);
     shell.SetFooterText(L"AirUI TextBoxLab — 自绘 TextBox 排查壳");
-    shell.SwitchPage(1);
     return shell.RunMessageLoop();
 }

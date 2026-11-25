@@ -85,6 +85,7 @@ private:
 
     // 交互
     void OnListOp(int entryIdx, int op);          // 0复制 1备注 2删除
+    void OnListOpBulk(int op);                    // 0复制所选 1删除所选（第 3 项多选）
     void ShowItemMenu(POINT screenPt, int entryIdx);
 
     // ---- 自绘热区 ----

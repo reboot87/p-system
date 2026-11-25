@@ -84,6 +84,9 @@ void ClipsPage::CreateControls()
 
     // ---- 记录列表 ----
     m_list = &CreateListBox({ IDC_LIST, 54 });
+    // 多选（第 3 项）：Ctrl/Shift+点击语义由 ListBox 处理（wParam 修饰位）；
+    // 页面维护 m_selEntry 作为「主选项」驱动详情面板，右键菜单给批量操作。
+    m_list->SetMultiSelect(true);
     m_list->onPaintItem = [this](Canvas& g, const ListItemDraw& it) {
         DrawListRow(g, it);
     };
@@ -1207,13 +1210,73 @@ void ClipsPage::OnListOp(int entryIdx, int op)
     }
 }
 
+// 批量操作（第 3 项多选）：op 0=复制选中（一次 COPY，内容用 \n 拼接），
+// op 1=删除选中（每条 DEL 一次请求，失败收集并提示）。选中条目以
+// ListBox::SelectedItems() 的行下标指向 m_rows/entries。
+void ClipsPage::OnListOpBulk(int op)
+{
+    const std::vector<UiEntry>& entries = m_app.Entries();
+    if (!m_list) return;
+    std::vector<long long> ids;
+    std::vector<std::wstring> contents;
+    for (int row : m_list->SelectedItems()) {
+        if (row < 0 || row >= (int)m_rows.size()) continue;
+        const size_t e = m_rows[(size_t)row].entry;
+        if (e >= entries.size()) continue;
+        ids.push_back(entries[e].id);
+        contents.push_back(entries[e].content);
+    }
+    if (ids.empty()) return;
+    const std::wstring n = std::to_wstring(ids.size());
+
+    if (op == 0) {
+        std::wstring joined;
+        for (const auto& c : contents) {
+            if (!joined.empty()) joined += L"\n";
+            joined += c;
+        }
+        const std::wstring resp =
+            m_app.Ipc().Request(L"COPY\t" + ipc::EscapeField(joined));
+        if (resp.rfind(L"OK", 0) == 0)
+            m_app.Toast(L"已复制 " + n + L" 条", L"内容已写入系统剪贴板");
+        else
+            m_app.Toast(L"复制失败", L"服务未响应，请稍后重试", false);
+        return;
+    }
+
+    if (ShowMessageBox(L"确定删除这 " + n + L" 条记录吗？删除后不可恢复。",
+                       L"删除记录", MB_OKCANCEL | MB_ICONWARNING) != IDOK)
+        return;
+    bool allOK = true;
+    for (long long id : ids) {
+        const std::wstring resp = m_app.Ipc().Request(L"DEL\t" + std::to_wstring(id));
+        if (!(resp.rfind(L"OK", 0) == 0)) allOK = false;
+    }
+    m_selEntry = -1;
+    m_app.RefreshData();
+    if (allOK)
+        m_app.Toast(L"已删除 " + n + L" 条", L"记录已从本地数据库移除");
+    else
+        m_app.Toast(L"部分删除失败", L"服务未响应，请稍后重试", false);
+}
+
 void ClipsPage::ShowItemMenu(POINT screenPt, int entryIdx)
 {
     const std::vector<UiEntry>& entries = m_app.Entries();
     if (entryIdx < 0 || entryIdx >= (int)entries.size()) return;
 
-    enum { CMD_COPY = 1, CMD_EDIT = 2, CMD_DEL = 3 };
+    enum { CMD_COPY = 1, CMD_EDIT = 2, CMD_DEL = 3,
+           CMD_COPY_MANY = 4, CMD_DEL_MANY = 5 };
     std::vector<MenuItem> items;
+    const int selCount = m_list ? m_list->MultiSelectionCount() : 1;
+    if (selCount > 1) {
+        items.push_back({ CMD_COPY_MANY,
+                          std::wstring(L"复制 ") + std::to_wstring(selCount) + L" 条" });
+        items.push_back({ 0, L"", true, false });
+        items.push_back({ CMD_DEL_MANY,
+                          std::wstring(L"删除 ") + std::to_wstring(selCount) + L" 条记录" });
+        items.push_back({ 0, L"", true, false });
+    }
     items.push_back({ CMD_COPY, L"复制内容" });
     items.push_back({ CMD_EDIT,
                       entries[entryIdx].note.empty() ? L"添加备注"
@@ -1224,8 +1287,10 @@ void ClipsPage::ShowItemMenu(POINT screenPt, int entryIdx)
     int cmd = ShowPopupMenu(screenPt, items);
 
     switch (cmd) {
-    case CMD_COPY: OnListOp(entryIdx, 0); break;
-    case CMD_EDIT: OnListOp(entryIdx, 1); break;
-    case CMD_DEL:  OnListOp(entryIdx, 2); break;
+    case CMD_COPY:     OnListOp(entryIdx, 0); break;
+    case CMD_COPY_MANY: OnListOpBulk(0); break;
+    case CMD_DEL_MANY:  OnListOpBulk(1); break;
+    case CMD_EDIT:      OnListOp(entryIdx, 1); break;
+    case CMD_DEL:       OnListOp(entryIdx, 2); break;
     }
 }

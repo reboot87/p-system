@@ -223,16 +223,24 @@ struct ListBoxDesc
     int id = 0;
     // WM_MEASUREITEM 的兜底行高；逐项行高在 AddItem 时指定
     int fallbackItemHeight = 54;
+    // 多选（可运行期 SetMultiSelect 切换）。开启后点击语义：
+    //   普通点击  = 单选（清空其他、锚点=该行）
+    //   Ctrl+点击 = 切换该行（锚点保持）
+    //   Shift+点击= 加选该行与锚点之间的区间
+    // 修饰键读取 wParam 的 MK_CONTROL/MK_SHIFT：真实鼠标报文与
+    // 跨进程 Posted WM_LBUTTONDOWN 都带修饰位（不依赖 GetKeyState）。
+    bool multiSelect = false;
 };
 
 // 传给 onPaintItem 的一行绘制信息（替代 DRAWITEMSTRUCT）
 struct ListItemDraw
 {
-    int    index    = -1;    // 行下标
-    size_t data     = 0;     // AddItem 附加的业务数据
-    RECT   rc       = {};    // 行矩形（控件客户区坐标）
-    bool   selected = false;
-    bool   hovered  = false;
+    int    index        = -1;    // 行下标
+    size_t data         = 0;     // AddItem 附加的业务数据
+    RECT   rc           = {};    // 行矩形（控件客户区坐标）
+    bool   selected     = false;
+    bool   hovered      = false;
+    bool   multiSelected = false; // 多选模式下：行在选择集中（== selected，双写供页按需用）
 };
 
 // 一行（自绘 ListBox 的内部模型；原生 LB_* 只保留给消息级探测）
@@ -277,6 +285,16 @@ public:
     int  ItemAtPoint(POINT clientPt);
     int  HoverItem() const { return m_hover; }
 
+    // ---- 多选 API（仅 multiSelect 为 true 时有意义；调用方可按模式探询）----
+    void             SetMultiSelect(bool on);
+    bool             IsMultiSelect() const { return m_desc.multiSelect; }
+    bool             IsSelected(int index) const;
+    int              MultiSelectionCount() const;
+    std::vector<int> SelectedItems() const;
+    void             ClearSelection();
+    // 用于消息级探测的轻量级范围操作（native LB_* 语义：1 加入区间 / 0 移除）
+    void             SetSelectionRange(int start, int end, bool add);
+
     // ---- 页面按需设置的回调 ----
     std::function<void(Canvas&, const ListItemDraw&)> onPaintItem;
     std::function<void(Canvas&, const RECT&)>         onPaintEmpty;
@@ -302,6 +320,7 @@ protected:
     void PaintSelf(HDC dc);
     void PaintItem(Canvas& g, int index, const RECT& rc);
     void SelectItem(int index, bool notify);
+    void OnMultiClick(int item, bool ctrl, bool shift);
     void EnsureVisible(int index);
     void SyncScrollBar();
     int  ContentHeight() const;
@@ -316,6 +335,10 @@ protected:
     int m_hover = -1;
     int m_updateLock = 0;      // BeginUpdate/EndUpdate 嵌套层数
     int m_fallbackH = 54;
+    // 多选模式：m_selSet 与 m_items 同长（AddItem/Reset 维护），
+    // m_selAnchor = 最近一次 shift 范围/锚定行（纯内存，不保存到 native）。
+    std::vector<bool> m_selSet;
+    int               m_selAnchor = -1;
 };
 
 // ============================================================

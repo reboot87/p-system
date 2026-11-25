@@ -802,7 +802,7 @@ set_target_properties(airui_textbox_lab PROPERTIES
 # end to end (T4 = undo/redo through the edit menu, T5 = maxLength /
 # password). See tools/diagnostics/README.md.
 if(WIN32)
-    foreach(_drv labtest menuclick boxrect pixhash dpirel dpick boxread)
+    foreach(_drv labtest menuclick boxrect pixhash dpirel dpick listtest boxread)
         add_executable(${_drv} tools/diagnostics/${_drv}.c)
         target_link_libraries(${_drv} PRIVATE user32)
         set_target_properties(${_drv} PROPERTIES

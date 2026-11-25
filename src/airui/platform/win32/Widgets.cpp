@@ -1348,6 +1348,26 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
         case LB_SETCURSEL:
             self->SetSelection((int)wParam);
             return self->m_sel;
+        case LB_GETSELCOUNT:
+            // 原生语义：单选无项 = -1；多选 = 已选条数
+            if (self->m_desc.multiSelect)
+                return (LRESULT)self->MultiSelectionCount();
+            return (self->m_sel >= 0) ? 0 : -1;
+        case LB_GETSEL:
+            // 原生语义：已选 = 0，未选/无效下标 = -1（多选集合成员判定）
+            if (self->m_desc.multiSelect)
+                return self->IsSelected((int)wParam) ? 0 : -1;
+            return ((int)wParam >= 0 && (int)wParam < n &&
+                    (int)wParam == self->m_sel) ? 0 : -1;
+        case LB_SETSEL: {
+            // 简化语义：wParam=1 加区间，0 移除区间，-1 移除全部；
+            // lParam = (start,end) 通过 LOWORD/HIWORD 传递
+            const int sel = (int)wParam;
+            if (sel == -1) { self->ClearSelection(); return 0; }
+            self->SetSelectionRange((int)(short)LOWORD(lParam),
+                                    (int)(short)HIWORD(lParam), sel != 0);
+            return 0;
+        }
         case LB_GETITEMRECT:
             if ((int)wParam < 0 || (int)wParam >= n) return LB_ERR;
             if (RECT* out = (RECT*)lParam) *out = self->ItemRect((int)wParam);
@@ -1412,7 +1432,12 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
                 POINT ptIn = { pt.x - rc.left, pt.y - rc.top };
                 if (self->onItemClicked(item, ptIn)) return 0;
             }
-            self->SelectItem(item, true);
+            if (self->m_desc.multiSelect)
+                self->OnMultiClick(item,
+                                   (wParam & MK_CONTROL) != 0,
+                                   (wParam & MK_SHIFT) != 0);
+            else
+                self->SelectItem(item, true);
         }
         return 0;
     }
@@ -1552,6 +1577,8 @@ void ListBox::Reset()
 {
     m_items.clear();
     m_sel = -1;
+    m_selSet.clear();
+    m_selAnchor = -1;
     m_hover = -1;
     m_scroll = 0;
     if (m_hwnd) {
@@ -1579,6 +1606,8 @@ int ListBox::AddItem(int height, size_t data)
 {
     if (height < 1) height = m_fallbackH > 0 ? m_fallbackH : 1;
     m_items.push_back(ListBoxItem{ height, data });
+    if (m_desc.multiSelect)
+        m_selSet.resize(m_items.size(), false);
     const int idx = (int)m_items.size() - 1;
     if (m_hwnd && m_updateLock == 0) {
         SyncScrollBar();
@@ -1602,6 +1631,12 @@ void ListBox::SetSelection(int index)
     if (index < -1) index = -1;
     if (index >= (int)m_items.size()) index = (int)m_items.size() - 1;
     m_sel = index;
+    if (m_desc.multiSelect && (int)m_selSet.size() == (int)m_items.size() && index >= 0) {
+        // SetSelection 保持"原生单选语义"：清空集合、锚点=该行
+        for (size_t i = 0; i < m_selSet.size(); ++i) m_selSet[i] = false;
+        m_selSet[(size_t)index] = true;
+        m_selAnchor = index;
+    }
     if (index >= 0) EnsureVisible(index);
     if (m_hwnd) {
         SyncScrollBar();
@@ -1729,6 +1764,126 @@ void ListBox::SelectItem(int index, bool notify)
     }
 }
 
+// ---- 多选（多区）----
+// 语义（Explorer 风格）：普通点击 = 单选（清空集合、锚点=该行）；
+// Ctrl+点击 = 切换该行（锚点保持）；Shift+点击 = 加选锚点到该行的区间。
+// 修饰键取 wParam 上的 MK_CONTROL/MK_SHIFT，真实鼠标与跨进程 Posted
+// WM_LBUTTONDOWN 都带这两位（GetKeyState 在跨进程测试中不可靠）。
+void ListBox::OnMultiClick(int item, bool ctrl, bool shift)
+{
+    const int n = (int)m_items.size();
+    if (item < 0 || item >= n) return;
+    bool changed = false;
+    if (ctrl) {
+        m_selSet[(size_t)item] = !m_selSet[(size_t)item];
+        m_sel = item;
+        if (m_selAnchor < 0) m_selAnchor = item;
+        changed = true;
+    } else if (shift && m_selAnchor >= 0) {
+        const int a = m_selAnchor, b = item;
+        const int lo = (a < b) ? a : b, hi = (a < b) ? b : a;
+        for (int i = lo; i <= hi; ++i) m_selSet[(size_t)i] = true;
+        m_sel = item;
+        changed = true;
+    } else {
+        for (int i = 0; i < n; ++i) m_selSet[(size_t)i] = false;
+        if (item < n) m_selSet[(size_t)item] = true;
+        m_sel = item;
+        m_selAnchor = item;
+        changed = true;
+    }
+    if (!changed) return;
+    EnsureVisible(item);
+    if (m_hwnd) {
+        SyncScrollBar();
+        Invalidate();
+        SendMessageW(GetParent(m_hwnd), WM_COMMAND,
+                     MAKEWPARAM(GetDlgCtrlID(m_hwnd), LBN_SELCHANGE),
+                     (LPARAM)m_hwnd);
+    }
+}
+
+void ListBox::SetMultiSelect(bool on)
+{
+    if (m_desc.multiSelect == on) return;
+    m_desc.multiSelect = on;
+    if (on && (int)m_selSet.size() != (int)m_items.size()) {
+        std::vector<bool> s((size_t)m_items.size(), false);
+        if (m_sel >= 0 && m_sel < (int)s.size()) s[(size_t)m_sel] = true;
+        m_selSet = std::move(s);
+    }
+    m_selAnchor = -1;
+    if (m_hwnd) { SyncScrollBar(); Invalidate(); }
+}
+
+bool ListBox::IsSelected(int index) const
+{
+    if (index < 0 || index >= (int)m_items.size()) return false;
+    if (!m_desc.multiSelect) return index == m_sel;
+    if ((int)m_selSet.size() == (int)m_items.size()) return m_selSet[(size_t)index];
+    return index == m_sel;
+}
+
+int ListBox::MultiSelectionCount() const
+{
+    if (m_desc.multiSelect && (int)m_selSet.size() == (int)m_items.size()) {
+        int c = 0;
+        for (bool b : m_selSet) if (b) ++c;
+        return c;
+    }
+    return (m_sel >= 0) ? 1 : 0;
+}
+
+std::vector<int> ListBox::SelectedItems() const
+{
+    std::vector<int> out;
+    if (m_desc.multiSelect && (int)m_selSet.size() == (int)m_items.size()) {
+        for (size_t i = 0; i < m_selSet.size(); ++i)
+            if (m_selSet[i]) out.push_back((int)i);
+    } else if (m_sel >= 0 && m_sel < (int)m_items.size()) {
+        out.push_back(m_sel);
+    }
+    return out;
+}
+
+void ListBox::ClearSelection()
+{
+    if (!m_desc.multiSelect) {
+        if (m_sel >= 0) {
+            const int old = m_sel;
+            m_sel = -1;
+            if (m_hwnd) {
+                InvalidateItem(old);
+                SendMessageW(GetParent(m_hwnd), WM_COMMAND,
+                             MAKEWPARAM(GetDlgCtrlID(m_hwnd), LBN_SELCHANGE),
+                             (LPARAM)m_hwnd);
+            }
+        }
+        return;
+    }
+    if (std::find(m_selSet.begin(), m_selSet.end(), true) != m_selSet.end()) {
+        for (size_t i = 0; i < m_selSet.size(); ++i) m_selSet[i] = false;
+        if (m_hwnd) Invalidate();
+    }
+}
+
+void ListBox::SetSelectionRange(int start, int end, bool add)
+{
+    if ((int)m_selSet.size() != (int)m_items.size()) return;
+    const int n = (int)m_items.size();
+    if (start < 0 || end < 0 || start >= n) return;
+    if (end >= n) end = n - 1;
+    if (start > end) { const int t = start; start = end; end = t; }
+    for (int i = start; i <= end; ++i) m_selSet[(size_t)i] = add;
+    if (m_hwnd) {
+        SyncScrollBar();
+        Invalidate();
+        SendMessageW(GetParent(m_hwnd), WM_COMMAND,
+                     MAKEWPARAM(GetDlgCtrlID(m_hwnd), LBN_SELCHANGE),
+                     (LPARAM)m_hwnd);
+    }
+}
+
 void ListBox::PaintItem(Canvas& g, int index, const RECT& rc)
 {
     if (index < 0 || index >= (int)m_items.size()) return;
@@ -1736,11 +1891,12 @@ void ListBox::PaintItem(Canvas& g, int index, const RECT& rc)
     g.Fill(rc, Pal().bg);
     if (!onPaintItem) return;
     ListItemDraw it;
-    it.index    = index;
-    it.data     = m_items[(size_t)index].data;
-    it.rc       = rc;
-    it.selected = (index == m_sel);
-    it.hovered  = (index == m_hover);
+    it.index         = index;
+    it.data          = m_items[(size_t)index].data;
+    it.rc            = rc;
+    it.selected      = IsSelected(index);
+    it.multiSelected = it.selected;
+    it.hovered       = (index == m_hover);
     onPaintItem(g, it);
 }
 
