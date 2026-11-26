@@ -1,0 +1,6 @@
+# Public headers still being migrated to platform-free signatures.
+# Each line is a basename. Remove a line once that header passes the
+# gate with zero platform references; the gate then enforces it.
+# Last updated: 2026-11-26 (all public headers cleared; zero exemptions).
+# Platform-specific implementation headers live in platform/win32/internal/
+# and are intentionally not part of the public surface.

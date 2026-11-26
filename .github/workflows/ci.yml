@@ -140,6 +140,9 @@ jobs:
       - name: Core cleanliness gate
         run: bash scripts/check-core-clean.sh
 
+      - name: Public header platform-purity gate
+        run: bash scripts/check-public-headers-clean.sh
+
       - name: Skia backend API contract gate (no SDK required)
         run: bash scripts/check-skia-syntax.sh
 
@@ -254,6 +257,12 @@ jobs:
           powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-core-clean.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Public header platform-purity gate
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-public-headers-clean.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       # Self-contained public-header gate (docs/ui-library.md §6). Every
       # PUBLIC header of airui-core / airui-win32 must compile standalone.
       # The target re-runs the check in a fresh scratch build dir (no stale
@@ -325,6 +334,12 @@ jobs:
         shell: pwsh
         run: |
           powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-core-clean.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Public header platform-purity gate
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-public-headers-clean.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build ALL targets

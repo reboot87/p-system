@@ -855,6 +855,15 @@ if(WIN32)
         COMMAND powershell -NoProfile -ExecutionPolicy Bypass
                 -File ${CMAKE_SOURCE_DIR}/scripts/check-core-clean.ps1
         VERBATIM)
+
+    # Public-header platform-purity gate. Checks core/include/airui and
+    # platform/win32/airui (public surface only; internal/ is private).
+    # Headers under migration are listed in public-headers-exempt.txt;
+    # removing an entry makes that header enforceable.
+    add_custom_target(check-public-headers-clean
+        COMMAND powershell -NoProfile -ExecutionPolicy Bypass
+                -File ${CMAKE_SOURCE_DIR}/scripts/check-public-headers-clean.ps1
+        VERBATIM)
 endif()
 
 # ------------------------------------------------------------
