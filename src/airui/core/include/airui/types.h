@@ -63,6 +63,12 @@ struct Rect
 // ---------------- color ----------------
 using Color = uint32_t;
 
+// Rect 与 Color 的二进制布局是与平台无关的契约的组成部分(见文件头说明)：
+// 平台层依赖此布局按字段直接复制，不做逐字段转换。尺寸变了就应视为
+// ABI 变更，在这里提前拦住。
+static_assert(sizeof(Rect) == 16, "Rect binary layout changed - ABI break");
+static_assert(sizeof(Color) == 4, "Color binary layout changed - ABI break");
+
 constexpr Color MakeColor(uint32_t r, uint32_t g, uint32_t b) noexcept
 {
     return ((b << 16) | (g << 8) | r) & 0x00FFFFFFu;
