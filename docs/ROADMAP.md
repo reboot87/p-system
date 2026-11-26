@@ -673,3 +673,26 @@
     - 真跨屏 DPI 变化未在本机可测（两屏同值 96）；`WM_USER+9000` 是共享处理体的测试替身，与真派发走同一 `ApplyDpiChange`。
     - `m_baseMetrics` 取自 `Shell::Create` 时的全局 `Mx()`；若以后有人在其前调 `SetMetrics`，会被视为基线（airecord 启动不加载 JSON 主题）。
     - 真实 lParam 指针仅系统派发时有效；测试驱动不依赖它（lParam=0 走原地重排分支）。
+
+- **2026-11-26（跟进九）— 列表多选 + 分页（第 3 项之 b / c）**
+  - **范围**：用户批准第 3 项的后两块。3b = 自绘 `ListBox` 多选（Ctrl 切换 / Shift 范围）+ `ClipsPage` 批量复制/删除；3c = `ClipsPage` 列表分页（按页切片 + core 窗口式页码条）。core 除复用既有 `Pagination*` 外零改动（`MultiSelect` 是 core 里另一个控件，本轮未用；多选做在 `platform/win32` 自绘 ListBox 内）。
+  - **3b 实现**（`platform/win32/airui/Widgets.h` + `Widgets.cpp`）：
+    - `ListBoxDesc.multiSelect`（默认 false，单选行为完全不变）；API `SetMultiSelect/IsMultiSelect/IsSelected/MultiSelectionCount/SelectedItems/ClearSelection/SetSelectionRange`。
+    - `WM_LBUTTONDOWN` 在 multiSelect 下改走 `OnMultiClick(item, ctrl, shift)`，修饰键取 **wParam 的 `MK_CONTROL`/`MK_SHIFT` 位**（真实鼠标与跨进程 Posted 点击都带，不吃 `GetKeyState` —— 与跟进六的跨进程键盘结论一致）。语义：普通点击=单选（清空、锚点=该行）、Ctrl+=切换、Shift+=锚点到该行的区间加选。
+    - `ListItemDraw` 新增 `multiSelected`（多选下与 `selected` 同值）。
+    - 消息级探测追加 `LB_GETSELCOUNT / LB_GETSEL / LB_SETSEL` shim（`test_ui`/外部探针按原生 LS_* 语义读）。
+    - lab（`examples/TextBoxLab.cpp`）新增第 2 页 `ListLabPage`（`--listbox` 启动即进）：3201 多选、3202 单选、3203 原生 EDIT **镜像**（把 `SelectedItems()` 写成 `multi=[..] single=N`，跨进程用标准 `WM_GETTEXT` 读，绕过自绘列表无文本的限制）。
+    - `tools/diagnostics/listtest.c`（`rect` / `click <id> <x> <y> [modsHex]` 客户端坐标 / `selstate`）+ `list_lab_suite.ps1`（L1–L8）**全 PASS**：L1 单选 [0]、L2 Ctrl [0,2]、L3 Ctrl [0,2,4]、L4 Shift 0..3 加入、L5 Ctrl 切出、L6 Ctrl 切回、L7/L8 3202 单选替换。
+    - `ClipsPage`：`SetMultiSelect(true)`；`ShowItemMenu` 选中 > 1 时加「复制 N 条 / 删除 N 条记录」；新增 `OnListOpBulk(op)`（0=所选内容 `\n` 拼接一次 COPY；1=逐条 DEL + `RefreshData` + 汇总 Toast）。
+  - **3c 实现**（`platform/win32/Canvas.{h,cpp}`、`airui/DrawCall.h`、`core/App.h`、`pages/ClipsPage.{h,cpp}`）：
+    - **Canvas 委托 core 分页**：新增 `Canvas::Pagination(rc, PaginationState)` → `PaintPagination`（窗口式：首页/上一页/…/页码/…/下一页/末页，命中码 -2 上一页 / -1 下一页 / >0 页号 / 0 省略号），`PaginationLayout/PaginationHit` 薄转发（与 `EmptyState → PaintEmptyView` 同模式）。`DrawCall` 加 `Pagination` 类型（录像/断言用）。
+    - **ClipsPage 分页**：`ApplyEntries` 先在全量 `m_rowsAll` 上建行模型（分组头 + 条目），`SliceRowsForPage()` 按每页 `m_pageSize=10` 条**条目行**切进 `m_rows`；分组头不占页容量（页内最多带该页需要的几个跨组头，头落在页边界上也不会丢）。`m_page`（1-based）/`m_pageCount`；**只有数据/筛选指纹变化才回到第 1 页**，翻页 `ApplyPage()` 不动指纹，`SliceRowsForPage` 里 `m_page` 会被夹到 `[1,m_pageCount]`（末页删光也不会停在不存在的页）。
+    - **绘制**：`OnPaint` 在列表卡底部绘 `g.Pagination(m_rcPager, …)`（`m_pageCount > 1` 且表单卡关闭时）；`Relayout` 预留该条高度（`kPagerH=76`）并把列表底边收上去，条不与行重叠。
+    - **命中/交互**：`PaginationHitAt(pt)` 直接调 core `PaginationHit`（与 Canvas 同一几何源，不另起一套）；`OnMouseDown` 在页码条上记 `m_pagerHit` 并 `SetCapture`，`OnMouseUp` 落在同一槽才 `ApplyPage`。**踩坑**：列表是独立子 HWND，点在列表区域上的是子窗过程（`WndProc`/`TextBoxProc` 那类），页面收不到；但页码条在列表**下方**（页面客户区），本来就能到页面——所以命中要先于 `m_hot`/列表判断，且 `OnMouseUp` 现在**先算 pt 再看 `m_hot.Pressing()`**（否则 page-only 的按下态会被早退吞掉）。
+    - **探针**：`IDC_PAGER_PROBE=1009`，一个铺满页码条区域的 0x0 `Static`（`WS_CHILD|WS_VISIBLE`）随 `Relayout` `SetWindowPos`，给跨进程驱动一个稳定的屏幕矩形去点页码（自绘页码本身没有任何 HWND 可查）。
+  - **实测**：全量 Release `BUILD=0`；`ctest -C Release` **28/28**；`check-core-clean` PASSED（55 core 文件 0 平台引用）；x86 `-A Win32`（CI `windows-x86` 同款）`airecord`/`airui_textbox_lab` 构建通过；3b `list_lab_suite.ps1` **L1–L8 全 PASS**。
+  - **边界 / 踩坑**：
+    - 每页条数固定 **10**（本轮不提供 UI 可调，`m_pageSize` 是成员留了扩展口）；真实数据变化会回第 1 页（语义上"刷新先看最新"，不是 bug）；最后一页删空后 `m_pageCount` 收缩、`m_page` 被夹回。
+    - 页码条**只在表单卡关闭时画**（表单卡占了卡片底部，条会被压住），表单卡打开时列表仍全量滚动；列表页内仍可纵向滚动（一页 10 条未必塞满视口）。
+    - 3c 的交互只在本机做了一次真实点击验证（页码可翻、行会换、`LB_GETCOUNT` 恒为当页条数），**未写进 suite**——3c 是纯页面层功能，suite 侧复用 3b 的 `listtest`/`selstate` 即可读 `LB_GETCOUNT` 断言；下一页等操作目前无稳定跨进程句柄（页码是自绘），探针 `1009` 只给区域不给具体槽坐标，后续如需要可加 `WM_USER+9002` 查询槽位。
+    - 分页与 3a DPI 重建叠加：`RebuildListForDpi` 保当前页，按新 `Mx()` 重切重填——两者都已各自验证一次。

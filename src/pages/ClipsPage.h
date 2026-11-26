@@ -154,7 +154,7 @@ private:
     int   m_pageSize = 10;
     int   m_pageCount = 1;       // 含当前页的总页数（SliceRowsForPage 更新）
     RECT  m_rcPager = {};        // 分页条区域（客户区绝对坐标，驱动用）
-    HWND  m_pagerProbe = nullptr;   // 分页条的尺寸探针子窗口（3207）
+    HWND  m_pagerProbe = nullptr;   // 分页条的尺寸探针子窗口（1009）
     int   m_pagerHit = 0;        // m_rcPager 上被按下的槽（PaginationHit 码）
     air::ui::PaginationState m_pagerState = {};
 
