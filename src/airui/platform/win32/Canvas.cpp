@@ -296,6 +296,31 @@ void Canvas::EmptyState(const RECT& rc, const air::ui::EmptyState& state)
     s_recorder = saved;
 }
 
+void Canvas::Pagination(const RECT& rc, const air::ui::PaginationState& state)
+{
+    if (s_recorder) {
+        DrawCall dc; dc.type = DrawCall::Pagination; dc.rect = rc;
+        s_recorder->push_back(dc);
+    }
+    CanvasPainter painter(*this);
+    std::vector<DrawCall>* saved = s_recorder;
+    s_recorder = nullptr;
+    air::ui::PaintPagination(painter, ToRect(rc), state, Pal(), Mx());
+    s_recorder = saved;
+}
+
+std::vector<air::ui::PaginationSlot> Canvas::PaginationLayout(
+    const RECT& rc, const air::ui::PaginationState& state) const
+{
+    return air::ui::MeasurePagination(ToRect(rc), state, Mx());
+}
+
+int Canvas::PaginationHit(const RECT& rc, const air::ui::PaginationState& state,
+                          Point pt) const
+{
+    return air::ui::PaginationHit(ToRect(rc), state, Mx(), pt);
+}
+
 void Canvas::Button(const RECT& rc, const std::wstring& text, BtnStyle style,
                     bool hover, bool pressed, bool disabled)
 {

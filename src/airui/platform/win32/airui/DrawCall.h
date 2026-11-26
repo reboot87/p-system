@@ -32,7 +32,8 @@ struct DrawCall
         HLine,
         HLineDashed,
         VLine,
-        Dot
+        Dot,
+        Pagination
     } type = None;
 
     RECT rect = {};

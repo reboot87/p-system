@@ -87,6 +87,11 @@ void ClipsPage::CreateControls()
     // 多选（第 3 项）：Ctrl/Shift+点击语义由 ListBox 处理（wParam 修饰位）；
     // 页面维护 m_selEntry 作为「主选项」驱动详情面板，右键菜单给批量操作。
     m_list->SetMultiSelect(true);
+    // 3c 分页探针子窗口（0x0，仅承载稳定屏幕位置供跨进程驱动点击分页条）
+    m_pagerProbe = CreateWindowExW(0, L"Static", L"", WS_CHILD | WS_VISIBLE,
+                                   0, 0, 0, 0, ParentWnd(),
+                                   (HMENU)(INT_PTR)IDC_PAGER_PROBE,
+                                   GetModuleHandleW(nullptr), nullptr);
     m_list->onPaintItem = [this](Canvas& g, const ListItemDraw& it) {
         DrawListRow(g, it);
     };
@@ -319,8 +324,27 @@ void ClipsPage::Relayout()
 
     RECT rcList = m_rcListCard;
     if (m_formOpen) rcList.bottom = m_rcFormCard.top - 10;
+
+    // 3c：分页条占列表卡片底部一条（list 只占上方，页面在条上自绘页码）。
+    const int kPagerH = 76;
+    m_rcPager = { m_rcListCard.left + 12, m_rcListCard.bottom - kPagerH,
+                  m_rcListCard.right - 12, m_rcListCard.bottom - 8 };
+    if (!m_formOpen && m_rcPager.bottom > m_rcPager.top)
+        rcList.bottom = m_rcPager.top - 6;
+    if (rcList.bottom < rcList.top + m.groupH)
+        rcList.bottom = rcList.top + m.groupH;
     m_list->Move(rcList.left, rcList.top,
                  rcList.right - rcList.left, rcList.bottom - rcList.top);
+
+    // 分页条探针：0x0 Static 放在分页条中心（跨进程驱动 Click 用）
+    if (m_pagerProbe) {
+        SetWindowPos(m_pagerProbe, nullptr,
+                     m_rcPager.left,
+                     m_rcPager.top,
+                     m_rcPager.right - m_rcPager.left,
+                     m_rcPager.bottom - m_rcPager.top,
+                     SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    }
 
     // ---- 表单卡内部控件 ----
     if (m_formOpen && !m_editingId) {
@@ -464,10 +488,62 @@ void ClipsPage::RefreshList(const std::wstring& filter)
 void ClipsPage::RebuildListForDpi()
 {
     if (!m_list) return;
-    // 任何真实指纹都不等于它（指纹 = typeFilter*1000003 + …，非负起点）→ 必重建。
-    // 用字面量避免为 LLONG_MIN 引入 <climits>。
-    m_appliedFp = -9223372036854775807LL - 1;
-    ApplyEntries();
+    // 行高是 AddItem 时按当时的 Mx() 定死的像素值；DPI 变了必须按新度量
+    // 重切重填当前页。ApplyPage 不改数据指纹、只重置 page 重切+重填，
+    // 并且纯内存、无 IPC —— 离线也安全（离线时绝不能 RefreshList）。
+    const int keepPage = m_page;
+    m_page = keepPage;
+    ApplyPage(keepPage);
+}
+
+// 3c 分页：把全量行模型 m_rowsAll 按每页 m_pageSize 条「条目行」切成
+// 当前页的 m_rows。分组头不占页容量预算：一个条目行顶格，后面若跨组
+// 再补一条分组头（即页内可能比 m_pageSize 多几行头，至多 3 个头）。
+// 行高都在此刻取 Mx()（DPI 变化后 SliceRowsForPage 会被重建调用重取）。
+void ClipsPage::SliceRowsForPage()
+{
+    // 统计条目行数（m_rowsAll 里 header=false 的行）
+    if (m_pageSize < 1) m_pageSize = 10;
+    int entries = 0;
+    for (const Row& r : m_rowsAll) if (!r.header) ++entries;
+    m_pageCount = (entries + m_pageSize - 1) / m_pageSize;
+    if (m_pageCount < 1) m_pageCount = 1;
+    if (m_page < 1) m_page = 1;
+    if (m_page > m_pageCount) m_page = m_pageCount;
+
+    m_rows.clear();
+    const int first = (m_page - 1) * m_pageSize;   // 本页第一条条目的序号
+    int seen = 0;
+    const int last = first + m_pageSize;
+    for (const Row& r : m_rowsAll) {
+        if (r.header) {
+            if (seen >= first && seen < last)
+                m_rows.push_back(r);
+        } else {
+            if (seen >= first && seen < last)
+                m_rows.push_back(r);
+            ++seen;
+        }
+    }
+}
+
+// 3c：翻页。code = PaginationSlot.page（-2 上一页 / -1 下一页 / >0 页号）。
+// 不改数据指纹，只让 ApplyEntries 按新 m_page 重切/重建当前页。
+void ClipsPage::ApplyPage(int code)
+{
+    int want = m_page;
+    if (code == -2) want = m_page - 1;
+    else if (code == -1) want = m_page + 1;
+    else if (code > 0) want = code;
+    if (want < 1) want = 1;
+    if (want > m_pageCount) want = m_pageCount;
+    if (want == m_page) return;
+    m_page = want;
+    SliceRowsForPage();
+    m_list->Reset();
+    for (size_t r = 0; r < m_rows.size(); ++r)
+        m_list->AddItem(m_rows[r].header ? Mx().groupH : Mx().itemH, r);
+    m_list->Invalidate();
 }
 
 // 仅从应用层共享快照（m_app.Entries()）重建分组行模型与列表，不做任何
@@ -495,9 +571,12 @@ void ClipsPage::ApplyEntries()
         return;
     }
     m_appliedFp = fp;   // 记录本次指纹；下次未变则跳过重建
+    m_page = 1;        // 3c：数据/筛选变了 → 回到首页（翻页走 ApplyPage，不改指纹）
 
     // ---- 行模型：分组头 + 条目（类型筛选在客户端本地做） ----
-    m_rows.clear();
+    // 3c：先在全量 m_rowsAll 上建行模型，再由 SliceRowsForPage() 按页
+    // 切进 m_rows —— 分组头落哪一行会随页变，所以不能先切再分组。
+    m_rowsAll.clear();
     m_hoverOp    = -1;    // 行下标即将全部作废
     m_hoverOpRow = -1;
 
@@ -527,18 +606,20 @@ void ClipsPage::ApplyEntries()
         if (m_typeFilter && TypeOfEntry(e) != m_typeFilter) continue;
 
         const wchar_t* want = groupOf(e.createdAt);
-        bool needHead = m_rows.empty() || m_rows.back().header;
+        bool needHead = m_rowsAll.empty() || m_rowsAll.back().header;
         if (!needHead) {
-            const std::wstring& prev = all[m_rows.back().entry].createdAt;
+            const std::wstring& prev = all[m_rowsAll.back().entry].createdAt;
             needHead = (wcscmp(groupOf(prev), want) != 0);
         }
         if (needHead) {
-            if (wcscmp(want, L"today") == 0)      m_rows.push_back({ true, L"今天", 0 });
-            else if (wcscmp(want, L"yest") == 0)  m_rows.push_back({ true, L"昨天", 0 });
-            else                                  m_rows.push_back({ true, L"更早", 0 });
+            if (wcscmp(want, L"today") == 0)      m_rowsAll.push_back({ true, L"今天", 0 });
+            else if (wcscmp(want, L"yest") == 0)  m_rowsAll.push_back({ true, L"昨天", 0 });
+            else                                  m_rowsAll.push_back({ true, L"更早", 0 });
         }
-        m_rows.push_back({ false, L"", i });
+        m_rowsAll.push_back({ false, L"", i });
     }
+
+    SliceRowsForPage();   // 3c：全量行模型 → 当前页切片（m_rows）+ 页计数
 
     // ---- 填充列表（行高：分组头 / 条目卡） ----
     // 整个重建夹在 RAII 批处理里：Reset() + N × AddItem() + SetSelection()
@@ -602,6 +683,14 @@ void ClipsPage::OnPaint(Canvas& g, const RECT& content)
     DrawToolbar(g);
     if (m_formOpen && !m_editingId) DrawFormCard(g);
     DrawDetailPanel(g);
+
+    // 3c: page bar at the bottom of the list card (hidden while the form is open)
+    if (!m_formOpen && m_pageCount > 1 && m_rcPager.right > m_rcPager.left) {
+        m_pagerState.page = m_page;
+        m_pagerState.pageCount = m_pageCount;
+        m_pagerState.base.disabled = false;
+        g.Pagination(m_rcPager, m_pagerState);
+    }
 }
 
 // 服务离线横幅：内容区顶部一条全宽红色告警条（红色底 + 白字）。
@@ -924,6 +1013,14 @@ bool ClipsPage::OnMouseDown(POINT pt)
     // Shell 传相对内容区坐标；页面几何是客户区绝对坐标
     POINT abs = { pt.x + m_content.left, pt.y + m_content.top };
 
+    // 3c: pager bar (list card bottom) - capture the pressed slot, act on release
+    if (!m_formOpen && m_pageCount > 1 && PtInRect(&m_rcPager, abs)) {
+        m_pagerState.page = m_page;
+        m_pagerState.pageCount = m_pageCount;
+        m_pagerHit = PaginationHitAt(abs);
+        if (m_pagerHit != 0) { SetCapture(true); return true; }
+    }
+
     // 自绘热区：按下只记状态，动作留到抬起时执行。这样才画得出"按下去"
     // 的那一帧，也才有桌面按钮的语义——按住拖出去松手 = 取消。
     if (const int hot = HitHot(abs)) {
@@ -948,9 +1045,19 @@ bool ClipsPage::OnMouseDown(POINT pt)
 
 bool ClipsPage::OnMouseUp(POINT pt)
 {
+    POINT abs = { pt.x + m_content.left, pt.y + m_content.top };
+
+    // 3c: pager - release inside the same slot commits the page change
+    if (m_pagerHit != 0) {
+        const int down = m_pagerHit;
+        m_pagerHit = 0;
+        SetCapture(false);
+        if (PaginationHitAt(abs) == down) ApplyPage(down);
+        return true;
+    }
+
     if (!m_hot.Pressing()) return false;
 
-    POINT abs = { pt.x + m_content.left, pt.y + m_content.top };
     const int  hit     = HitHot(abs);
     const bool clicked = m_hot.Release(hit);
     SetCapture(false);
@@ -988,6 +1095,20 @@ bool ClipsPage::HandCursorAt(POINT pt)
 // ============================================================
 // 自绘热区
 // ============================================================
+int ClipsPage::PaginationHitAt(POINT absPt) const
+{
+    if (m_pageCount <= 1 || m_rcPager.right <= m_rcPager.left) return 0;
+    if (!PtInRect(&m_rcPager, absPt)) return 0;
+    // Canvas::PaginationHit 是 Canvas 成员；页面这里没有 Canvas，
+    // 直接调 core 的同一个 PaginationHit（Canvas 只是它的转发器）。
+    PaginationState st = m_pagerState;
+    st.page = m_page;
+    st.pageCount = m_pageCount;
+    const Point pt{ absPt.x, absPt.y };
+    const Rect rc{ m_rcPager.left, m_rcPager.top, m_rcPager.right, m_rcPager.bottom };
+    return air::ui::PaginationHit(rc, st, Mx(), pt);
+}
+
 int ClipsPage::HitHot(POINT absPt) const
 {
     for (int i = 0; i < 4; ++i)

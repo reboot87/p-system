@@ -47,6 +47,7 @@ enum {
     IDC_SEARCH_CHIP = 1006,   // 搜索框右侧快捷键提示（独立置顶子窗口）
     IDC_NOTE_MULTI  = 1007,   // 备注输入框（详情面板，多行）
     IDC_SEARCH_CLEAR = 1008,  // 搜索框「×」清空（独立置顶子窗口，文本非空时显示）
+    IDC_PAGER_PROBE  = 1009,  // 分页条定位探针（0x0 Static，仅承载跨进程点击位置）
 };
 
 // 定时器 ID

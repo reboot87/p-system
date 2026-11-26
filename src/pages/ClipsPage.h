@@ -65,12 +65,21 @@ public:
 
     void ToggleForm(bool open);
     void OpenForm();          // 切页后展开表单卡并聚焦录入框
+    RECT PagerRect() const { return m_rcPager; }   // 分页条屏幕区域（3c）
 
 private:
     // 子控件创建与显隐
     void CreateControls();
     void SyncVisibility();
     void Relayout();
+    // 3c 分页：将 m_rows 切到当前页（用当前 Mx() 的行高）；以此
+    // 更新 m_page/m_pageCount
+    void SliceRowsForPage();
+    // 3c 分页：ApplyEntries() 重建行模型后走 SliceRowsForPage；
+    // code = PaginationSlot.page（-2 上一页 / -1 下一页 / >0 页号）
+    void ApplyPage(int code);
+    // 3c：分页条命中（返回 PaginationHit 的 code；0 = 非页码区）
+    int  PaginationHitAt(POINT absPt) const;
     // 「×」清空按钮的显隐 + 搜索框右内边距（搜索文本非空时显示）
     void SyncSearchClearButton();
     static RECT DetailNoteBox(RECT detail);
@@ -136,7 +145,18 @@ private:
 
     // 行模型（分组头 / 条目）
     struct Row { bool header; std::wstring label; size_t entry; };
-    std::vector<Row> m_rows;
+    std::vector<Row> m_rows;      // 当前页的切片（分页后交给 ListBox 的行）
+    std::vector<Row> m_rowsAll;   // 全量行模型（分页前），ApplyEntries 重建
+
+    // 3c 分页：m_rows 指向当前页的切片（m_rowsAll 见 ApplyEntries），
+    // m_page 是 1-based。m_pageSize = 每页条数（第 3 项，固定值首轮）。
+    int   m_page = 1;
+    int   m_pageSize = 10;
+    int   m_pageCount = 1;       // 含当前页的总页数（SliceRowsForPage 更新）
+    RECT  m_rcPager = {};        // 分页条区域（客户区绝对坐标，驱动用）
+    HWND  m_pagerProbe = nullptr;   // 分页条的尺寸探针子窗口（3207）
+    int   m_pagerHit = 0;        // m_rcPager 上被按下的槽（PaginationHit 码）
+    air::ui::PaginationState m_pagerState = {};
 
     // 上次已应用到 ListBox 的条目指纹（数量 + 首条 id + 末条 id）。
     // 用于跳过"数据未变却反复重建列表"：切页回来时 ListBox 已是现成的，

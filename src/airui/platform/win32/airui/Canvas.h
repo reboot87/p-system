@@ -106,6 +106,14 @@ public:
                   COLORREF bg, COLORREF tx, int radius = 8);
     // 列表空状态（三段式引导）
     void EmptyState(const RECT& rc, const air::ui::EmptyState& state);
+    // 窗口式分页指示器（第 3 项，core PaintPagination 委托版；
+    // 页面用 PaginationLayout / PaginationHit 做命中：slot.page ==
+    // -2 上一页 / -1 下一页 / > 0 页号）
+    void Pagination(const RECT& rc, const air::ui::PaginationState& state);
+    std::vector<air::ui::PaginationSlot> PaginationLayout(
+        const RECT& rc, const air::ui::PaginationState& state) const;
+    int PaginationHit(const RECT& rc, const air::ui::PaginationState& state,
+                      Point pt) const;
     // 按钮（纯视觉；命中与点击由页面用 HotState 自己管）
     void Button(const RECT& rc, const std::wstring& text, BtnStyle style,
                 bool hover = false, bool pressed = false, bool disabled = false);
