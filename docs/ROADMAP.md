@@ -690,7 +690,8 @@
     - **绘制**：`OnPaint` 在列表卡底部绘 `g.Pagination(m_rcPager, …)`（`m_pageCount > 1` 且表单卡关闭时）；`Relayout` 预留该条高度（`kPagerH=76`）并把列表底边收上去，条不与行重叠。
     - **命中/交互**：`PaginationHitAt(pt)` 直接调 core `PaginationHit`（与 Canvas 同一几何源，不另起一套）；`OnMouseDown` 在页码条上记 `m_pagerHit` 并 `SetCapture`，`OnMouseUp` 落在同一槽才 `ApplyPage`。**踩坑**：列表是独立子 HWND，点在列表区域上的是子窗过程（`WndProc`/`TextBoxProc` 那类），页面收不到；但页码条在列表**下方**（页面客户区），本来就能到页面——所以命中要先于 `m_hot`/列表判断，且 `OnMouseUp` 现在**先算 pt 再看 `m_hot.Pressing()`**（否则 page-only 的按下态会被早退吞掉）。
     - **探针**：`IDC_PAGER_PROBE=1009`，一个铺满页码条区域的 0x0 `Static`（`WS_CHILD|WS_VISIBLE`）随 `Relayout` `SetWindowPos`，给跨进程驱动一个稳定的屏幕矩形去点页码（自绘页码本身没有任何 HWND 可查）。
-  - **实测**：全量 Release `BUILD=0`；`ctest -C Release` **28/28**；`check-core-clean` PASSED（55 core 文件 0 平台引用）；x86 `-A Win32`（CI `windows-x86` 同款）`airecord`/`airui_textbox_lab` 构建通过；3b `list_lab_suite.ps1` **L1–L8 全 PASS**。
+  - **实测**：3c 活体验证：`airecord.exe`（新构建）→ F3 切剪贴板 → `pageprobe` 读 `list_count=13`（页 1：10 条目 + 今天/昨天/更早 三组头，`probe` 屏幕矩形 1095,671 402×68）→ 按 `pageclick r`（页码条第 2 槽）→ `list_count=2`（页 2：更早头 + 1 条目，恰为剩余条目 + 其组头），页码条高亮第 2 页——**分页、切片、组头带页边界、页码条命中全部实测通过**；`textbox_lab_suite.ps1` T1–T5 全 PASS（3b/3c 未破坏跟进七/六路径）。
+  - **门**：全量 Release `BUILD=0`；`ctest -C Release` **28/28**；`check-core-clean` PASSED（55 core 文件 0 平台引用）；x86 `-A Win32`（CI `windows-x86` 同款）`airecord`/`airui_textbox_lab` 构建通过；3b `list_lab_suite.ps1` **L1–L8 全 PASS**。
   - **边界 / 踩坑**：
     - 每页条数固定 **10**（本轮不提供 UI 可调，`m_pageSize` 是成员留了扩展口）；真实数据变化会回第 1 页（语义上"刷新先看最新"，不是 bug）；最后一页删空后 `m_pageCount` 收缩、`m_page` 被夹回。
     - 页码条**只在表单卡关闭时画**（表单卡占了卡片底部，条会被压住），表单卡打开时列表仍全量滚动；列表页内仍可纵向滚动（一页 10 条未必塞满视口）。
