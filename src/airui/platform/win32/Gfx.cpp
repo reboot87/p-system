@@ -1,5 +1,5 @@
-#include "airui/Gfx.h"
-#include "airui/PaintFrame.h"
+#include "internal/Gfx.h"
+#include "internal/PaintFrame.h"
 #include "airui/Theme.h"
 
 namespace air {
@@ -12,16 +12,18 @@ namespace gfx {
 // When a PaintFrame is active all primitives go to the runtime
 // selected backend. With no frame the original GDI code below runs
 // unchanged, so the default renderer stays pixel-for-pixel identical.
-void Fill(HDC dc, const RECT& rc, COLORREF color)
+void Fill(DeviceContextHandle dcHandle, const RECT& rc, COLORREF color)
 {
+    HDC dc = reinterpret_cast<HDC>(dcHandle);
     if (PaintFrame* f = CurrentPaintFrame()) { f->GfxFill(rc, color); return; }
     Brush br(color);
     RECT r = rc;
     ::FillRect(dc, &r, br);
 }
 
-void FillRound(HDC dc, const RECT& rc, COLORREF color, int radius)
+void FillRound(DeviceContextHandle dcHandle, const RECT& rc, COLORREF color, int radius)
 {
+    HDC dc = reinterpret_cast<HDC>(dcHandle);
     if (rc.right <= rc.left || rc.bottom <= rc.top) return;
     if (PaintFrame* f = CurrentPaintFrame()) {
         f->GfxFillRound(rc, color, radius); return;
@@ -33,14 +35,16 @@ void FillRound(HDC dc, const RECT& rc, COLORREF color, int radius)
     RoundRect(dc, rc.left, rc.top, rc.right, rc.bottom, radius * 2, radius * 2);
 }
 
-void FillShape(HDC dc, const RECT& rc, COLORREF color, int radius)
+void FillShape(DeviceContextHandle dcHandle, const RECT& rc, COLORREF color, int radius)
 {
+    HDC dc = reinterpret_cast<HDC>(dcHandle);
     if (radius <= 0) Fill(dc, rc, color);
     else             FillRound(dc, rc, color, radius);
 }
 
-void Stroke(HDC dc, const RECT& rc, COLORREF color, int radius, int width)
+void Stroke(DeviceContextHandle dcHandle, const RECT& rc, COLORREF color, int radius, int width)
 {
+    HDC dc = reinterpret_cast<HDC>(dcHandle);
     if (rc.right <= rc.left || rc.bottom <= rc.top) return;
     if (PaintFrame* f = CurrentPaintFrame()) {
         f->GfxStroke(rc, color, radius, width); return;
@@ -64,8 +68,9 @@ void Stroke(HDC dc, const RECT& rc, COLORREF color, int radius, int width)
     }
 }
 
-void StrokeDashed(HDC dc, const RECT& rc, COLORREF color, int radius)
+void StrokeDashed(DeviceContextHandle dcHandle, const RECT& rc, COLORREF color, int radius)
 {
+    HDC dc = reinterpret_cast<HDC>(dcHandle);
     if (rc.right <= rc.left || rc.bottom <= rc.top) return;
     if (PaintFrame* f = CurrentPaintFrame()) {
         f->GfxStrokeDashed(rc, color, radius); return;
@@ -77,8 +82,9 @@ void StrokeDashed(HDC dc, const RECT& rc, COLORREF color, int radius)
               radius * 2, radius * 2);
 }
 
-void HLine(HDC dc, int x1, int x2, int y, COLORREF color)
+void HLine(DeviceContextHandle dcHandle, int x1, int x2, int y, COLORREF color)
 {
+    HDC dc = reinterpret_cast<HDC>(dcHandle);
     if (PaintFrame* f = CurrentPaintFrame()) {
         f->GfxHLine(x1, x2, y, color); return;
     }
@@ -87,8 +93,9 @@ void HLine(HDC dc, int x1, int x2, int y, COLORREF color)
     ::FillRect(dc, &r, br);
 }
 
-void HLineDashed(HDC dc, int x1, int x2, int y, COLORREF color)
+void HLineDashed(DeviceContextHandle dcHandle, int x1, int x2, int y, COLORREF color)
 {
+    HDC dc = reinterpret_cast<HDC>(dcHandle);
     if (PaintFrame* f = CurrentPaintFrame()) {
         f->GfxHLineDashed(x1, x2, y, color); return;
     }
@@ -98,8 +105,9 @@ void HLineDashed(HDC dc, int x1, int x2, int y, COLORREF color)
     LineTo(dc, x2, y);
 }
 
-void VLine(HDC dc, int x, int y1, int y2, COLORREF color)
+void VLine(DeviceContextHandle dcHandle, int x, int y1, int y2, COLORREF color)
 {
+    HDC dc = reinterpret_cast<HDC>(dcHandle);
     if (PaintFrame* f = CurrentPaintFrame()) {
         f->GfxVLine(x, y1, y2, color); return;
     }
@@ -108,8 +116,9 @@ void VLine(HDC dc, int x, int y1, int y2, COLORREF color)
     ::FillRect(dc, &r, br);
 }
 
-void Dot(HDC dc, int cx, int cy, int diameter, COLORREF color)
+void Dot(DeviceContextHandle dcHandle, int cx, int cy, int diameter, COLORREF color)
 {
+    HDC dc = reinterpret_cast<HDC>(dcHandle);
     if (PaintFrame* f = CurrentPaintFrame()) {
         f->GfxDot(cx, cy, diameter, color); return;
     }
@@ -121,9 +130,10 @@ void Dot(HDC dc, int cx, int cy, int diameter, COLORREF color)
     Ellipse(dc, cx - r, cy - r, cx - r + diameter, cy - r + diameter);
 }
 
-void ProgressBar(HDC dc, const RECT& rc, int pct, COLORREF track,
+void ProgressBar(DeviceContextHandle dcHandle, const RECT& rc, int pct, COLORREF track,
                  COLORREF colorNormal, COLORREF colorWarn, COLORREF colorHot)
 {
+    HDC dc = reinterpret_cast<HDC>(dcHandle);
     if (rc.right <= rc.left || rc.bottom <= rc.top) return;
     Fill(dc, rc, track);
     if (pct <= 0) return;
@@ -140,11 +150,14 @@ void ProgressBar(HDC dc, const RECT& rc, int pct, COLORREF track,
 // ============================================================
 namespace {
 
+HFONT NativeFont(FontHandle f) { return reinterpret_cast<HFONT>(f); }
+
 // Opt-in per-call trace (AIRUI_PAINT_TRACE=1) of what the GDI path
 // actually draws: font height, rect, and the extent GDI reports for the
 // string. Mirrors the Skia backend's log so the two can be diffed.
-void TraceText(HDC dc, HFONT font, const RECT& rc, const wchar_t* s)
+void TraceText(DeviceContextHandle dcHandle, FontHandle font, const RECT& rc, const wchar_t* s)
 {
+    HDC dc = reinterpret_cast<HDC>(dcHandle);
     static const bool on = [] {
         wchar_t v[8] = {};
         return GetEnvironmentVariableW(L"AIRUI_PAINT_TRACE", v, 8) > 0;
@@ -162,7 +175,7 @@ void TraceText(HDC dc, HFONT font, const RECT& rc, const wchar_t* s)
     if (!fp) return;
 
     LOGFONTW lf{};
-    if (font) GetObjectW(font, sizeof(lf), &lf);
+    if (font) GetObjectW(NativeFont(font), sizeof(lf), &lf);
     SIZE sz{};
     GetTextExtentPoint32W(dc, s, (int)wcslen(s), &sz);
     std::string narrow;
@@ -176,74 +189,83 @@ void TraceText(HDC dc, HFONT font, const RECT& rc, const wchar_t* s)
 
 } // namespace
 
-void Text(HDC dc, HFONT font, COLORREF color, const RECT& rc,
+void Text(DeviceContextHandle dcHandle, FontHandle font, COLORREF color, const RECT& rc,
           const wchar_t* s, UINT format)
 {
+    HDC dc = reinterpret_cast<HDC>(dcHandle);
     if (!s) return;
     if (PaintFrame* f = CurrentPaintFrame()) {
-        f->GfxText(font, color, rc, s, format); return;
+        f->GfxText(NativeFont(font), color, rc, s, format); return;
     }
     RECT r = rc;
     SetBkMode(dc, TRANSPARENT);
     SetTextColor(dc, color);
-    UseFont uf(dc, font);
+    UseFont uf(dc, NativeFont(font));
     TraceText(dc, font, rc, s);
     DrawTextW(dc, s, -1, &r, format);
 }
 
-void Text(HDC dc, HFONT font, COLORREF color, const RECT& rc,
+void Text(DeviceContextHandle dcHandle, FontHandle font, COLORREF color, const RECT& rc,
           const std::wstring& s, UINT format)
 {
+    HDC dc = reinterpret_cast<HDC>(dcHandle);
     Text(dc, font, color, rc, s.c_str(), format);
 }
 
-void TextRow(HDC dc, HFONT font, COLORREF color, const RECT& rc,
+void TextRow(DeviceContextHandle dcHandle, FontHandle font, COLORREF color, const RECT& rc,
              const std::wstring& s, UINT extra)
 {
+    HDC dc = reinterpret_cast<HDC>(dcHandle);
     Text(dc, font, color, rc, s,
          DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS | extra);
 }
 
-void TextRowRight(HDC dc, HFONT font, COLORREF color, const RECT& rc,
+void TextRowRight(DeviceContextHandle dcHandle, FontHandle font, COLORREF color, const RECT& rc,
                   const std::wstring& s, UINT extra)
 {
+    HDC dc = reinterpret_cast<HDC>(dcHandle);
     Text(dc, font, color, rc, s,
          DT_SINGLELINE | DT_RIGHT | DT_VCENTER | DT_END_ELLIPSIS | extra);
 }
 
-void TextRowCenter(HDC dc, HFONT font, COLORREF color, const RECT& rc,
+void TextRowCenter(DeviceContextHandle dcHandle, FontHandle font, COLORREF color, const RECT& rc,
                    const std::wstring& s, UINT extra)
 {
+    HDC dc = reinterpret_cast<HDC>(dcHandle);
     Text(dc, font, color, rc, s,
          DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_END_ELLIPSIS | extra);
 }
 
-void TextBlock(HDC dc, HFONT font, COLORREF color, const RECT& rc,
+void TextBlock(DeviceContextHandle dcHandle, FontHandle font, COLORREF color, const RECT& rc,
                const std::wstring& s, UINT extra)
 {
+    HDC dc = reinterpret_cast<HDC>(dcHandle);
     Text(dc, font, color, rc, s,
          DT_WORDBREAK | DT_END_ELLIPSIS | DT_LEFT | extra);
 }
 
-int MeasureWidth(HDC dc, HFONT font, const wchar_t* s, int len)
+int MeasureWidth(DeviceContextHandle dcHandle, FontHandle font, const wchar_t* s, int len)
 {
+    HDC dc = reinterpret_cast<HDC>(dcHandle);
     if (!s) return 0;
     if (len < 0) len = (int)wcslen(s);
     if (len == 0) return 0;
-    UseFont uf(dc, font);
+    UseFont uf(dc, NativeFont(font));
     SIZE sz{};
     GetTextExtentPoint32W(dc, s, len, &sz);
     return sz.cx;
 }
 
-int MeasureWidth(HDC dc, HFONT font, const std::wstring& s)
+int MeasureWidth(DeviceContextHandle dcHandle, FontHandle font, const std::wstring& s)
 {
+    HDC dc = reinterpret_cast<HDC>(dcHandle);
     return MeasureWidth(dc, font, s.c_str(), (int)s.size());
 }
 
-int LineHeight(HDC dc, HFONT font)
+int LineHeight(DeviceContextHandle dcHandle, FontHandle font)
 {
-    UseFont uf(dc, font);
+    HDC dc = reinterpret_cast<HDC>(dcHandle);
+    UseFont uf(dc, NativeFont(font));
     TEXTMETRICW tm{};
     GetTextMetricsW(dc, &tm);
     return tm.tmHeight + tm.tmExternalLeading;
@@ -260,9 +282,10 @@ std::wstring OneLine(const std::wstring& s)
 // ============================================================
 // 复合小部件
 // ============================================================
-int Tag(HDC dc, int x, int y, const wchar_t* text, HFONT font,
+int Tag(DeviceContextHandle dcHandle, int x, int y, const wchar_t* text, FontHandle font,
         COLORREF bg, COLORREF tx, int height)
 {
+    HDC dc = reinterpret_cast<HDC>(dcHandle);
     int w = MeasureWidth(dc, font, text) + 16;
     RECT rc = { x, y, x + w, y + height };
     FillRound(dc, rc, bg, 2);
@@ -272,9 +295,10 @@ int Tag(HDC dc, int x, int y, const wchar_t* text, HFONT font,
     return rc.right;
 }
 
-void PillRight(HDC dc, int rightX, int y, const wchar_t* text, HFONT font,
+void PillRight(DeviceContextHandle dcHandle, int rightX, int y, const wchar_t* text, FontHandle font,
                COLORREF bg, COLORREF tx, int height)
 {
+    HDC dc = reinterpret_cast<HDC>(dcHandle);
     int w = MeasureWidth(dc, font, text) + 18;
     RECT rc = { rightX - w, y, rightX, y + height };
     FillRound(dc, rc, bg, height / 2);
@@ -283,10 +307,11 @@ void PillRight(HDC dc, int rightX, int y, const wchar_t* text, HFONT font,
          DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
 }
 
-void StatusTag(HDC dc, int rightX, int centerY, const wchar_t* text, HFONT font,
+void StatusTag(DeviceContextHandle dcHandle, int rightX, int centerY, const wchar_t* text, FontHandle font,
                COLORREF bg, COLORREF border, COLORREF tx, COLORREF dot,
                int height)
 {
+    HDC dc = reinterpret_cast<HDC>(dcHandle);
     int tw = MeasureWidth(dc, font, text);
     int w  = tw + 34;
     RECT rc = { rightX - w, centerY - height / 2,
@@ -299,14 +324,16 @@ void StatusTag(HDC dc, int rightX, int centerY, const wchar_t* text, HFONT font,
          DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
 }
 
-int KbdChipWidth(HDC dc, const wchar_t* key, const wchar_t* label, HFONT font)
+int KbdChipWidth(DeviceContextHandle dcHandle, const wchar_t* key, const wchar_t* label, FontHandle font)
 {
+    HDC dc = reinterpret_cast<HDC>(dcHandle);
     return MeasureWidth(dc, font, key) + 12 + 5 + MeasureWidth(dc, font, label);
 }
 
-void KbdChip(HDC dc, int rightX, int centerY, const wchar_t* key,
-             const wchar_t* label, HFONT font)
+void KbdChip(DeviceContextHandle dcHandle, int rightX, int centerY, const wchar_t* key,
+             const wchar_t* label, FontHandle font)
 {
+    HDC dc = reinterpret_cast<HDC>(dcHandle);
     int kw = MeasureWidth(dc, font, key);
     int lw = MeasureWidth(dc, font, label);
     int chipW = kw + 12;
@@ -328,9 +355,10 @@ void KbdChip(HDC dc, int rightX, int centerY, const wchar_t* key,
     }
 }
 
-void IconTile(HDC dc, const RECT& rc, const wchar_t* glyph, HFONT iconFont,
+void IconTile(DeviceContextHandle dcHandle, const RECT& rc, const wchar_t* glyph, FontHandle iconFont,
               COLORREF bg, COLORREF tx, int radius)
 {
+    HDC dc = reinterpret_cast<HDC>(dcHandle);
     FillRound(dc, rc, bg, radius);
     Text(dc, iconFont, tx, rc, glyph,
          DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);

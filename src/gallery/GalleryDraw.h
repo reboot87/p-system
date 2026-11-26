@@ -2,8 +2,8 @@
 // AirUI — GalleryDraw.h
 // 组件画廊的共享绘制代码，供无头截图和 GUI 预览程序复用。
 // ============================================================
-#include "airui/Canvas.h"
-#include "airui/Components.h"
+#include "internal/Canvas.h"
+#include "internal/Components.h"
 
 namespace air {
 namespace ui {
@@ -16,7 +16,7 @@ constexpr int kGalleryHeight = 1480;
 struct ComponentLayout
 {
     Card::Config cardConfig; 
-    RECT drawRect;
+    Rect drawRect;
     enum Type { CARD_TYPE } type;
 };
 
@@ -29,12 +29,12 @@ void DrawGallery(Canvas& g, int left, int top, int width, bool dark);
 // 静态绘制辅助函数（无头截图使用）
 static void Section(Canvas& g, int x, int y, int right,
                     const wchar_t* title, const wchar_t* desc);
-static void Swatch(Canvas& g, const RECT& rc, COLORREF color,
+static void Swatch(Canvas& g, const Rect& rc, Color color,
                    const std::wstring& name);
 static void ButtonMatrix(Canvas& g, int x, int y);
 static void PrimitiveSection(Canvas& g, int x, int y, int right);
-static void TypographyPanel(Canvas& g, const RECT& rc);
-static void EmptyPanel(Canvas& g, const RECT& rc);
+static void TypographyPanel(Canvas& g, const Rect& rc);
+static void EmptyPanel(Canvas& g, const Rect& rc);
 
 } // namespace gallery
 } // namespace ui

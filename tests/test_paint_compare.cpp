@@ -30,7 +30,7 @@
 #include <windows.h>
 
 #include "airui/Fonts.h"
-#include "airui/PaintFrame.h"
+#include "internal/PaintFrame.h"
 
 #include <cmath>
 #include <cwchar>
@@ -59,7 +59,7 @@ const Color kInk   = MakeColor(0x33, 0x33, 0x33);
 
 struct Surface
 {
-    HDC           dc   = nullptr;
+    HDC                    dc   = nullptr;
     HBITMAP       bmp  = nullptr;
     HGDIOBJ       old  = nullptr;
     unsigned char* bits = nullptr;

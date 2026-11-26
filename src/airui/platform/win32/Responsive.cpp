@@ -1,5 +1,5 @@
 #include "airui/Responsive.h"
-#include "airui/Shell.h"
+#include "internal/Shell.h"
 
 // 版本单一来源：CMake 生成的 Version.h（无硬编码 "vX.Y"）。
 #include "airui/Version.h"

@@ -1,7 +1,8 @@
-#include "airui/Widgets.h"
-#include "airui/Shell.h"
-#include "airui/OverlayWindow.h"   // RunPopupMenu（TextBox 右键菜单）
-#include "airui/Gfx.h"
+#include "internal/Widgets.h"
+#include "internal/Controls.h"
+#include "internal/Shell.h"
+#include "internal/OverlayWindow.h"   // RunPopupMenu（TextBox 右键菜单）
+#include "internal/Gfx.h"
 #include "airui/Accessibility.h"
 #include "airui/PaintBackend.h"
 #include <commctrl.h>
@@ -67,6 +68,15 @@ static int ClampV(int v, int lo, int hi)
     return v < lo ? lo : (v > hi ? hi : v);
 }
 
+namespace {
+HWND HwndOfWidget(WindowHandle h) { return reinterpret_cast<HWND>(h); }
+HDC DcOfWidget(DeviceContextHandle h) { return reinterpret_cast<HDC>(h); }
+POINT ToWinPoint(const Point& p) { return POINT{ p.x, p.y }; }
+Point FromWinPoint(const POINT& p) { return Point{ p.x, p.y }; }
+RECT ToWinRect(const Rect& r) { return RECT{ r.left, r.top, r.right, r.bottom }; }
+Rect FromWinRect(const RECT& r) { return Rect{ r.left, r.top, r.right, r.bottom }; }
+} // namespace
+
 // ============================================================
 // Widget 基类
 // ============================================================
@@ -78,18 +88,18 @@ void Widget::Init(Shell* shell, int id)
 
 Widget::~Widget()
 {
-    if (m_hwnd && IsWindow(m_hwnd))
-        DestroyWindow(m_hwnd);
+    if (m_hwnd && IsWindow(HwndOfWidget(m_hwnd)))
+        DestroyWindow(HwndOfWidget(m_hwnd));
 }
 
 void Widget::Show(bool visible)
 {
-    if (m_hwnd) ::ShowWindow(m_hwnd, visible ? SW_SHOW : SW_HIDE);
+    if (m_hwnd) ::ShowWindow(HwndOfWidget(m_hwnd), visible ? SW_SHOW : SW_HIDE);
 }
 
 bool Widget::Visible() const
 {
-    return m_hwnd && IsWindowVisible(m_hwnd);
+    return m_hwnd && IsWindowVisible(HwndOfWidget(m_hwnd));
 }
 
 void Widget::Move(int x, int y, int w, int h)
@@ -101,33 +111,34 @@ void Widget::Move(int x, int y, int w, int h)
     // For EDIT/LISTBOX children that repaint is a visible white flash --
     // an unchanged layout must therefore be a no-op.
     RECT cur = {};
-    if (GetWindowRect(m_hwnd, &cur)) {
-        HWND parent = GetParent(m_hwnd);
+    if (GetWindowRect(HwndOfWidget(m_hwnd), &cur)) {
+        HWND parent = GetParent(HwndOfWidget(m_hwnd));
         if (parent) MapWindowPoints(HWND_DESKTOP, parent, (LPPOINT)&cur, 2);
         if (cur.left == x && cur.top == y &&
             cur.right == x + w && cur.bottom == y + h)
             return;
     }
-    MoveWindow(m_hwnd, x, y, w, h, TRUE);
+    MoveWindow(HwndOfWidget(m_hwnd), x, y, w, h, TRUE);
 }
 
-void Widget::Move(const RECT& rc)
+void Widget::Move(const Rect& rc)
 {
     Move(rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top);
 }
 
 void Widget::Focus()
 {
-    if (m_hwnd) ::SetFocus(m_hwnd);
+    if (m_hwnd) ::SetFocus(HwndOfWidget(m_hwnd));
 }
 
-RECT Widget::Rect() const
+Rect Widget::Bounds() const
 {
+    HWND hwnd = reinterpret_cast<HWND>(m_hwnd);
     RECT rc = {};
-    if (m_hwnd) GetWindowRect(m_hwnd, &rc);
+    if (hwnd) GetWindowRect(HwndOfWidget(hwnd), &rc);
     if (m_shell && m_shell->Hwnd())
-        MapWindowPoints(HWND_DESKTOP, m_shell->Hwnd(), (LPPOINT)&rc, 2);
-    return rc;
+        MapWindowPoints(HWND_DESKTOP, HwndOfWidget(m_shell->Hwnd()), (LPPOINT)&rc, 2);
+    return Rect{ rc.left, rc.top, rc.right, rc.bottom };
 }
 
 // ============================================================
@@ -202,7 +213,7 @@ void SyncImeWindow(HWND hwnd, int caretX, int caretY,
 // ============================================================
 void TextBox::CreateNative()
 {
-    HWND parent = m_shell->Hwnd();
+    HWND parent = HwndOfWidget(m_shell->Hwnd());
 
     // 自绘窗口类：所有编辑逻辑（组词/光标/选区/折行）由 TextBoxProc 与
     // core 引擎承担，系统只提供一个收键盘/焦点的宿主。类名 Edit 仍可
@@ -227,19 +238,20 @@ void TextBox::CreateNative()
                              (HMENU)(INT_PTR)m_id, nullptr, nullptr);
     if (!m_hwnd) return;
 
-    m_font = m_shell ? m_shell->UiFonts().Get(m_desc.fontRole) : nullptr;
+    m_font = m_shell ? static_cast<HFONT>(m_shell->UiFonts().Get(m_desc.fontRole)) : nullptr;
     m_edit.hasFocus = false;
     m_edit.maxLength = (m_desc.maxLength > 0) ? m_desc.maxLength : 0;
     // 键入/粘贴等走 core 引擎的路径由 InsertAtCursor 按 m_edit.maxLength
     // 强制；这里把 desc 的声明同步进引擎（desc 是页面侧的唯一声明点）。
     SyncTextLayout();
-    SetWindowSubclass(m_hwnd, &TextBoxProc, kSubTextBox, (DWORD_PTR)this);
+    SetWindowSubclass(HwndOfWidget(m_hwnd), reinterpret_cast<SUBCLASSPROC>(&TextBoxProc), kSubTextBox, (DWORD_PTR)this);
 }
 
-LRESULT CALLBACK TextBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
-                                    LPARAM lParam, UINT_PTR idSub,
-                                    DWORD_PTR ref)
+MessageResult TextBoxProc(WindowHandle hwndH, MessageId msg, MessageWParam wParam,
+                                    MessageLParam lParam, SubclassId idSub,
+                                    SubclassRef ref)
 {
+    HWND hwnd = reinterpret_cast<HWND>(hwndH);
     auto* self = (TextBox*)ref;
 
     // ---- 消息级探测（跨 TU 入口：App::FocusSearch 全选、ManualEntry
@@ -271,12 +283,12 @@ LRESULT CALLBACK TextBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
             self->m_edit.selectionAnchor = ClampV((int)(short)wParam, 0, len);
             self->m_edit.cursor = ClampV((int)(short)lParam, 0, len);
         }
-        InvalidateRect(hwnd, nullptr, FALSE);
+        InvalidateRect(HwndOfWidget(hwnd), nullptr, FALSE);
         return 0;
     }
     if (msg == EM_SETMARGINS && self) {
         self->m_rightInset = (int)HIWORD(lParam);
-        InvalidateRect(hwnd, nullptr, FALSE);
+        InvalidateRect(HwndOfWidget(hwnd), nullptr, FALSE);
         return 0;
     }
     if (msg == EM_GETSEL && self) {
@@ -304,16 +316,16 @@ LRESULT CALLBACK TextBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
         if (!self) break;
         POINT sp;
         if (wParam == 0 && lParam == (LPARAM)-1) {
-            const POINT c = self->CaretPoint();
+            const Point c = self->CaretPoint();
             sp = { c.x + Mx().unit, c.y + Mx().unit };
             ClientToScreen(hwnd, &sp);
         } else {
             sp = { (short)LOWORD(lParam), (short)HIWORD(lParam) };
             ScreenToClient(hwnd, &sp);
-            self->CaretAtClientPoint(sp);
+            self->CaretAtClientPoint(FromWinPoint(sp));
             ClientToScreen(hwnd, &sp);
         }
-        self->ShowEditMenu(sp);
+        self->ShowEditMenu(FromWinPoint(sp));
         return 0;
     }
     case WM_GETOBJECT:
@@ -327,20 +339,20 @@ LRESULT CALLBACK TextBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
             self->m_edit.hasFocus = true;
             self->SyncIme();
             self->RestartCaretBlink();
-            InvalidateRect(hwnd, nullptr, FALSE);
+            InvalidateRect(HwndOfWidget(hwnd), nullptr, FALSE);
         }
         return 0;
     case WM_KILLFOCUS:
         if (self) {
             self->m_edit.hasFocus = false;
             self->StopCaretBlink();
-            InvalidateRect(hwnd, nullptr, FALSE);
+            InvalidateRect(HwndOfWidget(hwnd), nullptr, FALSE);
         }
         return 0;
     case WM_TIMER:
         if (self && wParam == kCaretBlinkTimerId) {
             self->m_caretOn = !self->m_caretOn;
-            InvalidateRect(hwnd, nullptr, FALSE);
+            InvalidateRect(HwndOfWidget(hwnd), nullptr, FALSE);
             return 0;
         }
         break;   // 别的 id 交给默认
@@ -364,15 +376,15 @@ LRESULT CALLBACK TextBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
             const int delta = GET_WHEEL_DELTA_WPARAM(wParam) / 120;
             self->m_scroll = ClampV(self->m_scroll - delta * 30, 0,
                                     self->MaxScroll());
-            InvalidateRect(hwnd, nullptr, FALSE);
+            InvalidateRect(HwndOfWidget(hwnd), nullptr, FALSE);
         }
         return 0;
     case WM_LBUTTONDOWN:
-        if (self) self->BeginDrag(POINT{ (short)LOWORD(lParam),
+        if (self) self->BeginDrag(Point{ (short)LOWORD(lParam),
                                          (short)HIWORD(lParam) });
         return 0;
     case WM_LBUTTONDBLCLK:
-        if (self) self->SelectWordAt(POINT{ (short)LOWORD(lParam),
+        if (self) self->SelectWordAt(Point{ (short)LOWORD(lParam),
                                             (short)HIWORD(lParam) });
         return 0;
     case WM_LBUTTONUP:
@@ -383,17 +395,17 @@ LRESULT CALLBACK TextBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
         return 0;
     case WM_MOUSEMOVE:
         if (self && self->m_dragging)
-            self->DragTo(POINT{ (short)LOWORD(lParam),
+            self->DragTo(Point{ (short)LOWORD(lParam),
                                 (short)HIWORD(lParam) });
         return 0;
     case WM_RBUTTONUP:
         // 先定位 caret（原生 EDIT 语义），再弹菜单（lParam 已是客户区坐标）
         if (self) {
             const POINT cp = { (short)LOWORD(lParam), (short)HIWORD(lParam) };
-            self->CaretAtClientPoint(cp);
+            self->CaretAtClientPoint(FromWinPoint(cp));
             POINT sp = cp;
             ClientToScreen(hwnd, &sp);
-            self->ShowEditMenu(sp);
+            self->ShowEditMenu(FromWinPoint(sp));
         }
         return 0;
     case WM_IME_STARTCOMPOSITION:
@@ -431,7 +443,7 @@ LRESULT CALLBACK TextBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
                     self->m_edit.compositionCursor =
                         (int)self->m_edit.composition.size();
                     self->SyncIme();
-                    InvalidateRect(hwnd, nullptr, FALSE);
+                    InvalidateRect(HwndOfWidget(hwnd), nullptr, FALSE);
                     ImmReleaseContext(hwnd, imc);
                     return 0;
                 }
@@ -443,7 +455,7 @@ LRESULT CALLBACK TextBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
         if (self) {
             self->m_composing = false;
             self->m_edit.composition.clear();
-            InvalidateRect(hwnd, nullptr, FALSE);
+            InvalidateRect(HwndOfWidget(hwnd), nullptr, FALSE);
         }
         return 0;
     case WM_PAINT: {
@@ -458,13 +470,13 @@ LRESULT CALLBACK TextBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
     case WM_NCDESTROY:
         a11y::ForgetWindow(hwnd);   // 清无障碍属性表（幂等）
         if (self) self->StopCaretBlink();
-        RemoveWindowSubclass(hwnd, &TextBoxProc, idSub);
+        RemoveWindowSubclass(HwndOfWidget(hwnd), reinterpret_cast<SUBCLASSPROC>(&TextBoxProc), idSub);
         break;
     }
     return DefSubclassProc(hwnd, msg, wParam, lParam);
 }
 
-bool TextBox::HandleKey(UINT vk, bool ctrl, bool shift)
+bool TextBox::HandleKey(VirtualKey vk, bool ctrl, bool shift)
 {
     return m_keyCb ? m_keyCb(vk, ctrl, shift) : false;
 }
@@ -510,7 +522,7 @@ void TextBox::CaretToEnd()
 void TextBox::SetPlaceholder(const std::wstring& s)
 {
     m_desc.placeholder = s;
-    if (m_hwnd) InvalidateRect(m_hwnd, nullptr, FALSE);
+    if (m_hwnd) InvalidateRect(HwndOfWidget(m_hwnd), nullptr, FALSE);
 }
 
 void TextBox::SetMaxLength(int maxLen)
@@ -539,7 +551,7 @@ void TextBox::SetPassword(bool on)
     if (m_hwnd) ApplyPostEdit();
 }
 
-void TextBox::OnKey(std::function<bool(UINT, bool, bool)> cb)
+void TextBox::OnKey(std::function<bool(VirtualKey, bool, bool)> cb)
 {
     m_keyCb = std::move(cb);
 }
@@ -551,13 +563,13 @@ void TextBox::SetRightInset(int px)
     if (m_hwnd) ApplyPostEdit();
 }
 
-void TextBox::ClickAt(POINT parentPt)
+void TextBox::ClickAt(Point parentPt)
 {
     if (!m_hwnd) return;
-    POINT p = parentPt;
-    MapWindowPoints(GetParent(m_hwnd), m_hwnd, &p, 1);
-    SetFocus(m_hwnd);
-    CaretAtClientPoint(p);
+    POINT p = ToWinPoint(parentPt);
+    MapWindowPoints(GetParent(HwndOfWidget(m_hwnd)), HwndOfWidget(m_hwnd), &p, 1);
+    SetFocus(HwndOfWidget(m_hwnd));
+    CaretAtClientPoint(FromWinPoint(p));
 }
 
 // ============================================================
@@ -602,10 +614,10 @@ const std::wstring& TextBox::ShownText() const
 void TextBox::SyncTextLayout()
 {
     if (!m_shell || !m_shell->UiFonts().Valid()) return;
-    m_font = m_shell->UiFonts().Get(m_desc.fontRole);
+    m_font = static_cast<HFONT>(m_shell->UiFonts().Get(m_desc.fontRole));
 
     RECT rc{};
-    if (m_hwnd) GetClientRect(m_hwnd, &rc);
+    if (m_hwnd) GetClientRect(HwndOfWidget(m_hwnd), &rc);
     const int availW = (int)(rc.right - rc.left) - Mx().unit * 2 - m_rightInset;
     const int availH = (int)(rc.bottom - rc.top);
     // 判据用「上次布局所用显示串」而非仅长度：等长换文本、密码开/关
@@ -625,7 +637,7 @@ void TextBox::SyncTextLayout()
     HDC dc = GetDC(nullptr);
     // 按**显示串**测宽/折行（password 时是等长掩码 •；与真实文本 1:1，
     // 下标语义不变）。宽度表必须和绘制用的字形同源，否则光标/选区错位。
-    m_cum = MeasureCum(dc, m_font, shown);
+    m_cum = MeasureCum(dc, reinterpret_cast<HFONT>(m_font), shown);
     m_laidShown = shown;
     int lineH = 0, ascent = 0;
     if (dc && m_font) {
@@ -668,7 +680,7 @@ void TextBox::ScrollForCaret()
 // ============================================================
 
 // 客户区点 → 全局文本下标（点击/拖选/双击/右键共用）
-int TextBox::HitIndex(POINT pt)
+int TextBox::HitIndex(Point pt)
 {
     SyncTextLayout();
     // 命中按显示串（与 m_cum/m_lines 同源）；掩码与真实文本 1:1，
@@ -687,10 +699,10 @@ int TextBox::HitIndex(POINT pt)
     return IndexAtX(shown, m_cum, 0, n, pt.x - unit);
 }
 
-void TextBox::BeginDrag(POINT pt)
+void TextBox::BeginDrag(Point pt)
 {
     if (!m_hwnd) return;
-    SetFocus(m_hwnd);
+    SetFocus(HwndOfWidget(m_hwnd));
     if (!m_edit.hasFocus) m_edit.hasFocus = true;
     m_dragging = true;
     const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
@@ -704,24 +716,24 @@ void TextBox::BeginDrag(POINT pt)
     // 拖选锚点：Shift+下击扩展保留原锚点；普通下击锚点 = 下击点。
     // 必须在 cursor 定位之后取，否则拿到的是旧光标位置（T2 回归源）。
     m_dragAnchor = shift ? m_edit.selectionAnchor : m_edit.cursor;
-    SetCapture(m_hwnd);
+    SetCapture(HwndOfWidget(m_hwnd));
     ApplyPostEdit();
 }
 
-void TextBox::DragTo(POINT pt)
+void TextBox::DragTo(Point pt)
 {
     // 拖出窗口也要有 WM_MOUSEMOVE：SetCapture 后由本窗口收。
     // 多行：光标拖到上/下边缘附近自动滚屏（原生 EDIT 同款）
     if (m_desc.multiline && m_hwnd) {
         RECT rc{};
-        GetClientRect(m_hwnd, &rc);
+        GetClientRect(HwndOfWidget(m_hwnd), &rc);
         const int edge = 12;
         int dy = 0;
         if (pt.y < edge)                      dy = -3;
         else if (pt.y > (rc.bottom - rc.top) - edge) dy = +3;
         if (dy != 0) {
             m_scroll = ClampV(m_scroll + dy, 0, MaxScroll());
-            InvalidateRect(m_hwnd, nullptr, FALSE);
+            InvalidateRect(HwndOfWidget(m_hwnd), nullptr, FALSE);
         }
     }
     const int idx = HitIndex(pt);
@@ -734,7 +746,7 @@ void TextBox::DragTo(POINT pt)
 // 双击选词：ASCII 词 = 连续字母数字；CJK 字符各自成词（与
 // 系统 EDIT 的"中文双击选一个词"相比我们选单字，是保守但确定的
 // 行为，不引入分词依赖）。选区 = 词的首尾，caret 落到词尾。
-void TextBox::SelectWordAt(POINT pt)
+void TextBox::SelectWordAt(Point pt)
 {
     const int n = (int)m_edit.text.size();
     if (n == 0) return;
@@ -766,7 +778,7 @@ void TextBox::SelectWordAt(POINT pt)
 }
 
 // 右键 / Shift+F10 菜单：复制 / 剪切 / 粘贴（disabled 态按有无选区/剪贴板）
-void TextBox::ShowEditMenu(POINT screenPt)
+void TextBox::ShowEditMenu(Point screenPt)
 {
     if (!m_hwnd || !m_shell) return;
     const bool hasSel = HasSelection(m_edit);
@@ -780,8 +792,7 @@ void TextBox::ShowEditMenu(POINT screenPt)
     items.push_back({ 3, L"复制",   false, !hasSel });
     items.push_back({ 4, L"剪切",   false, !hasSel });
     items.push_back({ 5, L"粘贴",   false, false });
-    const int choice = ::air::ui::RunPopupMenu(
-        m_hwnd, m_shell->UiFonts(), screenPt, items);
+    const int choice = ::air::ui::RunPopupMenu(HwndOfWidget(m_hwnd), m_shell->UiFonts(), ToWinPoint(screenPt), items);
     switch (choice) {
     case 1: Undo();  break;
     case 2: Redo();  break;
@@ -810,12 +821,12 @@ void TextBox::ShowEditMenu(POINT screenPt)
 // 多行 —— x 行内相对，y 已减去 m_scroll（与 PaintSelf 的行 y 同一坐标）。
 // 之前这里直接返回客户区坐标（含 unit），PaintSelf 再 +textRc（又含
 // unit）→ 双重计入，光标/组词串整体右偏+下偏一个 unit。
-POINT TextBox::CaretPoint() const
+Point TextBox::CaretPoint() const
 {
-    POINT p{ 0, 0 };
+    Point p{ 0, 0 };
     if (!m_hwnd) return p;
     RECT rc{};
-    GetClientRect(m_hwnd, &rc);
+    GetClientRect(HwndOfWidget(m_hwnd), &rc);
     const int n = (int)m_edit.text.size();
     const bool haveCum = ((int)m_cum.size() == n + 1);
     const int caret = ClampV(m_edit.cursor, 0, n);
@@ -837,7 +848,7 @@ POINT TextBox::CaretPoint() const
 void TextBox::SyncIme()
 {
     if (!m_hwnd) return;
-    const POINT c = CaretPoint();
+    const Point c = CaretPoint();
     // ImmSetCompositionWindow/ImmSetCandidateWindow 的坐标是**窗口客户区**：
     // 文本区相对坐标 + unit 内边距还原。
     const int unit = Mx().unit;
@@ -849,7 +860,7 @@ void TextBox::SyncIme()
     int zb = cy + m_lineH;
     if (zr < zx + 1) zr = zx + 1;
     if (zb < zy + 1) zb = zy + 1;
-    SyncImeWindow(m_hwnd, cx, cy, zx, zy, zr, zb);
+    SyncImeWindow(HwndOfWidget(m_hwnd), cx, cy, zx, zy, zr, zb);
 }
 
 void TextBox::ApplyEditResult(EditAction action, const std::wstring& arg,
@@ -908,12 +919,12 @@ void TextBox::ApplyPostEdit()
     // 避免白跑一次防抖查询。
     if (m_edit.text != m_lastNotified) {
         m_lastNotified = m_edit.text;
-        if (m_hwnd && m_hwnd != GetParent(m_hwnd))
-            SendMessageW(GetParent(m_hwnd), WM_COMMAND,
-                         MAKEWPARAM(GetDlgCtrlID(m_hwnd), EN_CHANGE),
-                         (LPARAM)m_hwnd);
+        if (m_hwnd && m_hwnd != GetParent(HwndOfWidget(m_hwnd)))
+            SendMessageW(GetParent(HwndOfWidget(m_hwnd)), WM_COMMAND,
+                         MAKEWPARAM(GetDlgCtrlID(HwndOfWidget(m_hwnd)), EN_CHANGE),
+                         (LPARAM)HwndOfWidget(m_hwnd));
     }
-    if (m_hwnd) InvalidateRect(m_hwnd, nullptr, FALSE);
+    if (m_hwnd) InvalidateRect(HwndOfWidget(m_hwnd), nullptr, FALSE);
 }
 
 // ---- 插入符闪烁 ----
@@ -924,14 +935,14 @@ void TextBox::RestartCaretBlink()
 {
     m_caretOn = true;
     if (!m_hwnd || !m_edit.hasFocus) return;
-    KillTimer(m_hwnd, kCaretBlinkTimerId);
+    KillTimer(HwndOfWidget(m_hwnd), kCaretBlinkTimerId);
     const UINT ms = GetCaretBlinkTime();
-    if (ms != INFINITE) SetTimer(m_hwnd, kCaretBlinkTimerId, ms, nullptr);
+    if (ms != INFINITE) SetTimer(HwndOfWidget(m_hwnd), kCaretBlinkTimerId, ms, nullptr);
 }
 
 void TextBox::StopCaretBlink()
 {
-    if (m_hwnd) KillTimer(m_hwnd, kCaretBlinkTimerId);
+    if (m_hwnd) KillTimer(HwndOfWidget(m_hwnd), kCaretBlinkTimerId);
 }
 
 void TextBox::InsertChar(wchar_t ch)
@@ -948,11 +959,11 @@ void TextBox::InsertText(const std::wstring& s)
     ApplyEditResult(EditAction::Insert, s, &clip);
 }
 
-void TextBox::CaretAtClientPoint(POINT pt)
+void TextBox::CaretAtClientPoint(Point pt)
 {
     SyncTextLayout();
     const int n = (int)m_edit.text.size();
-    if (!m_edit.hasFocus) SetFocus(m_hwnd);
+    if (!m_edit.hasFocus) SetFocus(HwndOfWidget(m_hwnd));
     m_edit.hasFocus = true;
 
     const int unit = Mx().unit;
@@ -991,7 +1002,7 @@ void TextBox::CaretAtClientPoint(POINT pt)
     ApplyPostEdit();
 }
 
-bool TextBox::DefaultKey(UINT vk, bool ctrl, bool shift)
+bool TextBox::DefaultKey(VirtualKey vk, bool ctrl, bool shift)
 {
     const int n = (int)m_edit.text.size();
     const int prev = m_edit.cursor;
@@ -1081,13 +1092,13 @@ bool TextBox::DefaultKey(UINT vk, bool ctrl, bool shift)
 
 // 单行与多行共用 m_cum（逐字 GDI 实测前缀宽度表）做光标/选区/文本几何，
 // 三者和绘制同源；单行不折行、超出时横向滚动（caret 跟进出界自动偏移）。
-void TextBox::PaintSelf(HDC dc)
+void TextBox::PaintSelf(DeviceContextHandle dc)
 {
     if (!m_shell || !dc) return;
     SyncTextLayout();
 
     RECT cr{};
-    GetClientRect(m_hwnd, &cr);
+    GetClientRect(HwndOfWidget(m_hwnd), &cr);
     const ::air::ui::Rect frame(cr.left, cr.top, cr.right, cr.bottom);
     if (frame.Empty()) return;
 
@@ -1215,7 +1226,7 @@ void TextBox::PaintSelf(HDC dc)
     // 空框（占位字）与有文本同一几何：caret = textRc.left + cum[cursor]。
     const int lineH = m_lineH > 0 ? m_lineH : 1;
     if (composing) {
-        const POINT c = CaretPoint();
+        const Point c = CaretPoint();
         const int y = textRc.top + c.y;
         g->Text(::air::ui::Rect(textRc.left + c.x, y, textRc.right, y + lineH),
                 m_edit.composition.c_str(), m_edit.composition.size(),
@@ -1223,7 +1234,7 @@ void TextBox::PaintSelf(HDC dc)
                 dt::Left | dt::Top | dt::SingleLine);
     }
     if (showCaret) {
-        const POINT c = CaretPoint();
+        const Point c = CaretPoint();
         const int y = textRc.top + c.y;
         if (y + lineH > textRc.top && y < textRc.bottom)
             g->FillRect(::air::ui::Rect(textRc.left + c.x, y,
@@ -1238,7 +1249,7 @@ void TextBox::PaintSelf(HDC dc)
 // ============================================================
 void Button::CreateNative()
 {
-    HWND parent = m_shell->Hwnd();
+    HWND parent = HwndOfWidget(m_shell->Hwnd());
     m_style = m_desc.style;
 
     m_hwnd = CreateWindowExW(0, L"BUTTON", m_desc.text.c_str(),
@@ -1247,20 +1258,20 @@ void Button::CreateNative()
                              (HMENU)(INT_PTR)m_id, nullptr, nullptr);
     if (!m_hwnd) return;
 
-    SendMessageW(m_hwnd, WM_SETFONT,
+    SendMessageW(HwndOfWidget(m_hwnd), WM_SETFONT,
                  (WPARAM)m_shell->UiFonts().Get(FontRole::Button), TRUE);
-    AttachButton(m_hwnd, m_style);
+    AttachButton(HwndOfWidget(m_hwnd), m_style);
 }
 
 void Button::SetText(const std::wstring& s)
 {
-    if (m_hwnd) SetWindowTextW(m_hwnd, s.c_str());
+    if (m_hwnd) SetWindowTextW(HwndOfWidget(m_hwnd), s.c_str());
 }
 
 std::wstring Button::Text() const
 {
     wchar_t buf[128] = {};
-    if (m_hwnd) GetWindowTextW(m_hwnd, buf, 128);
+    if (m_hwnd) GetWindowTextW(HwndOfWidget(m_hwnd), buf, 128);
     return buf;
 }
 
@@ -1283,13 +1294,13 @@ bool Button::HandleCommand(int code)
     return false;
 }
 
-bool Button::HandleDrawItem(const DRAWITEMSTRUCT* dis)
+bool Button::HandleDrawItem(const DrawItemInfo* dis)
 {
     if (!m_shell) return false;
-    DrawButton(dis->hDC, dis->rcItem, Text().c_str(),
+    DrawButton(DcOfWidget(dis->hDC), ToWinRect(dis->rcItem), Text().c_str(),
                m_shell->UiFonts().Get(FontRole::Button),
                m_style,
-               IsButtonHover(dis->hwndItem),
+               IsButtonHover(HwndOfWidget(dis->hwndItem)),
                (dis->itemState & ODS_SELECTED) != 0);
     return true;
 }
@@ -1299,7 +1310,7 @@ bool Button::HandleDrawItem(const DRAWITEMSTRUCT* dis)
 // ============================================================
 void ListBox::CreateNative()
 {
-    HWND parent = m_shell->Hwnd();
+    HWND parent = HwndOfWidget(m_shell->Hwnd());
     m_fallbackH = m_desc.fallbackItemHeight;
 
     // 自绘窗口：WS_VSCROLL 让 DefWindowProc 画标准滚动条（非客户区），
@@ -1326,13 +1337,14 @@ void ListBox::CreateNative()
         return;
     }
 
-    SetWindowSubclass(m_hwnd, &ListBoxProc, kSubListBox, (DWORD_PTR)this);
+    SetWindowSubclass(HwndOfWidget(m_hwnd), reinterpret_cast<SUBCLASSPROC>(&ListBoxProc), kSubListBox, (DWORD_PTR)this);
 }
 
-LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
-                                    LPARAM lParam, UINT_PTR idSub,
-                                    DWORD_PTR ref)
+MessageResult ListBoxProc(WindowHandle hwndH, MessageId msg, MessageWParam wParam,
+                                    MessageLParam lParam, SubclassId idSub,
+                                    SubclassRef ref)
 {
+    HWND hwnd = reinterpret_cast<HWND>(hwndH);
     auto* self = (ListBox*)ref;
 
     // ---- 消息级兼容（test_ui / 外部探针按原生 LB_* 读取） ----
@@ -1370,7 +1382,7 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
         }
         case LB_GETITEMRECT:
             if ((int)wParam < 0 || (int)wParam >= n) return LB_ERR;
-            if (RECT* out = (RECT*)lParam) *out = self->ItemRect((int)wParam);
+            if (RECT* out = (RECT*)lParam) *out = ToWinRect(self->ItemRect((int)wParam));
             return LB_OKAY;
         case LB_GETITEMDATA:
             if ((int)wParam < 0 || (int)wParam >= n) return LB_ERR;
@@ -1394,7 +1406,7 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
         case LB_ITEMFROMPOINT: {
             const POINT pt = { (LONG)(short)LOWORD(lParam),
                                (LONG)(short)HIWORD(lParam) };
-            const int idx = self->ItemAtPoint(pt);
+            const int idx = self->ItemAtPoint(FromWinPoint(pt));
             return idx < 0 ? (LRESULT)(DWORD)-1 : (LRESULT)(DWORD)idx;
         }
         case LB_GETTEXTLEN:
@@ -1409,7 +1421,7 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
     case WM_SIZE:
         if (self) {
             self->SyncScrollBar();
-            InvalidateRect(hwnd, nullptr, FALSE);
+            InvalidateRect(HwndOfWidget(hwnd), nullptr, FALSE);
         }
         return 0;
     case WM_PAINT: {
@@ -1424,12 +1436,12 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
     case WM_LBUTTONDOWN: {
         if (!self) break;
         POINT pt = { (short)LOWORD(lParam), (short)HIWORD(lParam) };
-        SetFocus(hwnd);
-        const int item = self->ItemAtPoint(pt);
+        SetFocus(HwndOfWidget(hwnd));
+        const int item = self->ItemAtPoint(FromWinPoint(pt));
         if (item >= 0) {
             if (self->onItemClicked) {
-                const RECT rc = self->ItemRect(item);
-                POINT ptIn = { pt.x - rc.left, pt.y - rc.top };
+                const Rect rc = self->ItemRect(item);
+                Point ptIn = { pt.x - rc.left, pt.y - rc.top };
                 if (self->onItemClicked(item, ptIn)) return 0;
             }
             if (self->m_desc.multiSelect)
@@ -1444,10 +1456,10 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
     case WM_LBUTTONDBLCLK: {
         if (!self) break;
         POINT pt = { (short)LOWORD(lParam), (short)HIWORD(lParam) };
-        const int item = self->ItemAtPoint(pt);
+        const int item = self->ItemAtPoint(FromWinPoint(pt));
         if (item >= 0) {
             self->SelectItem(item, false);
-            SendMessageW(GetParent(hwnd), WM_COMMAND,
+            SendMessageW(GetParent(HwndOfWidget(hwnd)), WM_COMMAND,
                          MAKEWPARAM(GetDlgCtrlID(hwnd), LBN_DBLCLK),
                          (LPARAM)hwnd);
         }
@@ -1456,7 +1468,7 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
     case WM_MOUSEMOVE: {
         if (!self) break;
         POINT pt = { (short)LOWORD(lParam), (short)HIWORD(lParam) };
-        const int item = self->ItemAtPoint(pt);
+        const int item = self->ItemAtPoint(FromWinPoint(pt));
         if (item != self->m_hover) {
             const int old = self->m_hover;
             self->m_hover = item;
@@ -1464,9 +1476,9 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
             if (item >= 0) self->InvalidateItem(item);
         }
         if (self->onHoverMove) {
-            POINT in = { pt.x, pt.y };
+            Point in = { pt.x, pt.y };
             if (item >= 0) {
-                const RECT irc = self->ItemRect(item);
+                const Rect irc = self->ItemRect(item);
                 in.x -= irc.left;
                 in.y -= irc.top;
             }
@@ -1482,7 +1494,7 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
         self->m_hover = -1;
         if (old >= 0) self->InvalidateItem(old);
         if (self->onHoverMove) {
-            POINT out = { -1, -1 };
+            Point out = { -1, -1 };
             self->onHoverMove(-1, out);
         }
         return 0;
@@ -1493,7 +1505,7 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
         self->m_scroll = ClampV(self->m_scroll - notches * self->ScrollStep(),
                                 0, self->MaxScroll());
         self->SyncScrollBar();
-        InvalidateRect(hwnd, nullptr, FALSE);
+        InvalidateRect(HwndOfWidget(hwnd), nullptr, FALSE);
         return 0;
     }
     case WM_VSCROLL: {
@@ -1516,7 +1528,7 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
         if (s != self->m_scroll) {
             self->m_scroll = s;
             self->SyncScrollBar();
-            InvalidateRect(hwnd, nullptr, FALSE);
+            InvalidateRect(HwndOfWidget(hwnd), nullptr, FALSE);
         }
         return 0;
     }
@@ -1548,15 +1560,15 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
         if (pt.x != -1 || pt.y != -1) {
             POINT lpt = pt;
             ScreenToClient(hwnd, &lpt);
-            item = self->ItemAtPoint(lpt);
+            item = self->ItemAtPoint(FromWinPoint(lpt));
         } else {
             item = self->m_sel;
             if (item < 0) return 0;
-            const RECT rc = self->ItemRect(item);
+            const Rect rc = self->ItemRect(item);
             pt = { (rc.left + rc.right) / 2, (rc.top + rc.bottom) / 2 };
-            MapWindowPoints(hwnd, HWND_DESKTOP, (LPPOINT)&pt, 1);
+            MapWindowPoints(HwndOfWidget(hwnd), HWND_DESKTOP, (LPPOINT)&pt, 1);
         }
-        self->onContextMenu(pt, item);
+        self->onContextMenu(FromWinPoint(pt), item);
         return 0;
     }
     case WM_GETOBJECT:
@@ -1567,7 +1579,7 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wParam,
         break;
     case WM_NCDESTROY:
         a11y::ForgetWindow(hwnd);   // 清无障碍属性表（幂等）
-        RemoveWindowSubclass(hwnd, &ListBoxProc, idSub);
+        RemoveWindowSubclass(HwndOfWidget(hwnd), reinterpret_cast<SUBCLASSPROC>(&ListBoxProc), idSub);
         break;
     }
     return DefSubclassProc(hwnd, msg, wParam, lParam);
@@ -1583,7 +1595,7 @@ void ListBox::Reset()
     m_scroll = 0;
     if (m_hwnd) {
         SyncScrollBar();
-        InvalidateRect(m_hwnd, nullptr, FALSE);
+        InvalidateRect(HwndOfWidget(m_hwnd), nullptr, FALSE);
     }
 }
 
@@ -1598,7 +1610,7 @@ void ListBox::EndUpdate()
     if (--m_updateLock > 0) return;
     if (m_hwnd) {
         SyncScrollBar();
-        InvalidateRect(m_hwnd, nullptr, FALSE);
+        InvalidateRect(HwndOfWidget(m_hwnd), nullptr, FALSE);
     }
 }
 
@@ -1611,7 +1623,7 @@ int ListBox::AddItem(int height, size_t data)
     const int idx = (int)m_items.size() - 1;
     if (m_hwnd && m_updateLock == 0) {
         SyncScrollBar();
-        InvalidateRect(m_hwnd, nullptr, FALSE);
+        InvalidateRect(HwndOfWidget(m_hwnd), nullptr, FALSE);
     }
     return idx;
 }
@@ -1640,43 +1652,44 @@ void ListBox::SetSelection(int index)
     if (index >= 0) EnsureVisible(index);
     if (m_hwnd) {
         SyncScrollBar();
-        InvalidateRect(m_hwnd, nullptr, FALSE);
+        InvalidateRect(HwndOfWidget(m_hwnd), nullptr, FALSE);
     }
 }
 
-RECT ListBox::ItemRect(int index)
+Rect ListBox::ItemRect(int index)
 {
     RECT rc = {};
-    if (!m_hwnd || index < 0 || index >= (int)m_items.size()) return rc;
+    if (!m_hwnd || index < 0 || index >= (int)m_items.size()) return FromWinRect(rc);
     RECT cr = {};
-    GetClientRect(m_hwnd, &cr);
+    GetClientRect(HwndOfWidget(m_hwnd), &cr);
     int y = -m_scroll;
     for (int i = 0; i < index; ++i) y += m_items[(size_t)i].height;
     rc.left   = 0;
     rc.top    = y;
     rc.right  = cr.right;
     rc.bottom = y + m_items[(size_t)index].height;
-    return rc;
+    return FromWinRect(rc);
 }
 
 void ListBox::InvalidateItem(int index)
 {
     if (!m_hwnd) return;
     if (index < 0 || index >= (int)m_items.size()) return;
-    const RECT rc = ItemRect(index);
-    InvalidateRect(m_hwnd, &rc, FALSE);
+    const Rect rc = ItemRect(index);
+    RECT native = ToWinRect(rc);
+        InvalidateRect(HwndOfWidget(m_hwnd), &native, FALSE);
 }
 
 void ListBox::Invalidate()
 {
-    if (m_hwnd) InvalidateRect(m_hwnd, nullptr, FALSE);
+    if (m_hwnd) InvalidateRect(HwndOfWidget(m_hwnd), nullptr, FALSE);
 }
 
-int ListBox::ItemAtPoint(POINT clientPt)
+int ListBox::ItemAtPoint(Point clientPt)
 {
     if (!m_hwnd) return -1;
     RECT cr = {};
-    GetClientRect(m_hwnd, &cr);
+    GetClientRect(HwndOfWidget(m_hwnd), &cr);
     if (clientPt.x < cr.left || clientPt.x >= cr.right ||
         clientPt.y < cr.top  || clientPt.y >= cr.bottom)
         return -1;
@@ -1701,7 +1714,7 @@ int ListBox::ContentHeight() const
 int ListBox::VisibleHeight() const
 {
     RECT cr = {};
-    if (m_hwnd) GetClientRect(m_hwnd, &cr);
+    if (m_hwnd) GetClientRect(HwndOfWidget(m_hwnd), &cr);
     return (int)(cr.bottom - cr.top);
 }
 
@@ -1729,7 +1742,7 @@ void ListBox::SyncScrollBar()
     si.nMax   = content > 0 ? content - 1 : 0;
     si.nPage  = (UINT)(view > 0 ? view : 1);
     si.nPos   = m_scroll;
-    SetScrollInfo(m_hwnd, SB_VERT, &si, TRUE);
+    SetScrollInfo(HwndOfWidget(m_hwnd), SB_VERT, &si, TRUE);
 }
 
 void ListBox::EnsureVisible(int index)
@@ -1758,9 +1771,9 @@ void ListBox::SelectItem(int index, bool notify)
         InvalidateItem(index);
     }
     if (notify && m_hwnd) {
-        SendMessageW(GetParent(m_hwnd), WM_COMMAND,
-                     MAKEWPARAM(GetDlgCtrlID(m_hwnd), LBN_SELCHANGE),
-                     (LPARAM)m_hwnd);
+        SendMessageW(GetParent(HwndOfWidget(m_hwnd)), WM_COMMAND,
+                     MAKEWPARAM(GetDlgCtrlID(HwndOfWidget(m_hwnd)), LBN_SELCHANGE),
+                     (LPARAM)HwndOfWidget(m_hwnd));
     }
 }
 
@@ -1797,9 +1810,9 @@ void ListBox::OnMultiClick(int item, bool ctrl, bool shift)
     if (m_hwnd) {
         SyncScrollBar();
         Invalidate();
-        SendMessageW(GetParent(m_hwnd), WM_COMMAND,
-                     MAKEWPARAM(GetDlgCtrlID(m_hwnd), LBN_SELCHANGE),
-                     (LPARAM)m_hwnd);
+        SendMessageW(GetParent(HwndOfWidget(m_hwnd)), WM_COMMAND,
+                     MAKEWPARAM(GetDlgCtrlID(HwndOfWidget(m_hwnd)), LBN_SELCHANGE),
+                     (LPARAM)HwndOfWidget(m_hwnd));
     }
 }
 
@@ -1854,9 +1867,9 @@ void ListBox::ClearSelection()
             m_sel = -1;
             if (m_hwnd) {
                 InvalidateItem(old);
-                SendMessageW(GetParent(m_hwnd), WM_COMMAND,
-                             MAKEWPARAM(GetDlgCtrlID(m_hwnd), LBN_SELCHANGE),
-                             (LPARAM)m_hwnd);
+                SendMessageW(GetParent(HwndOfWidget(m_hwnd)), WM_COMMAND,
+                             MAKEWPARAM(GetDlgCtrlID(HwndOfWidget(m_hwnd)), LBN_SELCHANGE),
+                             (LPARAM)HwndOfWidget(m_hwnd));
             }
         }
         return;
@@ -1878,13 +1891,13 @@ void ListBox::SetSelectionRange(int start, int end, bool add)
     if (m_hwnd) {
         SyncScrollBar();
         Invalidate();
-        SendMessageW(GetParent(m_hwnd), WM_COMMAND,
-                     MAKEWPARAM(GetDlgCtrlID(m_hwnd), LBN_SELCHANGE),
-                     (LPARAM)m_hwnd);
+        SendMessageW(GetParent(HwndOfWidget(m_hwnd)), WM_COMMAND,
+                     MAKEWPARAM(GetDlgCtrlID(HwndOfWidget(m_hwnd)), LBN_SELCHANGE),
+                     (LPARAM)HwndOfWidget(m_hwnd));
     }
 }
 
-void ListBox::PaintItem(Canvas& g, int index, const RECT& rc)
+void ListBox::PaintItem(Canvas& g, int index, const Rect& rc)
 {
     if (index < 0 || index >= (int)m_items.size()) return;
     // 行底 = 页面灰（卡片浮于其上），与旧实现保持一致
@@ -1900,18 +1913,18 @@ void ListBox::PaintItem(Canvas& g, int index, const RECT& rc)
     onPaintItem(g, it);
 }
 
-void ListBox::PaintSelf(HDC dc)
+void ListBox::PaintSelf(DeviceContextHandle dc)
 {
     if (!m_shell || !dc) return;
     RECT rc = {};
-    GetClientRect(m_hwnd, &rc);
+    GetClientRect(HwndOfWidget(m_hwnd), &rc);
     if (rc.right <= rc.left || rc.bottom <= rc.top) return;
 
     gfx::Fill(dc, rc, Pal().bg);
     Canvas g(dc, m_shell->UiFonts());
 
     if (m_items.empty()) {
-        if (onPaintEmpty) onPaintEmpty(g, rc);
+        if (onPaintEmpty) onPaintEmpty(g, FromWinRect(rc));
         return;
     }
 
@@ -1923,7 +1936,7 @@ void ListBox::PaintSelf(HDC dc)
         y += h;
         if (row.bottom <= rc.top) continue;
         if (row.top >= rc.bottom) break;
-        PaintItem(g, (int)i, row);
+        PaintItem(g, (int)i, FromWinRect(row));
     }
 }
 
@@ -1945,20 +1958,21 @@ bool ListBox::HandleCommand(int code)
 // ============================================================
 void Custom::CreateNative()
 {
-    HWND parent = m_shell->Hwnd();
+    HWND parent = HwndOfWidget(m_shell->Hwnd());
 
     m_hwnd = CreateWindowExW(0, L"STATIC", L"", WS_CHILD,
                              0, 0, 0, 0, parent,
                              (HMENU)(INT_PTR)m_id, nullptr, nullptr);
     if (!m_hwnd) return;
 
-    SetWindowSubclass(m_hwnd, &CustomProc, kSubCustom, (DWORD_PTR)this);
+    SetWindowSubclass(HwndOfWidget(m_hwnd), reinterpret_cast<SUBCLASSPROC>(&CustomProc), kSubCustom, (DWORD_PTR)this);
 }
 
-LRESULT CALLBACK CustomProc(HWND hwnd, UINT msg, WPARAM wParam,
-                                   LPARAM lParam, UINT_PTR idSub,
-                                   DWORD_PTR ref)
+MessageResult CustomProc(WindowHandle hwndH, MessageId msg, MessageWParam wParam,
+                                    MessageLParam lParam, SubclassId idSub,
+                                    SubclassRef ref)
 {
+    HWND hwnd = reinterpret_cast<HWND>(hwndH);
     auto* self = (Custom*)ref;
 
     switch (msg) {
@@ -1981,10 +1995,10 @@ LRESULT CALLBACK CustomProc(HWND hwnd, UINT msg, WPARAM wParam,
         PAINTSTRUCT ps;
         HDC dc = BeginPaint(hwnd, &ps);
         RECT rc;
-        GetClientRect(hwnd, &rc);
+        GetClientRect(HwndOfWidget(hwnd), &rc);
         if (self->m_shell) {
             Canvas g(dc, self->m_shell->UiFonts());
-            self->m_painter(g, rc);
+            self->m_painter(g, FromWinRect(rc));
         }
         EndPaint(hwnd, &ps);
         return 0;
@@ -1997,29 +2011,29 @@ LRESULT CALLBACK CustomProc(HWND hwnd, UINT msg, WPARAM wParam,
                 TrackMouseEvent(&tme);
             }
             self->m_hover = true;
-            InvalidateRect(hwnd, nullptr, FALSE);
+            InvalidateRect(HwndOfWidget(hwnd), nullptr, FALSE);
         }
         return 0;
     case WM_MOUSELEAVE:
         if (self && self->m_click && self->m_hover) {
             self->m_hover = false;
-            InvalidateRect(hwnd, nullptr, FALSE);
+            InvalidateRect(HwndOfWidget(hwnd), nullptr, FALSE);
         }
         return 0;
     case WM_LBUTTONDOWN:
         if (self && self->m_click) {
             self->m_press = true;
             SetCapture(hwnd);
-            InvalidateRect(hwnd, nullptr, FALSE);
+            InvalidateRect(HwndOfWidget(hwnd), nullptr, FALSE);
         }
         return 0;
     case WM_LBUTTONUP: {
         if (self && self->m_click && self->m_press) {
             self->m_press = false;
             ReleaseCapture();
-            InvalidateRect(hwnd, nullptr, FALSE);
+            InvalidateRect(HwndOfWidget(hwnd), nullptr, FALSE);
             // 点在框外松手 = 取消（桌面按钮语义）
-            RECT rc; GetClientRect(hwnd, &rc);
+            RECT rc; GetClientRect(HwndOfWidget(hwnd), &rc);
             POINT pt = { (short)LOWORD(lParam), (short)HIWORD(lParam) };
             if (PtInRect(&rc, pt)) {
                 auto cb = self->m_click;
@@ -2030,7 +2044,7 @@ LRESULT CALLBACK CustomProc(HWND hwnd, UINT msg, WPARAM wParam,
     }
     case WM_NCDESTROY:
         a11y::ForgetWindow(hwnd);   // 清无障碍属性表（幂等）
-        RemoveWindowSubclass(hwnd, &CustomProc, idSub);
+        RemoveWindowSubclass(HwndOfWidget(hwnd), reinterpret_cast<SUBCLASSPROC>(&CustomProc), idSub);
         break;
     }
     return DefSubclassProc(hwnd, msg, wParam, lParam);
@@ -2042,13 +2056,13 @@ void Custom::OnClick(std::function<void()> cb)
     // 设了点击回调 = 交互控件，关闭穿透（创建时的 mouseTransparent 仅
     // 适用于纯装饰用途）；回调置空则恢复穿透。
     m_desc.mouseTransparent = !m_click;
-    if (m_hwnd) InvalidateRect(m_hwnd, nullptr, TRUE);
+    if (m_hwnd) InvalidateRect(HwndOfWidget(m_hwnd), nullptr, TRUE);
 }
 
-void Custom::OnPaint(std::function<void(Canvas&, const RECT&)> painter)
+void Custom::OnPaint(std::function<void(Canvas&, const Rect&)> painter)
 {
     m_painter = std::move(painter);
-    if (m_hwnd) InvalidateRect(m_hwnd, nullptr, TRUE);
+    if (m_hwnd) InvalidateRect(HwndOfWidget(m_hwnd), nullptr, TRUE);
 }
 
 } // namespace ui

@@ -1,13 +1,13 @@
-#include "airui/OverlayWindow.h"
-#include "airui/Shell.h"
-#include "airui/Canvas.h"
-#include "airui/CanvasPainter.h"
+#include "internal/OverlayWindow.h"
+#include "internal/Shell.h"
+#include "internal/Canvas.h"
+#include "internal/CanvasPainter.h"
 #include "airui/ControlsCore.h"
 #include "airui/ControlsExtra.h"
 #include "airui/Interaction.h"
 #include "airui/Theme.h"
-#include "airui/Gfx.h"
-#include "airui/RaII.h"
+#include "internal/Gfx.h"
+#include "internal/RaII.h"
 
 #include <algorithm>
 #include <vector>
@@ -18,6 +18,13 @@ namespace ui {
 namespace {
 
 const wchar_t* const kOverlayClass = L"AirUiOverlayWnd";
+
+HWND HwndOfOverlay(WindowHandle h) { return reinterpret_cast<HWND>(h); }
+HDC DcOfOverlay(DeviceContextHandle h) { return reinterpret_cast<HDC>(h); }
+POINT ToWinPoint(const Point& p) { return POINT{ p.x, p.y }; }
+Rect FromWinRect(const RECT& r) { return Rect{ r.left, r.top, r.right, r.bottom }; }
+RECT ToWinRect(const Rect& r) { return RECT{ r.left, r.top, r.right, r.bottom }; }
+Point FromWinPoint(const POINT& p) { return Point{ p.x, p.y }; }
 
 // 32bpp DIB 在内存里是 BGRA。底色用纯洋红作「这里应当透明」的标记，
 // GDI 不写 alpha 通道，所以上屏前要按像素把 alpha 补齐。
@@ -299,12 +306,12 @@ void OverlayWindow::Redraw()
 // ============================================================
 ToastManager::~ToastManager() = default;
 
-RECT ToastManager::ComputeRect() const
+Rect ToastManager::ComputeRect() const
 {
     RECT client{};
-    GetClientRect(m_owner, &client);
+    GetClientRect(HwndOfOverlay(m_owner), &client);
     POINT origin{ 0, 0 };
-    ClientToScreen(m_owner, &origin);
+    ClientToScreen(HwndOfOverlay(m_owner), &origin);
 
     const int n = (int)m_toasts.size();
     const int totalH = n > 0 ? n * kToastH + (n - 1) * kToastGap : 1;
@@ -317,13 +324,13 @@ RECT ToastManager::ComputeRect() const
                origin.x + x + kToastW, origin.y + y + totalH };
     // 主窗口可能贴着屏幕右缘 / 下缘，甚至跨屏：把整叠卡片约束进
     // 所属显示器的工作区（排除任务栏），保证始终完整可见。
-    ClampInside(r, MonitorBounds(m_owner, true), kToastPad);
-    return r;
+    ClampInside(r, MonitorBounds(HwndOfOverlay(m_owner), true), kToastPad);
+    return FromWinRect(r);
 }
 
 bool ToastManager::OwnerVisible() const
 {
-    return m_owner && IsWindowVisible(m_owner) && !IsIconic(m_owner);
+    return m_owner && IsWindowVisible(HwndOfOverlay(m_owner)) && !IsIconic(HwndOfOverlay(m_owner));
 }
 
 void ToastManager::AdvanceClock(uint64_t now, bool ownerVisible)
@@ -344,22 +351,22 @@ void ToastManager::Resume()
     m_suspended   = false;
     m_lastOpacity = -1;      // 强制下一帧重算淡入，不沿用挂起前的透明度
     m_layer->Show(true);
-    m_layer->Move(ComputeRect());
+    m_layer->Move(ToWinRect(ComputeRect()));
     m_layer->Redraw();
 }
 
-RECT ToastManager::CardRect(int index) const
+Rect ToastManager::CardRect(int index) const
 {
     const int top = index * (kToastH + kToastGap);
     RECT r = { 0, top, kToastW, top + kToastH };
-    return r;
+    return FromWinRect(r);
 }
 
 void ToastManager::EnsureLayer()
 {
     if (m_layer || !m_owner || !m_fonts) return;
     std::unique_ptr<OverlayWindow> layer(new OverlayWindow());
-    if (!layer->Create(m_owner, ComputeRect(), false)) return;
+    if (!layer->Create(HwndOfOverlay(m_owner), ToWinRect(ComputeRect()), false)) return;
     layer->SetMode(OverlayAlphaMode::Transparent);
     layer->SetPaint([this](HDC dc, int w, int h) { Paint(dc, w, h); });
     layer->SetEvents([this](UINT msg, WPARAM wp, LPARAM lp, LRESULT& res) {
@@ -376,7 +383,7 @@ void ToastManager::Show(const Toast& toast)
     // 自绘模态框会 EnableWindow(owner, FALSE)，但主窗口的定时器仍在
     // 跑。此时弹出 Toast 会浮在遮罩/对话框上，且抢不到焦点关不掉。
     // 这些都是即时操作反馈，模态期间直接丢弃比事后补一条过期提示好。
-    if (!IsWindowEnabled(m_owner)) return;
+    if (!IsWindowEnabled(HwndOfOverlay(m_owner))) return;
 
     const bool vis = OwnerVisible();
     AdvanceClock(GetTickCount64(), vis);
@@ -401,7 +408,7 @@ void ToastManager::Show(const Toast& toast)
     m_suspended = false;
     m_layer->Show(true);
     m_layer->SetOpacity(0);
-    m_layer->Move(ComputeRect());
+    m_layer->Move(ToWinRect(ComputeRect()));
     m_layer->Redraw();
     m_lastOpacity = 0;
     m_hoverIndex  = -1;
@@ -418,7 +425,7 @@ void ToastManager::Show(const std::wstring& title,
     Show(t);
 }
 
-void ToastManager::Paint(HDC dc, int width, int height)
+void ToastManager::Paint(DeviceContextHandle dc, int width, int height)
 {
     (void)width;
     (void)height;
@@ -427,7 +434,7 @@ void ToastManager::Paint(HDC dc, int width, int height)
     CanvasPainter painter(canvas);
 
     for (size_t i = 0; i < m_toasts.size(); ++i) {
-        const RECT rc = CardRect((int)i);
+        const Rect rc = CardRect((int)i);
         ToastState st;
         st.kind          = ToAlertKind(m_toasts[i].kind);
         st.title         = m_toasts[i].title;
@@ -435,29 +442,27 @@ void ToastManager::Paint(HDC dc, int width, int height)
         st.closable      = m_toasts[i].closable;
         st.hoveredClose  = ((int)i == m_hoverIndex && m_hoverClose);
         st.base.hover    = ((int)i == m_hoverIndex);
-        PaintToast(painter, Rect(rc.left, rc.top, rc.right, rc.bottom),
-                   st, Pal(), Mx());
+        PaintToast(painter, rc, st, Pal(), Mx());
     }
 }
 
-void ToastManager::HitTest(POINT pt, int& index, bool& onClose) const
+void ToastManager::HitTest(Point pt, int& index, bool& onClose) const
 {
     index = -1;
     onClose = false;
     for (size_t i = 0; i < m_toasts.size(); ++i) {
-        const RECT rc = CardRect((int)i);
+        const Rect rc = CardRect((int)i);
         if (pt.x < rc.left || pt.x >= rc.right ||
             pt.y < rc.top  || pt.y >= rc.bottom) continue;
         index = (int)i;
         ToastState st;
         st.closable = m_toasts[i].closable;
-        onClose = ToastCloseHit(Rect(rc.left, rc.top, rc.right, rc.bottom),
-                                st, Mx(), Point{ pt.x, pt.y });
+        onClose = ToastCloseHit(rc, st, Mx(), pt);
         return;
     }
 }
 
-bool ToastManager::OnEvent(UINT msg, WPARAM wp, LPARAM lp, LRESULT& res)
+bool ToastManager::OnEvent(MessageId msg, MessageWParam wp, MessageLParam lp, MessageResult& res)
 {
     (void)wp;
     switch (msg) {
@@ -469,7 +474,7 @@ bool ToastManager::OnEvent(UINT msg, WPARAM wp, LPARAM lp, LRESULT& res)
     case WM_MOUSEMOVE: {
         int idx = -1;
         bool close = false;
-        HitTest(PointFromLParam(lp), idx, close);
+        HitTest(FromWinPoint(PointFromLParam(lp)), idx, close);
         if (idx != m_hoverIndex || close != m_hoverClose) {
             m_hoverIndex = idx;
             m_hoverClose = close;
@@ -496,7 +501,7 @@ bool ToastManager::OnEvent(UINT msg, WPARAM wp, LPARAM lp, LRESULT& res)
     case WM_LBUTTONUP: {
         int idx = -1;
         bool close = false;
-        HitTest(PointFromLParam(lp), idx, close);
+        HitTest(FromWinPoint(PointFromLParam(lp)), idx, close);
         if (close && idx >= 0 && idx < (int)m_toasts.size()) {
             if (m_toasts[idx].onDismiss) m_toasts[idx].onDismiss();
             m_toasts.erase(m_toasts.begin() + idx);
@@ -504,7 +509,7 @@ bool ToastManager::OnEvent(UINT msg, WPARAM wp, LPARAM lp, LRESULT& res)
             m_hoverClose = false;
             if (m_layer) {
                 if (m_toasts.empty()) m_layer->Show(false);
-                else { m_layer->Move(ComputeRect()); m_layer->Redraw(); }
+                else { m_layer->Move(ToWinRect(ComputeRect())); m_layer->Redraw(); }
             }
         }
         res = 0;
@@ -556,12 +561,13 @@ void ToastManager::Tick()
     }
 
     // 主窗口被拖动 / 缩放后，浮层要跟着走。
-    RECT want = ComputeRect();
+    const Rect want = ComputeRect();
+    const RECT native = ToWinRect(want);
     RECT cur{};
     GetWindowRect(m_layer->Native(), &cur);
-    if (want.left != cur.left || want.top != cur.top ||
-        want.right != cur.right || want.bottom != cur.bottom) {
-        m_layer->Move(want);
+    if (native.left != cur.left || native.top != cur.top ||
+        native.right != cur.right || native.bottom != cur.bottom) {
+        m_layer->Move(native);
         removed = true;
     }
 
@@ -603,7 +609,7 @@ void ToastManager::Reposition()
     }
     // WM_SIZE / WM_SHOWWINDOW 一到就恢复，不必等 50ms 的浮层定时器。
     if (m_suspended) Resume();
-    m_layer->Move(ComputeRect());
+    m_layer->Move(ToWinRect(ComputeRect()));
     m_layer->Redraw();
 }
 

@@ -1,4 +1,4 @@
-#include "airui/TestShell.h"
+#include "internal/TestShell.h"
 #include <windows.h>
 #include <fstream>
 #include <sstream>
@@ -182,7 +182,7 @@ void TestShell::DestroyMemDC()
     }
 }
 
-void TestShell::PaintPage(IPage* page, HDC dc)
+void TestShell::PaintPage(IPage* page, DeviceContextHandle dc)
 {
     if (!page || !dc) return;
     page->OnPaint(dc, m_content);

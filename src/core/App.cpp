@@ -22,6 +22,10 @@ namespace arecord
 // 未连接）由调用点追加。
 const wchar_t* kAppFooterPrefix = L"AireRecord " AIRUI_VERSION_W L" · ";
 
+namespace {
+HWND NativeHwnd(air::ui::WindowHandle h) { return reinterpret_cast<HWND>(h); }
+} // namespace
+
 // App 析构：AgentHost 是完整类型时才析构（unique_ptr 成员）。
 // 后台刷新/重连线程改为可 join：置位停止标志后逐个 join，等待在途的
 // Connect()（~1s）/ Request()（1.5s）结束，杜绝 detach 线程在 App 析构后
@@ -71,8 +75,9 @@ ServiceStats FetchStats(PipeClient& ipc, int& outSvcState, std::wstring& outSvcT
 
 // 离线重连探测（后台线程）：只探测/建立连接，不拉起服务。成功经 WM_APP+7
 // 回 UI 线程恢复，失败则由定时器下轮再试。只读 m_ipc，不写共享 UI 成员。
-void App::ReconnectProbe(HWND hwnd, bool wasOffline)
+void App::ReconnectProbe(air::ui::WindowHandle hwndHandle, bool wasOffline)
 {
+    const HWND hwnd = reinterpret_cast<HWND>(hwndHandle);
     if (wasOffline) {
         // 服务曾不可用：探测/建立连接；成功经 WM_APP+7 回 UI 线程恢复，
         // 失败则下轮再试。
@@ -93,8 +98,9 @@ void App::ReconnectProbe(HWND hwnd, bool wasOffline)
 
 // 后台刷新线程：只做纯 IPC 拉取 + 解析，不写任何 App 成员；结果封装进堆
 // 分配的 RefreshResult，经 WM_APP+6 回 UI 线程，由 UI 线程统一应用成员。
-void App::RefreshWorker(HWND hwnd, std::wstring filter)
+void App::RefreshWorker(air::ui::WindowHandle hwndHandle, std::wstring filter)
 {
+    const HWND hwnd = reinterpret_cast<HWND>(hwndHandle);
     RefreshResult* out = new RefreshResult;
     out->stats    = FetchStats(m_ipc, out->svcState, out->svcText);  // Request(STATS)
     if (m_clips)
@@ -110,7 +116,7 @@ void App::RefreshWorker(HWND hwnd, std::wstring filter)
 // ============================================================
 // 启动
 // ============================================================
-int App::Run(HINSTANCE hInstance)
+int App::Run(air::ui::InstanceHandle hInstance)
 {
     ShellOptions opt;
     // 类名保持不变：单实例检测与任务栏行为维持原样
@@ -163,7 +169,8 @@ int App::Run(HINSTANCE hInstance)
     // airecordd -agent），则 AgentHost 不启动自己的代理，UI 仍走 PipeClient
     // 连全局管道（数据统一由系统服务入库）。
     m_agent = std::make_unique<AgentHost>();
-    bool served = m_agent->Start(hInstance, m_shell.Hwnd(), [this]() {
+    bool served = m_agent->Start(reinterpret_cast<HINSTANCE>(hInstance),
+                                NativeHwnd(m_shell.Hwnd()), [this]() {
         // 托盘「退出」：停止服务 + 退出 UI（一起退出，符合生命周期契约）。
         ExitAll();
     });
@@ -179,18 +186,18 @@ int App::Run(HINSTANCE hInstance)
             // 剪贴板记录暂存本地，等服务回来（SCM 失败操作 / 用户重新启动）
             // 时自动同步回机器库。不做重启服务的尝试（尊重 sc stop）。
             diag::Log(L"[evt] STOPPING -> UI offline (stays alive)");
-            if (m_shell.Hwnd())
-                PostMessage(m_shell.Hwnd(), WM_APP + 3, 0, 0);   // 走 ServiceDied 统一离线
+            if (NativeHwnd(m_shell.Hwnd()))
+                PostMessage(NativeHwnd(m_shell.Hwnd()), WM_APP + 3, 0, 0);   // 走 ServiceDied 统一离线
             return;
         }
-        if (m_shell.Hwnd())
-            PostMessage(m_shell.Hwnd(), WM_APP + 2, 0, 0);   // 防抖刷新
+        if (NativeHwnd(m_shell.Hwnd()))
+            PostMessage(NativeHwnd(m_shell.Hwnd()), WM_APP + 2, 0, 0);   // 防抖刷新
     });
     // 服务端连接断开（ReadFile 返回 ERROR_BROKEN_PIPE）→ 实时重启服务。
     // 回调在后台 reader 线程：经 WM_APP+3 转到 UI 线程做恢复动作。
     m_ipc.SetDisconnectCallback([this]() {
-        if (m_shell.Hwnd())
-            PostMessage(m_shell.Hwnd(), WM_APP + 3, 0, 0);
+        if (NativeHwnd(m_shell.Hwnd()))
+            PostMessage(NativeHwnd(m_shell.Hwnd()), WM_APP + 3, 0, 0);
     });
 
     // ---- 确保系统服务就绪（必要依赖） ----
@@ -221,7 +228,7 @@ int App::Run(HINSTANCE hInstance)
             m_agent->Stop();          // 停止后台代理线程与托盘
             return true;              // 允许销毁窗口 → 消息循环结束 → 进程退出
         }
-        ShowWindow(m_shell.Hwnd(), SW_HIDE);   // 默认：仅隐藏，保持进程存活
+        ShowWindow(NativeHwnd(m_shell.Hwnd()), SW_HIDE);   // 默认：仅隐藏，保持进程存活
         return false;
     });
 
@@ -265,8 +272,10 @@ int App::Run(HINSTANCE hInstance)
 
     // 插件钩子：所有窗口消息先过插件分发（F3/F4 等）
     m_shell.SetMessageHook(
-        [this](HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
-               LRESULT& result) -> bool {
+        [this](air::ui::WindowHandle hwndHandle, air::ui::MessageId msg,
+               air::ui::MessageWParam wParam, air::ui::MessageLParam lParam,
+               air::ui::MessageResult& result) -> bool {
+            const HWND hwnd = reinterpret_cast<HWND>(hwndHandle);
             // 退出链路留痕：现场"闪一下就消失"时能区分是自己关的窗，
             // 还是外部进程投递 WM_CLOSE / 结束进程（见 client.log）
             if (msg == WM_CLOSE || msg == WM_DESTROY ||
@@ -354,8 +363,8 @@ int App::Run(HINSTANCE hInstance)
             // 服务心跳（30s 兜底）：断开回调已是实时主触发（WM_APP+3），
             // 这里仅作为慢后备，防止断开回调漏触发。
             if (msg == WM_TIMER && wParam == TIMER_SVC_HEARTBEAT) {
-                if (!m_ipc.IsConnected() && m_shell.Hwnd())
-                    PostMessage(m_shell.Hwnd(), WM_APP + 3, 0, 0);
+                if (!m_ipc.IsConnected() && NativeHwnd(m_shell.Hwnd()))
+                    PostMessage(NativeHwnd(m_shell.Hwnd()), WM_APP + 3, 0, 0);
                 result = 0;
                 return true;
             }
@@ -432,23 +441,24 @@ int App::Run(HINSTANCE hInstance)
             }
             // 定时器先给插件（F3 搜索防抖 250ms）
             if (msg == WM_TIMER)
-                m_plugins.DispatchTimer(*this, (UINT_PTR)wParam);
+                m_plugins.DispatchTimer(*this, (uintptr_t)wParam);
 
-            return m_plugins.DispatchWndProc(*this, hwnd, msg, wParam,
+            return m_plugins.DispatchWndProc(*this, hwndHandle, msg, wParam,
                                              lParam, result);
         });
 
     // 状态栏与侧栏一直标着 F3 / F4，但此前没有任何地方注册过它们。
     // 关键是走消息循环而不是窗口过程：按键消息投给当前焦点窗口，
     // 焦点通常在搜索框 / 录入框 / 列表里，主窗口根本收不到。
-    m_shell.SetAcceleratorHandler([this](const MSG& msg) -> bool {
+    m_shell.SetAcceleratorHandler([this](const air::ui::MessageInfo& msg) -> bool {
         // 系统组合键（Alt+F4 等）一律交给系统；模态对话框打开时不抢键；
         // 窗口隐藏时交给全局 Ctrl+Shift+V 唤出。
         if (msg.message == WM_SYSKEYDOWN ||
-            m_shell.IsModalActive() || !IsWindowVisible(m_shell.Hwnd()))
+            m_shell.IsModalActive() || !IsWindowVisible(NativeHwnd(m_shell.Hwnd())))
             return false;
-        const HWND main = m_shell.Hwnd();
-        if (msg.hwnd != main && !IsChild(main, msg.hwnd)) return false;
+        const air::ui::WindowHandle main = m_shell.Hwnd();
+        if (msg.hwnd != main && !IsChild(reinterpret_cast<HWND>(main),
+                                         reinterpret_cast<HWND>(msg.hwnd))) return false;
         // Alt+F4 / Ctrl+F4 是系统组合，不能吞。
         if ((GetKeyState(VK_CONTROL) & 0x8000) ||
             (GetKeyState(VK_MENU)    & 0x8000) ||
@@ -572,10 +582,10 @@ int App::Run(HINSTANCE hInstance)
               (long long)m_stats.total, (int)m_svcState,
               (int)m_startHidden, m_showDelayMs);
     if (m_showDelayMs > 0)
-        SetTimer(m_shell.Hwnd(), TIMER_PROBE_HIDDEN, (UINT)m_showDelayMs, nullptr);
+        SetTimer(NativeHwnd(m_shell.Hwnd()), TIMER_PROBE_HIDDEN, (UINT)m_showDelayMs, nullptr);
     // 服务心跳兜底：断开回调（WM_APP+3）已是实时主触发；此 30s 定时器
     // 仅作慢后备。窗口隐藏时消息循环仍在跑，定时器照常触发。
-    SetTimer(m_shell.Hwnd(), TIMER_SVC_HEARTBEAT, 30000, nullptr);
+    SetTimer(NativeHwnd(m_shell.Hwnd()), TIMER_SVC_HEARTBEAT, 30000, nullptr);
     int rc = m_shell.RunMessageLoop();
     diag::Log(L"[ui] message loop end, rc=%d", rc);
     m_plugins.DetachAll(*this);
@@ -585,17 +595,17 @@ int App::Run(HINSTANCE hInstance)
 // ============================================================
 // 门面
 // ============================================================
-HWND App::Hwnd()
+air::ui::WindowHandle App::Hwnd()
 {
     return m_shell.Hwnd();
 }
 
 // 插件属集成层：仍以 HWND 交互（页面内部已完全 Widget 化）
-HWND App::List()          { return m_clips ? m_clips->List().Native() : nullptr; }
-HWND App::SearchEdit()    { return m_clips ? m_clips->SearchEdit().Native() : nullptr; }
-HWND App::ManualEdit()    { return m_clips ? m_clips->ManualEdit().Native() : nullptr; }
-HWND App::NoteEdit()      { return m_clips ? m_clips->NoteEdit().Native() : nullptr; }
-HWND App::NoteEditMulti() { return m_clips ? m_clips->NoteEditMulti().Native() : nullptr; }
+air::ui::WindowHandle App::List()          { return m_clips ? m_clips->List().Native() : nullptr; }
+air::ui::WindowHandle App::SearchEdit()    { return m_clips ? m_clips->SearchEdit().Native() : nullptr; }
+air::ui::WindowHandle App::ManualEdit()    { return m_clips ? m_clips->ManualEdit().Native() : nullptr; }
+air::ui::WindowHandle App::NoteEdit()      { return m_clips ? NativeHwnd(m_clips->NoteEdit().Native()) : nullptr; }
+air::ui::WindowHandle App::NoteEditMulti() { return m_clips ? NativeHwnd(m_clips->NoteEditMulti().Native()) : nullptr; }
 
 void App::RefreshData()
 {
@@ -613,7 +623,7 @@ void App::RefreshData()
     // 线程持有，析构时等待，杜绝 detach 裸 this。结果经 WM_APP+6 回投，由
     // UI 线程统一写 m_stats / m_svcState / m_svcText / m_entries。
     if (m_refreshThread.joinable()) m_refreshThread.join();
-    m_refreshThread = std::thread(&App::RefreshWorker, this, m_shell.Hwnd(), filter);
+    m_refreshThread = std::thread(&App::RefreshWorker, this, NativeHwnd(m_shell.Hwnd()), filter);
 }
 
 // WM_APP+6（UI 线程）：把后台线程拉好的 m_stats / m_entries 应用到界面。
@@ -671,7 +681,7 @@ void App::SetThemeDark(bool dark)
     m_shell.Invalidate();
     // 子控件（TextBox / ListBox / Custom）是独立子窗口、各自 WM_PAINT 读
     // Pal()；父窗 InvalidateRect(...,FALSE) 不会波及子窗口，需逐个标脏。
-    EnumChildWindows(m_shell.Hwnd(),
+    EnumChildWindows(NativeHwnd(m_shell.Hwnd()),
         [](HWND h, LPARAM) -> BOOL {
             InvalidateRect(h, nullptr, FALSE);
             return TRUE;
@@ -680,7 +690,7 @@ void App::SetThemeDark(bool dark)
 
 void App::RestoreWindowRect()
 {
-    HWND hwnd = m_shell.Hwnd();
+    HWND hwnd = NativeHwnd(m_shell.Hwnd());
     if (!hwnd) return;
 
     const std::wstring raw = machine::Get(L"ui", L"window_rect", L"");
@@ -721,7 +731,7 @@ void App::RestoreWindowRect()
 
 void App::SaveWindowRect()
 {
-    HWND hwnd = m_shell.Hwnd();
+    HWND hwnd = NativeHwnd(m_shell.Hwnd());
     if (!hwnd) return;
 
     // 最大化 / 最小化时 GetWindowRect 返回的是显示器边界 / 任务栏坐标，
@@ -740,7 +750,7 @@ void App::FocusSearch()
 {
     m_shell.SwitchPage(1);
     if (!m_clips) return;
-    HWND edit = m_clips->SearchEdit().Native();
+    HWND edit = NativeHwnd(m_clips->SearchEdit().Native());
     if (!edit) return;
     SetFocus(edit);
     // 已有关键字时全选，按一下 F3 就能直接改 / 直接输新的。
@@ -753,7 +763,7 @@ void App::OpenManualEntry()
     if (m_clips) m_clips->OpenForm();   // 内部会聚焦多行录入框
 }
 
-std::wstring App::GetWindowTextStr(HWND ctrl)
+std::wstring App::GetWindowTextStr(air::ui::WindowHandle ctrl)
 {
     return air::ui::GetEditText(ctrl);
 }
@@ -850,8 +860,8 @@ void App::SetServiceOffline(bool off)
 // → 刷新统计与外壳 → 停止定时器。
 void App::StartReconnectWatch()
 {
-    if (m_shell.Hwnd())
-        SetTimer(m_shell.Hwnd(), TIMER_SVC_RECONNECT, 3000, nullptr);
+    if (NativeHwnd(m_shell.Hwnd()))
+        SetTimer(NativeHwnd(m_shell.Hwnd()), TIMER_SVC_RECONNECT, 3000, nullptr);
 }
 
 // 统一退出：停止系统服务（best-effort，服务已停则 no-op），再强制退出本 UI。
@@ -873,8 +883,8 @@ void App::ExitAll()
     // 2) 强制退出本 UI（绕过 close_behavior=hide）。
     if (m_agent) m_agent->Stop();
     m_forceExit = true;
-    if (m_shell.Hwnd())
-        PostMessage(m_shell.Hwnd(), WM_CLOSE, 0, 0);
+    if (NativeHwnd(m_shell.Hwnd()))
+        PostMessage(NativeHwnd(m_shell.Hwnd()), WM_CLOSE, 0, 0);
 }
 
 // 服务恢复完成（WM_APP+4，UI 线程）：重连 + 刷新状态 + Toast。

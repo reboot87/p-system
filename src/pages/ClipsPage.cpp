@@ -1,4 +1,5 @@
 #include "ClipsPage.h"
+#include "NeutralWin32.h"
 #include "core/App.h"
 #include "core/Format.h"
 #include "../ipc/Ipc.h"
@@ -17,13 +18,13 @@ constexpr int kBannerH = 28;
 // 个函数：LISTBOX 给页面的点击坐标是行内坐标，而 ItemRect() 是客户区
 // 坐标，直接拿客户区的矩形去比行内坐标，除了列表最顶上那一行（top=0），
 // 其余每一行的图标都是错位的（点不到，也悬停不上）。
-void OpRects(int itemW, RECT out[3])
+void OpRects(int itemW, air::ui::Rect out[3])
 {
     // 与卡片一致的左右内缩：左 2 / 右 6，顶 3，底 9
     const int right = itemW - 6;
     int bx = right - 12 - 3 * 26 - 2 * 6;
     for (int i = 0; i < 3; ++i) {
-        out[i] = RECT{ bx, 3 + 15, bx + 26, 3 + 41 };
+        out[i] = air::ui::Rect{ bx, 3 + 15, bx + 26, 3 + 41 };
         bx += 32;
     }
 }
@@ -44,11 +45,11 @@ void ClipsPage::CreateControls()
 
     // ---- 搜索框右侧 Ctrl+Shift+V 提示（自绘小块，鼠标穿透到搜索框） ----
     m_searchChip = &CreateCustom({ IDC_SEARCH_CHIP, true });
-    m_searchChip->OnPaint([](Canvas& g, const RECT& rc) {
-        RECT r = { rc.left + 1, rc.top, rc.right - 1, rc.bottom };
+    m_searchChip->OnPaint([](Canvas& g, const air::ui::Rect& rc) {
+        air::ui::Rect r = { rc.left + 1, rc.top, rc.right - 1, rc.bottom };
         g.FillRound(r, Pal().chipBg, 4);
         g.Stroke(r, Pal().chipBorder, 4);
-        RECT rk = { r.left + 6, r.top, r.right - 4, r.bottom };
+        air::ui::Rect rk = { r.left + 6, r.top, r.right - 4, r.bottom };
         g.Text(rk, L"Ctrl+Shift+V", FontRole::Meta, RGB(110, 116, 125),
                DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
     });
@@ -56,7 +57,7 @@ void ClipsPage::CreateControls()
     // ---- 搜索框「×」清空：覆盖在搜索框上、chip 左侧，仅文本非空时显示
     //      （SyncSearchClearButton 由 OnCommand 的 EN_CHANGE 驱动）----
     m_searchClear = &CreateCustom({ IDC_SEARCH_CLEAR, false });
-    m_searchClear->OnPaint([this](Canvas& g, const RECT& rc) {
+    m_searchClear->OnPaint([this](Canvas& g, const air::ui::Rect& rc) {
         const Palette& p = Pal();
         const bool hov   = m_searchClear->Hovered();
         const bool press = m_searchClear->Pressed();
@@ -64,15 +65,15 @@ void ClipsPage::CreateControls()
             g.FillRound(rc, press ? p.chipBg : p.active,
                         (rc.bottom - rc.top) / 2);
         // 两笔对角线画「×」（Canvas 无直线 API，走 GDI 逃生舱）
-        HDC hdc = g.Native();
+        air::ui::DeviceContextHandle hdc = g.Native();
         HGDIOBJ oldPen = SelectObject(
-            hdc, CreatePen(PS_SOLID, 2, press ? p.text : p.textSub));
+            arecord::detail::Dc(hdc), CreatePen(PS_SOLID, 2, press ? p.text : p.textSub));
         const int cx = (rc.left + rc.right) / 2;
         const int cy = (rc.top + rc.bottom) / 2;
         const int a  = (rc.bottom - rc.top) / 2 - 5;   // × 约 10px 见方
-        MoveToEx(hdc, cx - a, cy - a, nullptr); LineTo(hdc, cx + a, cy + a);
-        MoveToEx(hdc, cx - a, cy + a, nullptr); LineTo(hdc, cx + a, cy - a);
-        SelectObject(hdc, oldPen);
+        MoveToEx(arecord::detail::Dc(hdc), cx - a, cy - a, nullptr); LineTo(arecord::detail::Dc(hdc), cx + a, cy + a);
+        MoveToEx(arecord::detail::Dc(hdc), cx - a, cy + a, nullptr); LineTo(arecord::detail::Dc(hdc), cx + a, cy - a);
+        SelectObject(arecord::detail::Dc(hdc), oldPen);
         DeleteObject(oldPen);
     });
     m_searchClear->OnClick([this] {
@@ -89,13 +90,13 @@ void ClipsPage::CreateControls()
     m_list->SetMultiSelect(true);
     // 3c 分页探针子窗口（0x0，仅承载稳定屏幕位置供跨进程驱动点击分页条）
     m_pagerProbe = CreateWindowExW(0, L"Static", L"", WS_CHILD | WS_VISIBLE,
-                                   0, 0, 0, 0, ParentWnd(),
+                                   0, 0, 0, 0, arecord::detail::Hwnd(ParentWnd()),
                                    (HMENU)(INT_PTR)IDC_PAGER_PROBE,
                                    GetModuleHandleW(nullptr), nullptr);
     m_list->onPaintItem = [this](Canvas& g, const ListItemDraw& it) {
         DrawListRow(g, it);
     };
-    m_list->onPaintEmpty = [](Canvas& g, const RECT& rc) {
+    m_list->onPaintEmpty = [](Canvas& g, const air::ui::Rect& rc) {
         EmptyState st;
         st.title = L"暂无记录";
         st.steps = L"①  复制任意文字 —— 自动存入这里\n"
@@ -122,22 +123,22 @@ void ClipsPage::CreateControls()
         else
             m_app.Toast(L"复制失败", L"服务未响应，请稍后重试", false);
     };
-    m_list->onItemClicked = [this](int item, POINT ptInItem) -> bool {
+    m_list->onItemClicked = [this](int item, air::ui::Point ptInItem) -> bool {
         if (item < 0 || item >= (int)m_rows.size()) return false;
         if (m_rows[item].header) return true;   // 分组头不可选
 
-        RECT rc = m_list->ItemRect(item);
-        RECT rb[3];
+        air::ui::Rect rc = m_list->ItemRect(item);
+        air::ui::Rect rb[3];
         OpRects(rc.right - rc.left, rb);
         for (int op = 0; op < 3; ++op) {
-            if (PtInRect(&rb[op], ptInItem)) {
+            if (arecord::detail::Hit(rb[op], ptInItem)) {
                 OnListOp((int)m_rows[item].entry, op);
                 return true;
             }
         }
         return false;
     };
-    m_list->onContextMenu = [this](POINT screenPt, int item) {
+    m_list->onContextMenu = [this](air::ui::Point screenPt, int item) {
         int entryIdx = -1;
         if (item >= 0 && item < (int)m_rows.size() && !m_rows[item].header) {
             entryIdx = (int)m_rows[item].entry;
@@ -149,7 +150,7 @@ void ClipsPage::CreateControls()
     // 行内三个操作钮只在悬停时出现；指针在同一行里从一个钮移到另一个
     // 钮，LISTBOX 不会重画（它只认"换行"），所以逐个钮的高亮必须靠这条
     // 回调自己失效。
-    m_list->onHoverMove = [this](int row, POINT ptInItem) {
+    m_list->onHoverMove = [this](int row, air::ui::Point ptInItem) {
         SyncHoverOp(row, ptInItem);
     };
 
@@ -163,8 +164,8 @@ void ClipsPage::CreateControls()
     m_noteMulti = &CreateTextBox({ IDC_NOTE_MULTI, true,
                                    L"输入备注…", FontRole::Meta });
     m_noteMulti->OnKey([this](UINT vk, bool ctrl, bool) -> bool {
-        if (vk == VK_ESCAPE && m_editingId) { CancelNoteEdit(); return true; }
-        if (vk == VK_RETURN && ctrl && m_editingId) {
+        if (vk == vkey::Escape && m_editingId) { CancelNoteEdit(); return true; }
+        if (vk == vkey::Return && ctrl && m_editingId) {
             SaveNoteEdit(); return true;
         }
         return false;
@@ -175,7 +176,7 @@ void ClipsPage::CreateControls()
                                     L"输入要保存的内容…", FontRole::Body });
     m_manualEdit->OnKey([this](UINT vk, bool ctrl, bool) -> bool {
         // Ctrl+Enter 由 ManualEntryPlugin 的子类化处理（它后装、先收到消息）
-        if (vk == VK_ESCAPE && m_formOpen) { ToggleForm(false); return true; }
+        if (vk == vkey::Escape && m_formOpen) { ToggleForm(false); return true; }
         (void)ctrl;
         return false;
     });
@@ -236,7 +237,7 @@ void ClipsPage::SyncVisibility()
     m_saveBtn->Show(form || edit);
 }
 
-void ClipsPage::OnLayout(const RECT& content)
+void ClipsPage::OnLayout(const air::ui::Rect& content)
 {
     // 服务离线时顶部让出横幅高度，内容整体下移；横幅在 OnPaint 画。
     m_bannerH = m_app.IsServiceOffline() ? kBannerH : 0;
@@ -253,7 +254,7 @@ void ClipsPage::Relayout()
     if (!m_search || m_content.right <= m_content.left) return;
 
     const Metrics& m = Mx();
-    RECT content = m_content;
+    air::ui::Rect content = m_content;
 
     // ---- 工具条：搜索框 ----
     int searchW = 320;
@@ -322,7 +323,7 @@ void ClipsPage::Relayout()
         m_rcFormCard = m_rcListCard;
     }
 
-    RECT rcList = m_rcListCard;
+    air::ui::Rect rcList = m_rcListCard;
     if (m_formOpen) rcList.bottom = m_rcFormCard.top - 10;
 
     // 3c：分页条占列表卡片底部一条（list 只占上方，页面在条上自绘页码）。
@@ -338,7 +339,7 @@ void ClipsPage::Relayout()
 
     // 分页条探针：0x0 Static 放在分页条中心（跨进程驱动 Click 用）
     if (m_pagerProbe) {
-        SetWindowPos(m_pagerProbe, nullptr,
+        SetWindowPos(arecord::detail::Hwnd(m_pagerProbe), nullptr,
                      m_rcPager.left,
                      m_rcPager.top,
                      m_rcPager.right - m_rcPager.left,
@@ -366,7 +367,7 @@ void ClipsPage::Relayout()
     }
     // ---- 备注编辑态：多行框覆盖详情面板备注区 ----
     else if (m_editingId && m_rcDetail.right > m_rcDetail.left) {
-        RECT nb = DetailNoteBox(m_rcDetail);
+        air::ui::Rect nb = DetailNoteBox(m_rcDetail);
         m_rcNoteMulti = nb;
         // 自绘控件自带边框，直接铺满备注区（不再为父窗口边框内缩）
         m_noteMulti->Move(nb.left, nb.top,
@@ -383,7 +384,7 @@ void ClipsPage::Relayout()
 }
 
 // 详情面板「备注」框几何（布局与绘制共用）
-RECT ClipsPage::DetailNoteBox(RECT d)
+air::ui::Rect ClipsPage::DetailNoteBox(air::ui::Rect d)
 {
     int y = d.top + 14;      // "详情"
     y += 20 + 10;            // 类型胶囊
@@ -662,7 +663,7 @@ void ClipsPage::ApplyEntries()
 // ============================================================
 // 绘制
 // ============================================================
-void ClipsPage::OnPaint(Canvas& g, const RECT& content)
+void ClipsPage::OnPaint(Canvas& g, const air::ui::Rect& content)
 {
     // 离线态实时切换：按当前状态刷新横幅高度并重排（OnLayout 之外被调时
     // 也能让内容随横幅上下移动，命中测试与绘制保持一致）。
@@ -675,7 +676,7 @@ void ClipsPage::OnPaint(Canvas& g, const RECT& content)
     }
 
     if (m_bannerH > 0) {
-        RECT banner = { content.left, content.top,
+        air::ui::Rect banner = { content.left, content.top,
                         content.right, content.top + m_bannerH };
         DrawOfflineBanner(g, banner);
     }
@@ -694,11 +695,11 @@ void ClipsPage::OnPaint(Canvas& g, const RECT& content)
 }
 
 // 服务离线横幅：内容区顶部一条全宽红色告警条（红色底 + 白字）。
-void ClipsPage::DrawOfflineBanner(Canvas& g, const RECT& banner)
+void ClipsPage::DrawOfflineBanner(Canvas& g, const air::ui::Rect& banner)
 {
     const Palette& p = Pal();
     g.Fill(banner, p.error);
-    RECT rcTxt = { banner.left + 14, banner.top, banner.right - 14, banner.bottom };
+    air::ui::Rect rcTxt = { banner.left + 14, banner.top, banner.right - 14, banner.bottom };
     g.Text(rcTxt, L"服务不可用 · 剪贴板记录暂存本地 · 恢复后自动同步",
            FontRole::Body, p.textInverse,
            DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
@@ -712,12 +713,12 @@ void ClipsPage::DrawToolbar(Canvas& g)
     // 类型筛选胶囊
     const wchar_t* chips[4] = { L"全部", L"文本", L"链接", L"手动" };
     for (int i = 0; i < 4; ++i) {
-        RECT r = m_rcChips[i];
+        air::ui::Rect r = m_rcChips[i];
         const bool on    = (m_typeFilter == i);
         const bool hov   = m_hot.Hovered(kHotChip + i);
         const bool press = m_hot.Pressed(kHotChip + i);
 
-        COLORREF fill, border, txt;
+        air::ui::Color fill, border, txt;
         if (on) {
             // 选中态：实心主色，悬停提亮、按下压深（与主按钮同一套）
             fill   = press ? p.primaryDown : (hov ? p.primaryHover : p.primary);
@@ -740,7 +741,7 @@ void ClipsPage::DrawToolbar(Canvas& g)
 
     // 主按钮：＋ 手动录入
     {
-        RECT b = m_rcAddBtn;
+        air::ui::Rect b = m_rcAddBtn;
         const bool hov   = m_hot.Hovered(kHotAddBtn);
         const bool press = m_hot.Pressed(kHotAddBtn);
         g.FillRound(b, press ? p.primaryDown
@@ -756,15 +757,15 @@ void ClipsPage::DrawFormCard(Canvas& g)
     const Palette& p = Pal();
     const Metrics& m = Mx();
 
-    RECT r = m_rcFormCard;
+    air::ui::Rect r = m_rcFormCard;
     g.FillRound(r, p.surface, m.radiusLg);
     g.Stroke(r, p.split, m.radiusLg);
 
     // 左侧主色竖条 + 标题
-    RECT bar = { r.left + 16, r.top + 20, r.left + 19, r.top + 34 };
+    air::ui::Rect bar = { r.left + 16, r.top + 20, r.left + 19, r.top + 34 };
     g.Fill(bar, p.primary);
 
-    RECT rcFt = { r.left + 25, r.top + 16, r.right - 80, r.top + 38 };
+    air::ui::Rect rcFt = { r.left + 25, r.top + 16, r.right - 80, r.top + 38 };
     g.Text(rcFt, L"添加记录", FontRole::Section, p.text,
            DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
 
@@ -773,8 +774,8 @@ void ClipsPage::DrawFormCard(Canvas& g)
         const bool hov   = m_hot.Hovered(kHotFormClose);
         const bool press = m_hot.Pressed(kHotFormClose);
         if (hov || press) {
-            RECT hb = m_rcFormClose;
-            InflateRect(&hb, 6, 1);
+            air::ui::Rect hb = m_rcFormClose;
+            arecord::detail::Inflate(hb, 6, 1);
             g.FillRound(hb, press ? p.chipBg : p.active, m.radiusSm);
         }
         g.Text(m_rcFormClose, L"收起 ▴", FontRole::Meta,
@@ -789,7 +790,7 @@ void ClipsPage::DrawDetailPanel(Canvas& g)
 {
     const Palette& p = Pal();
     const Metrics& m = Mx();
-    RECT d = m_rcDetail;
+    air::ui::Rect d = m_rcDetail;
     if (d.right <= d.left) return;
 
     g.FillRound(d, p.surface, m.radiusLg);
@@ -797,7 +798,7 @@ void ClipsPage::DrawDetailPanel(Canvas& g)
 
     const std::vector<UiEntry>& entries = m_app.Entries();
     if (m_selEntry < 0 || m_selEntry >= (int)entries.size()) {
-        RECT rcE = { d.left + 16, d.top, d.right - 16, d.bottom };
+        air::ui::Rect rcE = { d.left + 16, d.top, d.right - 16, d.bottom };
         g.Text(rcE, L"选择左侧条目查看详情", FontRole::Meta, p.textFaint,
                DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
         return;
@@ -805,7 +806,7 @@ void ClipsPage::DrawDetailPanel(Canvas& g)
     const UiEntry& e = entries[m_selEntry];
 
     // "详情"
-    RECT rcCap = { d.left + 16, d.top + 14, d.right - 16, d.top + 34 };
+    air::ui::Rect rcCap = { d.left + 16, d.top + 14, d.right - 16, d.top + 34 };
     g.Text(rcCap, L"详情", FontRole::Meta, RGB(143, 149, 158),
            DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
 
@@ -823,15 +824,15 @@ void ClipsPage::DrawDetailPanel(Canvas& g)
           p.primarySoft, p.primaryText, m.tagH);
 
     // 内容框（灰底，多行折行）
-    RECT rcBox = { d.left + 16, d.top + 76, d.right - 16, d.top + 172 };
+    air::ui::Rect rcBox = { d.left + 16, d.top + 76, d.right - 16, d.top + 172 };
     g.FillRound(rcBox, p.sunken, m.radiusLg);
     g.Stroke(rcBox, p.split, m.radiusLg);
-    RECT rcContent = { rcBox.left + 12, rcBox.top + 10,
+    air::ui::Rect rcContent = { rcBox.left + 12, rcBox.top + 10,
                        rcBox.right - 12, rcBox.bottom - 10 };
     g.TextBlock(rcContent, e.content, FontRole::Meta, RGB(51, 56, 63));
 
     // 属性
-    RECT rcSec = { d.left + 16, d.top + 186, d.right - 16, d.top + 204 };
+    air::ui::Rect rcSec = { d.left + 16, d.top + 186, d.right - 16, d.top + 204 };
     g.Text(rcSec, L"属性", FontRole::Meta, RGB(143, 149, 158),
            DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
 
@@ -843,10 +844,10 @@ void ClipsPage::DrawDetailPanel(Canvas& g)
     };
     int ry = d.top + 208;
     for (int i = 0; i < 4; ++i) {
-        RECT rcK = { d.left + 16, ry, d.left + 84, ry + 22 };
+        air::ui::Rect rcK = { d.left + 16, ry, d.left + 84, ry + 22 };
         g.Text(rcK, keys[i], FontRole::Meta, p.textFaint,
                DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
-        RECT rcV = { d.left + 88, ry, d.right - 16, ry + 22 };
+        air::ui::Rect rcV = { d.left + 88, ry, d.right - 16, ry + 22 };
         g.Text(rcV, vals[i], FontRole::Meta, RGB(78, 89, 105),
                DT_SINGLELINE | DT_LEFT | DT_VCENTER |
                DT_END_ELLIPSIS | DT_NOPREFIX);
@@ -854,14 +855,14 @@ void ClipsPage::DrawDetailPanel(Canvas& g)
     }
 
     // 备注
-    RECT rcNs = { d.left + 16, d.top + 308, d.right - 16, d.top + 326 };
+    air::ui::Rect rcNs = { d.left + 16, d.top + 308, d.right - 16, d.top + 326 };
     bool noteEditing = (m_editingId != 0);
     g.Text(rcNs,
            noteEditing ? L"备注（编辑中，Esc 取消）" : L"备注（点击编辑）",
            FontRole::Meta, RGB(143, 149, 158),
            DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
 
-    RECT nb = DetailNoteBox(d);
+    air::ui::Rect nb = DetailNoteBox(d);
     if (noteEditing) {
         // 编辑态：外观由自绘 m_noteMulti 自己画（白底+实线+焦点态），
         // 不再画旧备注，避免与编辑内容重叠
@@ -870,7 +871,7 @@ void ClipsPage::DrawDetailPanel(Canvas& g)
         const bool hov = m_hot.Hovered(kHotNoteBox);
         g.FillRound(nb, hov ? p.surface : p.noteBg, m.radiusMd);
         g.StrokeDashed(nb, hov ? p.hoverBorder : p.noteBorder, m.radiusMd);
-        RECT rcNote = { nb.left + 10, nb.top + 8, nb.right - 10, nb.bottom - 8 };
+        air::ui::Rect rcNote = { nb.left + 10, nb.top + 8, nb.right - 10, nb.bottom - 8 };
         g.TextBlock(rcNote, e.note, FontRole::Meta, RGB(100, 106, 115));
     }
 
@@ -895,7 +896,7 @@ void ClipsPage::DrawListRow(Canvas& g, const ListItemDraw& item)
     const Palette& p = Pal();
     const Metrics& m = Mx();
 
-    RECT rc = item.rc;
+    air::ui::Rect rc = item.rc;
     bool selected = item.selected;
     bool hovered  = item.hovered;
 
@@ -906,7 +907,7 @@ void ClipsPage::DrawListRow(Canvas& g, const ListItemDraw& item)
     if (row.header) {
         int cy = rc.top + 15;
         int w = g.MeasureWidth(row.label, FontRole::Meta);
-        g.Text(RECT{ rc.left + 4, rc.top, rc.right, rc.bottom }, row.label,
+        g.Text(air::ui::Rect{ rc.left + 4, rc.top, rc.right, rc.bottom }, row.label,
                FontRole::Meta, RGB(143, 149, 158),
                DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
         g.HLine(rc.left + 12 + w + 10, rc.right - 4, cy, RGB(233, 236, 241));
@@ -918,13 +919,13 @@ void ClipsPage::DrawListRow(Canvas& g, const ListItemDraw& item)
     if (row.entry >= entries.size()) return;
     const UiEntry& e = entries[row.entry];
 
-    RECT card = { rc.left + 2, rc.top + 3, rc.right - 6, rc.bottom - 9 };
+    air::ui::Rect card = { rc.left + 2, rc.top + 3, rc.right - 6, rc.bottom - 9 };
     g.FillRound(card, p.surface, m.radiusLg);
     g.Stroke(card,
              selected ? p.primary : (hovered ? p.hoverBorder : p.split),
              m.radiusLg);
     if (selected) {
-        RECT ring = { card.left - 1, card.top - 1,
+        air::ui::Rect ring = { card.left - 1, card.top - 1,
                       card.right + 1, card.bottom + 1 };
         g.Stroke(ring, p.selectRing, m.radiusLg + 1);
     }
@@ -935,7 +936,7 @@ void ClipsPage::DrawListRow(Canvas& g, const ListItemDraw& item)
         ((e.content.size() >= 3 && e.content[1] == L':' && e.content[2] == L'\\') ||
          (e.content.compare(0, 2, L"\\\\") == 0));
     const wchar_t* glyph;
-    COLORREF icBg, icTx;
+    air::ui::Color icBg, icTx;
     if (e.source == L"Manual") {
         glyph = L"\xE70F"; icBg = RGB(243, 238, 255); icTx = RGB(123, 97, 255);
     } else if (t == 2) {
@@ -946,7 +947,7 @@ void ClipsPage::DrawListRow(Canvas& g, const ListItemDraw& item)
         glyph = L"\xE8A5"; icBg = p.primarySoft; icTx = p.primary;
     }
 
-    RECT ic = { card.left + 10, card.top + 11, card.left + 44, card.top + 45 };
+    air::ui::Rect ic = { card.left + 10, card.top + 11, card.left + 44, card.top + 45 };
     g.IconTile(ic, glyph, FontRole::IconLarge, icBg, icTx, 8);
 
     int tx = ic.right + 12;
@@ -959,7 +960,7 @@ void ClipsPage::DrawListRow(Canvas& g, const ListItemDraw& item)
         std::wstring tagTxt = L"备注: " + e.note;
         if (tagTxt.size() > 30) tagTxt = tagTxt.substr(0, 30) + L"…";
         int tagW = g.MeasureWidth(tagTxt, FontRole::Meta) + 14;
-        RECT rcTag = { line1Right - tagW, card.top + 8, line1Right,
+        air::ui::Rect rcTag = { line1Right - tagW, card.top + 8, line1Right,
                        card.top + 26 };
         g.FillRound(rcTag, p.warnSoft, 4);
         g.Stroke(rcTag, p.warnBorder, 4);
@@ -969,7 +970,7 @@ void ClipsPage::DrawListRow(Canvas& g, const ListItemDraw& item)
         line1Right = rcTag.left - 8;
     }
 
-    RECT rcLine1 = { tx, card.top + 9, line1Right, card.top + 30 };
+    air::ui::Rect rcLine1 = { tx, card.top + 9, line1Right, card.top + 30 };
     g.TextRow(rcLine1, gfx::OneLine(e.content), FontRole::Body, p.text);
 
     // 行2：来源 · 时间 · 字符数
@@ -977,20 +978,20 @@ void ClipsPage::DrawListRow(Canvas& g, const ListItemDraw& item)
     std::wstring meta = src + L" · " + fmt::RelTime(e.createdAt) +
                         L" · " + std::to_wstring((long)e.content.size()) +
                         L" 字符";
-    RECT rcLine2 = { tx, card.top + 31, card.right - 12, card.top + 52 };
+    air::ui::Rect rcLine2 = { tx, card.top + 31, card.right - 12, card.top + 52 };
     g.TextRow(rcLine2, meta, FontRole::Meta, p.textFaint);
 
     // 悬停操作钮：复制 / 备注 / 删除
     if (hovered) {
         const wchar_t* ops[3] = { L"\xE8C8", L"\xE70F", L"\xE74D" };
-        RECT rb[3];
+        air::ui::Rect rb[3];
         OpRects(rc.right - rc.left, rb);      // 行内坐标，与命中共用
         for (int i = 0; i < 3; ++i) {
-            OffsetRect(&rb[i], rc.left, rc.top);   // 平移到客户区再画
+            arecord::detail::Offset(rb[i], rc.left, rc.top);   // 平移到客户区再画
             const bool opHover =
                 (m_hoverOpRow == item.index && m_hoverOp == i);
-            COLORREF bg = p.iconTile;
-            COLORREF fg = (i == 2) ? RGB(229, 72, 77) : RGB(90, 98, 112);
+            air::ui::Color bg = p.iconTile;
+            air::ui::Color fg = (i == 2) ? RGB(229, 72, 77) : RGB(90, 98, 112);
             if (opHover) {
                 // 删除单独给一层淡红：误点代价高，颜色先提醒
                 bg = (i == 2) ? p.errorSoft : p.selectFill;
@@ -1006,15 +1007,15 @@ void ClipsPage::DrawListRow(Canvas& g, const ListItemDraw& item)
 // ============================================================
 // 交互
 // ============================================================
-bool ClipsPage::OnMouseDown(POINT pt)
+bool ClipsPage::OnMouseDown(air::ui::Point pt)
 {
     if (!m_visible) return false;
 
     // Shell 传相对内容区坐标；页面几何是客户区绝对坐标
-    POINT abs = { pt.x + m_content.left, pt.y + m_content.top };
+    air::ui::Point abs = { pt.x + m_content.left, pt.y + m_content.top };
 
     // 3c: pager bar (list card bottom) - capture the pressed slot, act on release
-    if (!m_formOpen && m_pageCount > 1 && PtInRect(&m_rcPager, abs)) {
+    if (!m_formOpen && m_pageCount > 1 && arecord::detail::Hit(m_rcPager, abs)) {
         m_pagerState.page = m_page;
         m_pagerState.pageCount = m_pageCount;
         m_pagerHit = PaginationHitAt(abs);
@@ -1032,20 +1033,20 @@ bool ClipsPage::OnMouseDown(POINT pt)
 
     // 搜索框 / 备注框：视觉外框高于 EDIT 客户区，留白点击也要能进入输入状态
     if (m_rcSearchBox.right > m_rcSearchBox.left &&
-        PtInRect(&m_rcSearchBox, abs)) {
+        arecord::detail::Hit(m_rcSearchBox, abs)) {
         m_search->ClickAt(abs);
         return true;
     }
-    if (m_rcNoteBox.right > m_rcNoteBox.left && PtInRect(&m_rcNoteBox, abs)) {
+    if (m_rcNoteBox.right > m_rcNoteBox.left && arecord::detail::Hit(m_rcNoteBox, abs)) {
         m_noteEdit->ClickAt(abs);
         return true;
     }
     return false;
 }
 
-bool ClipsPage::OnMouseUp(POINT pt)
+bool ClipsPage::OnMouseUp(air::ui::Point pt)
 {
-    POINT abs = { pt.x + m_content.left, pt.y + m_content.top };
+    air::ui::Point abs = { pt.x + m_content.left, pt.y + m_content.top };
 
     // 3c: pager - release inside the same slot commits the page change
     if (m_pagerHit != 0) {
@@ -1067,11 +1068,11 @@ bool ClipsPage::OnMouseUp(POINT pt)
     return true;
 }
 
-bool ClipsPage::OnMouseMove(POINT pt)
+bool ClipsPage::OnMouseMove(air::ui::Point pt)
 {
     if (!m_visible) return false;
 
-    POINT abs = { pt.x + m_content.left, pt.y + m_content.top };
+    air::ui::Point abs = { pt.x + m_content.left, pt.y + m_content.top };
     if (!m_hot.Move(HitHot(abs))) return false;
     // 只失效内容区：悬停变化不该把标题栏和侧栏一起重画。
     m_shell->InvalidateContent();
@@ -1085,20 +1086,20 @@ bool ClipsPage::OnMouseLeave()
     return false;
 }
 
-bool ClipsPage::HandCursorAt(POINT pt)
+bool ClipsPage::HandCursorAt(air::ui::Point pt)
 {
     if (!m_visible) return false;
-    POINT abs = { pt.x + m_content.left, pt.y + m_content.top };
+    air::ui::Point abs = { pt.x + m_content.left, pt.y + m_content.top };
     return HitHot(abs) != kHotNone;
 }
 
 // ============================================================
 // 自绘热区
 // ============================================================
-int ClipsPage::PaginationHitAt(POINT absPt) const
+int ClipsPage::PaginationHitAt(air::ui::Point absPt) const
 {
     if (m_pageCount <= 1 || m_rcPager.right <= m_rcPager.left) return 0;
-    if (!PtInRect(&m_rcPager, absPt)) return 0;
+    if (!arecord::detail::Hit(m_rcPager, absPt)) return 0;
     // Canvas::PaginationHit 是 Canvas 成员；页面这里没有 Canvas，
     // 直接调 core 的同一个 PaginationHit（Canvas 只是它的转发器）。
     PaginationState st = m_pagerState;
@@ -1109,23 +1110,23 @@ int ClipsPage::PaginationHitAt(POINT absPt) const
     return air::ui::PaginationHit(rc, st, Mx(), pt);
 }
 
-int ClipsPage::HitHot(POINT absPt) const
+int ClipsPage::HitHot(air::ui::Point absPt) const
 {
     for (int i = 0; i < 4; ++i)
-        if (PtInRect(&m_rcChips[i], absPt)) return kHotChip + i;
+        if (arecord::detail::Hit(m_rcChips[i], absPt)) return kHotChip + i;
 
-    if (PtInRect(&m_rcAddBtn, absPt)) return kHotAddBtn;
+    if (arecord::detail::Hit(m_rcAddBtn, absPt)) return kHotAddBtn;
 
-    if (m_formOpen && !m_editingId && PtInRect(&m_rcFormClose, absPt))
+    if (m_formOpen && !m_editingId && arecord::detail::Hit(m_rcFormClose, absPt))
         return kHotFormClose;
 
     // 详情面板三键 + 备注框：只在有选中条目、且几何已经算出来时有效
     if (m_selEntry >= 0 && !m_editingId && m_rcDetail.right > m_rcDetail.left &&
         m_rcDBtn[0].right > m_rcDBtn[0].left) {
         for (int i = 0; i < 3; ++i)
-            if (PtInRect(&m_rcDBtn[i], absPt)) return kHotDBtn + i;
-        const RECT nb = DetailNoteBox(m_rcDetail);
-        if (PtInRect(&nb, absPt)) return kHotNoteBox;
+            if (arecord::detail::Hit(m_rcDBtn[i], absPt)) return kHotDBtn + i;
+        const air::ui::Rect nb = DetailNoteBox(m_rcDetail);
+        if (arecord::detail::Hit(nb, absPt)) return kHotNoteBox;
     }
     return kHotNone;
 }
@@ -1155,15 +1156,15 @@ void ClipsPage::ActivateHot(int hotId)
 }
 
 // 指针在列表行内的位置 → 哪个操作钮被指着（几何与 onItemClicked 一致）
-void ClipsPage::SyncHoverOp(int row, POINT ptInItem)
+void ClipsPage::SyncHoverOp(int row, air::ui::Point ptInItem)
 {
     int op = -1;
     if (row >= 0 && row < (int)m_rows.size() && !m_rows[row].header) {
-        RECT rc = m_list->ItemRect(row);
-        RECT rb[3];
+        air::ui::Rect rc = m_list->ItemRect(row);
+        air::ui::Rect rb[3];
         OpRects(rc.right - rc.left, rb);
         for (int i = 0; i < 3; ++i)
-            if (PtInRect(&rb[i], ptInItem)) { op = i; break; }
+            if (arecord::detail::Hit(rb[i], ptInItem)) { op = i; break; }
     }
     if (op == m_hoverOp && row == m_hoverOpRow) return;
 
@@ -1381,7 +1382,7 @@ void ClipsPage::OnListOpBulk(int op)
         m_app.Toast(L"部分删除失败", L"服务未响应，请稍后重试", false);
 }
 
-void ClipsPage::ShowItemMenu(POINT screenPt, int entryIdx)
+void ClipsPage::ShowItemMenu(air::ui::Point screenPt, int entryIdx)
 {
     const std::vector<UiEntry>& entries = m_app.Entries();
     if (entryIdx < 0 || entryIdx >= (int)entries.size()) return;

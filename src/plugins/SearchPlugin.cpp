@@ -9,24 +9,24 @@ void SearchPlugin::OnCommand(App& app, int ctrlId, int notifyCode)
     if (ctrlId != IDC_SEARCH_EDIT || notifyCode != EN_CHANGE)
         return;
 
-    HWND hwnd = app.Hwnd();
+    HWND hwnd = reinterpret_cast<HWND>(app.Hwnd());
     // 防抖：每次输入先停掉旧定时器再起新的
     KillTimer(hwnd, TIMER_SEARCH_DEBOUNCE);
     SetTimer(hwnd, TIMER_SEARCH_DEBOUNCE, 250, nullptr);
 }
 
 // 定时器触发：执行真正的查询并刷新列表
-void SearchPlugin::OnTimer(App& app, UINT_PTR timerId)
+void SearchPlugin::OnTimer(App& app, uintptr_t timerId)
 {
     if (timerId != TIMER_SEARCH_DEBOUNCE)
         return;
 
-    KillTimer(app.Hwnd(), TIMER_SEARCH_DEBOUNCE); // 一次性：触发即停
+    KillTimer(reinterpret_cast<HWND>(app.Hwnd()), TIMER_SEARCH_DEBOUNCE); // 一次性：触发即停
     // 走异步刷新（后台线程拉 LIST，WM_APP+6 回 UI），避免在 UI 线程阻塞 IPC。
     app.RefreshData();
 }
 
 void SearchPlugin::OnDetach(App& app)
 {
-    KillTimer(app.Hwnd(), TIMER_SEARCH_DEBOUNCE);
+    KillTimer(reinterpret_cast<HWND>(app.Hwnd()), TIMER_SEARCH_DEBOUNCE);
 }

@@ -8,7 +8,6 @@
 //
 // 这样界面能力全部来自 airui 库，AireRecord 只写业务。
 // ============================================================
-#include <windows.h>
 #include <memory>
 #include <string>
 #include <vector>
@@ -75,7 +74,7 @@ public:
     App() = default;
     ~App();   // 需在 .cpp 中定义，以便 unique_ptr<AgentHost> 完整析构
 
-    int Run(HINSTANCE hInstance);
+    int Run(air::ui::InstanceHandle hInstance);
 
     // 服务端 exe 路径（IPC 自动拉起用）
     void SetServicePath(const std::wstring& path) { m_ipc.SetServicePath(path); }
@@ -111,7 +110,7 @@ public:
 
     // ---- 外壳 ----
     air::ui::Shell& Shell() { return m_shell; }
-    HWND Hwnd();
+    air::ui::WindowHandle Hwnd();
 
     // ---- 页面 ----
     ClipsPage*    Clips()    { return m_clips; }
@@ -165,11 +164,11 @@ public:
     void RegisterSession();
 
     // ---- 剪贴板页门面（插件依赖的稳定接口） ----
-    HWND List();
-    HWND SearchEdit();
-    HWND ManualEdit();
-    HWND NoteEdit();
-    HWND NoteEditMulti();
+    air::ui::WindowHandle List();
+    air::ui::WindowHandle SearchEdit();
+    air::ui::WindowHandle ManualEdit();
+    air::ui::WindowHandle NoteEdit();
+    air::ui::WindowHandle NoteEditMulti();
     std::wstring GetSearchText();
     bool IsEditingNote() const;
     void SaveNoteEdit();
@@ -185,7 +184,7 @@ public:
     void RestoreWindowRect();
     void SaveWindowRect();
 
-    static std::wstring GetWindowTextStr(HWND ctrl);
+    static std::wstring GetWindowTextStr(air::ui::WindowHandle ctrl);
 
     // 应用版本（侧栏底部、配置页）—— 单一来源：生成的 Version.h
     static const wchar_t* Version() { return AIRUI_VERSION_W; }
@@ -196,8 +195,8 @@ private:
     void OpenManualEntry();   // F4：切到剪贴板页并展开录入卡
 
     // 后台任务入口（可 join 线程，析构等待，杜绝 detach 线程裸 this 逃逸）
-    void ReconnectProbe(HWND hwnd, bool wasOffline);   // 离线重连探测 / 在线例行心跳
-    void RefreshWorker(HWND hwnd, std::wstring filter);  // 异步数据刷新
+    void ReconnectProbe(air::ui::WindowHandle hwnd, bool wasOffline);   // 离线重连探测 / 在线例行心跳
+    void RefreshWorker(air::ui::WindowHandle hwnd, std::wstring filter);  // 异步数据刷新
 
     air::ui::Shell m_shell;
     PipeClient     m_ipc;

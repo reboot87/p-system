@@ -2,25 +2,24 @@
 // ============================================================
 // AirUI — Widgets.h
 // 控件包装：TextBox/ListBox 自绘（不再依赖 Win32 EDIT/LISTBOX 的行为），
-// HWND + SetWindowSubclass 只保留三件事：焦点与生命周期、WM_GETOBJECT
-// 转发、消息级探测（WM_GETTEXT/LB_GETCOUNT 仍被应答；窗口类名为
-// AirUITextBox/AirUIListBox，test_ui 的探测端按 Edit/ListBox 别名查找）。
+// native subclassing only keeps three things: focus/lifetime, accessibility forwarding
+// and message-level probing (native get-text/count still answered; class names are
+// AirUITextBox/AirUIListBox; probes use Edit/ListBox aliases).
 // 页面通过高级接口操作控件。
 //
 //   TextBox& search = CreateTextBox({ .id = 1, .placeholder = L"搜索…" });
 //   search.Text();
-//   search.OnKey([](UINT vk, bool ctrl, bool shift) { ... });
+//   search.OnKey([](VirtualKey vk, bool ctrl, bool shift) { ... });
 //
-// 真正需要原生句柄的极端场景走 Native()（集成层专用，
-// 页面代码不应出现）。
+// Integration-only escape hatch Native() returns an opaque handle (
+// page code should not use it).
 // ============================================================
-#include <windows.h>
 #include <functional>
 #include <string>
 #include <vector>
 #include "airui/Controls.h"
 #include "airui/Canvas.h"
-#include "airui/FrameworkCore.h"   // TextEditState/TextLines/IClipboard
+#include "airui/FrameworkCore.h"
 
 namespace air {
 namespace ui {
@@ -28,10 +27,10 @@ namespace ui {
 class Shell;
 class Page;
 
-// 内部窗口过程（Widgets.cpp 中定义；设为友元以访问控件内部状态）
-LRESULT CALLBACK TextBoxProc(HWND, UINT, WPARAM, LPARAM, UINT_PTR, DWORD_PTR);
-LRESULT CALLBACK ListBoxProc(HWND, UINT, WPARAM, LPARAM, UINT_PTR, DWORD_PTR);
-LRESULT CALLBACK CustomProc(HWND, UINT, WPARAM, LPARAM, UINT_PTR, DWORD_PTR);
+// Internal window procedures (defined in the private implementation).
+MessageResult TextBoxProc(WindowHandle, MessageId, MessageWParam, MessageLParam, SubclassId, SubclassRef);
+MessageResult ListBoxProc(WindowHandle, MessageId, MessageWParam, MessageLParam, SubclassId, SubclassRef);
+MessageResult CustomProc(WindowHandle, MessageId, MessageWParam, MessageLParam, SubclassId, SubclassRef);
 
 // ============================================================
 // Widget —— 所有控件的基类
@@ -44,11 +43,11 @@ public:
     void Show(bool visible);
     bool Visible() const;
     void Move(int x, int y, int w, int h);
-    void Move(const RECT& rc);
+    void Move(const Rect& rc);
     void Focus();
-    RECT Rect() const;                 // 父窗口客户区坐标
+    Rect Bounds() const;               // parent client-area coordinates
     int  Id() const { return m_id; }
-    HWND Native() const { return m_hwnd; }   // 逃生舱（集成层专用）
+    WindowHandle Native() const { return m_hwnd; }   // 逃生舱（集成层专用）
 
 protected:
     friend class Page;
@@ -59,13 +58,13 @@ protected:
     virtual void CreateNative() = 0;
 
     virtual bool HandleCommand(int code) { (void)code; return false; }
-    virtual bool HandleDrawItem(const DRAWITEMSTRUCT* dis) { (void)dis; return false; }
-    virtual bool HandleMeasureItem(MEASUREITEMSTRUCT* mis) { (void)mis; return false; }
+    virtual bool HandleDrawItem(const DrawItemInfo* dis) { (void)dis; return false; }
+    virtual bool HandleMeasureItem(MeasureItemInfo* mis) { (void)mis; return false; }
 
     void Init(Shell* shell, int id);
 
     Shell* m_shell = nullptr;
-    HWND   m_hwnd  = nullptr;
+    WindowHandle   m_hwnd  = nullptr;
     int    m_id    = 0;
 };
 
@@ -78,13 +77,13 @@ struct TextBoxDesc
     bool         multiline   = false;
     std::wstring placeholder;                 // 空 = 无占位提示
     FontRole     fontRole    = FontRole::Body;
-    // 最大字符数（0 = 不限）。键入/粘贴/选区删除后的插入由 core
-    // InsertAtCursor 强制；SetText（程序化）同样截断，与键入语义一致。
-    // 按 UTF-16 单元计数（与 TextEditState::text.size() 同口径）。
+    // max length (0 = unlimited). Insertion after typing/paste is enforced by core
+    // InsertAtCursor; programmatic SetText truncates the same way.
+    // counted in UTF-16 units (same as TextEditState::text.size()).
     int  maxLength = 0;
-    // 密码框：绘制掩码（core DisplayText → 等长 •），真实文本仍存
-    // m_edit.text；WM_GETTEXT/Text() 读出的是真实值（原生 EDIT 语义），
-    // 光标/选区几何与真实文本同源（掩码与其 1:1 等长）。
+    // password box: draws a mask (core DisplayText), real text stays in
+    // m_edit.text; Text() returns the real value (native-edit semantics),
+    // caret/selection geometry and real text share one source.
     bool password  = false;
 };
 
@@ -101,31 +100,31 @@ public:
     // 程序化 SetText），已有超长内容在下次编辑时被截断。
     void SetMaxLength(int maxLen);
     int  MaxLength() const { return m_desc.maxLength; }
-    // 密码框掩码（创建时 desc.password，运行期可切换 → 触发重绘）。
-    // 掩码只影响绘制：Text()/WM_GETTEXT 仍返回真实文本。
+    // password mask (from desc.password, togglable at runtime -> repaint).
+    // the mask only affects painting: Text() still returns real text.
     void SetPassword(bool on);
     bool IsPassword() const { return m_desc.password; }
 
-    // 按键回调：返回 true 表示已消费（Esc 取消 / Ctrl+Enter 提交…）
-    void OnKey(std::function<bool(UINT vk, bool ctrl, bool shift)> cb);
+    // key callback: return true to consume (Esc cancel / Ctrl+Enter submit).
+    void OnKey(std::function<bool(VirtualKey vk, bool ctrl, bool shift)> cb);
     // 右侧留白（给快捷键 chip 等让位）
     void SetRightInset(int px);
     // 视觉外框点击 → 进入输入态并按 x 定位光标
-    void ClickAt(POINT parentPt);
+    void ClickAt(Point parentPt);
 
-    // ---- 自绘内部（TextBoxProc 是 friend，直接驱动这些） ----
+    // ---- self-paint internals (driven by the private window procedure) ----
     void SyncTextLayout();          // 文本/尺寸变化时重建 cum/lines
-    void PaintSelf(HDC dc);         // WM_PAINT：单行/多行均走 m_cum 逐字宽度表
-    void CaretAtClientPoint(POINT); // 客户区点击 → 光标/扩选 + 聚焦
-    // 插入点在**文本区**（textRc）内的相对坐标（不含 unit 内边距；
-    // 多行已减去 m_scroll）。调用方：PaintSelf（+textRc 原点）、
-    // SyncIme（+unit 还原为客户区坐标给 ImmSet*Window）。
-    POINT CaretPoint() const;
+    void PaintSelf(DeviceContextHandle dc);         // paint: single/multi-line both use the per-char width table
+    void CaretAtClientPoint(Point); // 客户区点击 → 光标/扩选 + 聚焦
+    // caret position is relative to the text area (excluding unit padding;
+    // multi-line already subtracts m_scroll). Callers: PaintSelf (+textRc origin),
+    // SyncIme (+unit restores client coords for the IME API).
+    Point CaretPoint() const;
     void ScrollForCaret();          // 多行：caret 行滚进视口
-    void SyncIme();                 // 组词串/候选窗跟随插入点
-    void InsertChar(wchar_t ch);    // WM_CHAR 路径（表 6：中文多行先对齐 caret）
-    void InsertText(const std::wstring& s);  // IME 结果 / 菜单粘贴
-    bool DefaultKey(UINT vk, bool ctrl, bool shift);   // 编辑语义键
+    void SyncIme();                 // composition/candidate window follows the caret
+    void InsertChar(wchar_t ch);    // character-input path (CJK multi-line aligns the caret first)
+    void InsertText(const std::wstring& s);  // IME result / menu paste
+    bool DefaultKey(VirtualKey vk, bool ctrl, bool shift);   // 编辑语义键
     void ApplyEditResult(EditAction action, const std::wstring& arg,
                          IClipboard* clip);            // 统一后处理入口
     void ApplyPostEdit();                             // 滚动/IME/重绘
@@ -133,15 +132,15 @@ public:
     void RestartCaretBlink();                         // 聚焦/光标移动时重置闪烁相位
     void StopCaretBlink();                            // 失焦：停闪烁定时器
     // ---- 鼠标交互（点击 / 拖选 / 双击选词 / 右键菜单） ----
-    int  HitIndex(POINT pt);        // 客户区点 → 文本下标（点击/拖选/双击/右键共用）
+    int  HitIndex(Point pt);        // 客户区点 → 文本下标（点击/拖选/双击/右键共用）
     // 显示串 = password ? 掩码(• × N) : 真实文本。掩码与真实文本
     // 1:1 等长（core DisplayText），所以布局/命中/绘制全部走它，
     // 编辑/读取/EN_CHANGE 走 m_edit.text（真实）。
     const std::wstring& ShownText() const;
-    void BeginDrag(POINT pt);         // 左键下：定位光标 + 记锚点 + 捕获指针
-    void DragTo(POINT pt);            // 拖选（多行近边缘自动滚屏）
-    void SelectWordAt(POINT pt);      // 双击：选中点击处的词
-    void ShowEditMenu(POINT screenPt);// 右键 / Shift+F10：撤销/重做/复制/剪切/粘贴
+    void BeginDrag(Point pt);         // left down: place caret + remember anchor + capture pointer
+    void DragTo(Point pt);            // drag-select (multi-line auto-scrolls near edges)
+    void SelectWordAt(Point pt);      // double-click: select the word under the point
+    void ShowEditMenu(Point screenPt);// 右键 / Shift+F10：撤销/重做/复制/剪切/粘贴
     void Undo();                     // 平台级撤销：恢复编辑前快照（Ctrl+Z / 菜单）
     void Redo();                     // 平台级重做：恢复被撤销的文本（Ctrl+Y 等 / 菜单）
     bool CanUndo()  const { return !m_undoStack.empty(); }
@@ -149,13 +148,12 @@ public:
 
 protected:
     friend class Page;
-    friend LRESULT CALLBACK TextBoxProc(HWND, UINT, WPARAM, LPARAM,
-                                        UINT_PTR, DWORD_PTR);
+    friend MessageResult TextBoxProc(WindowHandle, MessageId, MessageWParam, MessageLParam, SubclassId, SubclassRef);
     void CreateNative() override;
-    bool HandleKey(UINT vk, bool ctrl, bool shift);
+    bool HandleKey(VirtualKey vk, bool ctrl, bool shift);
 
     TextBoxDesc m_desc;
-    std::function<bool(UINT, bool, bool)> m_keyCb;
+    std::function<bool(MessageId, bool, bool)> m_keyCb;
 
     TextEditState m_edit;            // core 引擎：文本/光标/选区/组词
     std::wstring m_lastNotified;     // 已发 EN_CHANGE 的文本内容（纯光标/选区移动不重复通知）
@@ -164,9 +162,9 @@ protected:
     // 核心引擎保持纯函数：TextBox 在**可能改文本**的动作执行前把整个
     // TextEditState 快照进 m_undoStack（文本/光标/选区一起还原），
     // 被撤销的状态进 m_redoStack（重做后丢弃）。快照只进不改，
-    // 因此「改文本的操作」与「只挪光标的操作」在 m_lastNotified 上
-    // 天然可区分——纯移动不产生新条目。SetText / WM_SETTEXT 是
-    // 程序化重置，清空两栈并把基线设为当前文本（原生 EDIT 语义）。
+    // text-changing and caret-only operations differ on m_lastNotified
+    // 天然可区分——纯移动不产生新条目。SetText / programmatic set is
+    // programmatic reset clears both stacks (native-edit semantics).
     std::vector<air::ui::TextEditState> m_undoStack;
     std::vector<air::ui::TextEditState> m_redoStack;
     mutable std::wstring m_shown;    // 显示串缓存（password 时 = 掩码；与 m_edit.text 同步重建）
@@ -179,11 +177,11 @@ protected:
     int  m_lineH = 21, m_ascent = 16;
     int  m_scroll = 0;               // 多行垂直滚动（px）
     int  m_rightInset = 0;           // 右侧留白（快捷键 chip 让位）
-    bool m_composing  = false;      // IME 组词中（吞掉重复 WM_CHAR）
-    bool m_caretOn    = true;       // 插入符闪烁相位（原生 EDIT 的系统 caret 由我们自管）
+    bool m_composing  = false;      // IME composing (swallow duplicate char events)
+    bool m_caretOn    = true;       // caret blink phase (the native system caret is managed here)
     bool m_dragging   = false;      // 左键按住拖动选区中
     int  m_dragAnchor = -1;         // 拖选起点（全局文本下标）
-    HFONT m_font = nullptr;
+    FontHandle m_font = nullptr;
 };
 
 // ============================================================
@@ -208,7 +206,7 @@ protected:
     friend class Page;
     void CreateNative() override;
     bool HandleCommand(int code) override;
-    bool HandleDrawItem(const DRAWITEMSTRUCT* dis) override;
+    bool HandleDrawItem(const DrawItemInfo* dis) override;
 
     ButtonDesc m_desc;
     std::function<void()> m_click;
@@ -221,29 +219,29 @@ protected:
 struct ListBoxDesc
 {
     int id = 0;
-    // WM_MEASUREITEM 的兜底行高；逐项行高在 AddItem 时指定
+    // Fallback row height; per-item height is set in AddItem
     int fallbackItemHeight = 54;
-    // 多选（可运行期 SetMultiSelect 切换）。开启后点击语义：
+    // multi-select (runtime SetMultiSelect). When on, click semantics:
     //   普通点击  = 单选（清空其他、锚点=该行）
     //   Ctrl+点击 = 切换该行（锚点保持）
     //   Shift+点击= 加选该行与锚点之间的区间
-    // 修饰键读取 wParam 的 MK_CONTROL/MK_SHIFT：真实鼠标报文与
-    // 跨进程 Posted WM_LBUTTONDOWN 都带修饰位（不依赖 GetKeyState）。
+    // Modifier bits come from the message word: real mouse events and
+    // cross-process posted events both carry them (no key-state polling).
     bool multiSelect = false;
 };
 
-// 传给 onPaintItem 的一行绘制信息（替代 DRAWITEMSTRUCT）
+// Per-row draw info passed to onPaintItem (platform-neutral).
 struct ListItemDraw
 {
     int    index        = -1;    // 行下标
     size_t data         = 0;     // AddItem 附加的业务数据
-    RECT   rc           = {};    // 行矩形（控件客户区坐标）
+    Rect   rc           = {};    // 行矩形（控件客户区坐标）
     bool   selected     = false;
     bool   hovered      = false;
     bool   multiSelected = false; // 多选模式下：行在选择集中（== selected，双写供页按需用）
 };
 
-// 一行（自绘 ListBox 的内部模型；原生 LB_* 只保留给消息级探测）
+// One row (internal model; native list only kept for message probing).
 struct ListBoxItem
 {
     int    height = 0;
@@ -256,13 +254,13 @@ public:
     void Reset();
     int  AddItem(int height, size_t data = 0);   // 返回行下标
 
-    // 批量重建：把 Reset() + N × AddItem() + SetSelection() 夹在中间，
-    // 期间不失效（自绘列表的重建是纯内存操作），结束时只提交一帧。
+    // batch rebuild: bracket Reset() + N x AddItem() + SetSelection(),
+    // no invalidation in between (pure in-memory), commit one frame at the end.
     // 可嵌套，按引用计数逐个配对。
     void BeginUpdate();
     void EndUpdate();
-    // RAII 版批量重建：构造时 BeginUpdate，析构时 EndUpdate。
-    // 重建中间 return / 抛异常也会配对还原，不会把列表永远冻结住。
+    // RAII batch rebuild: BeginUpdate on construct, EndUpdate on destroy.
+    // early return / exception still unpairs; the list is never frozen.
     class ScopedBatch {
     public:
         explicit ScopedBatch(ListBox* lb) : m_lb(lb) {
@@ -279,10 +277,10 @@ public:
     int  Count();
     int  Selection();
     void SetSelection(int index);
-    RECT ItemRect(int index);
+    Rect ItemRect(int index);
     void InvalidateItem(int index);
     void Invalidate();
-    int  ItemAtPoint(POINT clientPt);
+    int  ItemAtPoint(Point clientPt);
     int  HoverItem() const { return m_hover; }
 
     // ---- 多选 API（仅 multiSelect 为 true 时有意义；调用方可按模式探询）----
@@ -292,33 +290,32 @@ public:
     int              MultiSelectionCount() const;
     std::vector<int> SelectedItems() const;
     void             ClearSelection();
-    // 用于消息级探测的轻量级范围操作（native LB_* 语义：1 加入区间 / 0 移除）
+    // Lightweight range op for message probing (1 = add range, 0 = remove).
     void             SetSelectionRange(int start, int end, bool add);
 
     // ---- 页面按需设置的回调 ----
     std::function<void(Canvas&, const ListItemDraw&)> onPaintItem;
-    std::function<void(Canvas&, const RECT&)>         onPaintEmpty;
+    std::function<void(Canvas&, const Rect&)>         onPaintEmpty;
     std::function<void(int index)>                    onSelectChanged;
     std::function<void(int index)>                    onDoubleClicked;
     // 行内点击：返回 true 表示已消费（不改变选中，如命中行内按钮 / 分组头）
-    std::function<bool(int index, POINT ptInItem)>    onItemClicked;
+    std::function<bool(int index, Point ptInItem)>    onItemClicked;
     // 指针在同一行内移动（ptInItem 相对该行左上角）。LISTBOX 只会在换行
     // 时重画整行，行内那几个自绘图标按钮得靠这个回调知道自己被指着，
     // 否则一行的 hover 只有"图标出现了"和"图标消失了"两种状态。
-    std::function<void(int index, POINT ptInItem)>    onHoverMove;
-    // 右键菜单（screenPt 为屏幕坐标；index = -1 表示空白处）
-    std::function<void(POINT screenPt, int index)>    onContextMenu;
+    std::function<void(int index, Point ptInItem)>    onHoverMove;
+    // context menu (screenPt is screen coords; index = -1 means blank area).
+    std::function<void(Point screenPt, int index)>    onContextMenu;
 
 protected:
     friend class Page;
-    friend LRESULT CALLBACK ListBoxProc(HWND, UINT, WPARAM, LPARAM,
-                                        UINT_PTR, DWORD_PTR);
+    friend MessageResult ListBoxProc(WindowHandle, MessageId, MessageWParam, MessageLParam, SubclassId, SubclassRef);
     void CreateNative() override;
     bool HandleCommand(int code) override;
 
     // ---- 自绘内部 ----
-    void PaintSelf(HDC dc);
-    void PaintItem(Canvas& g, int index, const RECT& rc);
+    void PaintSelf(DeviceContextHandle dc);
+    void PaintItem(Canvas& g, int index, const Rect& rc);
     void SelectItem(int index, bool notify);
     void OnMultiClick(int item, bool ctrl, bool shift);
     void EnsureVisible(int index);
@@ -335,8 +332,8 @@ protected:
     int m_hover = -1;
     int m_updateLock = 0;      // BeginUpdate/EndUpdate 嵌套层数
     int m_fallbackH = 54;
-    // 多选模式：m_selSet 与 m_items 同长（AddItem/Reset 维护），
-    // m_selAnchor = 最近一次 shift 范围/锚定行（纯内存，不保存到 native）。
+    // multi-select: m_selSet matches m_items (maintained by AddItem/Reset),
+    // m_selAnchor = last shift-range anchor row (in-memory only).
     std::vector<bool> m_selSet;
     int               m_selAnchor = -1;
 };
@@ -353,22 +350,21 @@ struct CustomDesc
 class Custom : public Widget
 {
 public:
-    void OnPaint(std::function<void(Canvas&, const RECT&)> painter);
-    // 交互升级：设了点击回调 = 可点击（捕获鼠标、记 hover/press 态）；
-    // 不设 = 纯装饰（WM_NCHITTEST 恒 HTTRANSPARENT，鼠标穿透给下层窗口，
-    // 如搜索框上的 Ctrl+Shift+V 提示 chip）。
+    void OnPaint(std::function<void(Canvas&, const Rect&)> painter);
+    // with a click callback = clickable (captures mouse, tracks hover/press);
+    // not set = decoration only (hit-test transparent, mouse falls through,
+    // e.g. the Ctrl+Shift+V hint chip over the search box).
     void OnClick(std::function<void()> cb);
     bool Hovered() const { return m_hover; }
     bool Pressed() const { return m_press; }
 
 protected:
     friend class Page;
-    friend LRESULT CALLBACK CustomProc(HWND, UINT, WPARAM, LPARAM,
-                                       UINT_PTR, DWORD_PTR);
+    friend MessageResult CustomProc(WindowHandle, MessageId, MessageWParam, MessageLParam, SubclassId, SubclassRef);
     void CreateNative() override;
 
     CustomDesc m_desc;
-    std::function<void(Canvas&, const RECT&)> m_painter;
+    std::function<void(Canvas&, const Rect&)> m_painter;
     std::function<void()> m_click;
     bool m_hover = false, m_press = false;
 };

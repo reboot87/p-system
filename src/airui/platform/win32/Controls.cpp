@@ -1,11 +1,20 @@
-#include "airui/Controls.h"
-#include "airui/Gfx.h"
+#include "internal/Controls.h"
+#include "internal/Gfx.h"
 #include "airui/Theme.h"
 #include <commctrl.h>
 #include <dwmapi.h>
 
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "dwmapi.lib")
+
+namespace air {
+namespace ui {
+namespace {
+// Convert the platform-neutral Rect to the native rectangle at the boundary.
+inline RECT ToRect(const Rect& r) { return RECT{ r.left, r.top, r.right, r.bottom }; }
+} // namespace
+} // namespace ui
+} // namespace air
 
 namespace air {
 namespace ui {
@@ -44,8 +53,9 @@ void MoveCaretToEnd(HWND edit)
     SendMessageW(edit, EM_SETSEL, len, len);
 }
 
-std::wstring GetEditText(HWND edit)
+std::wstring GetEditText(WindowHandle editHandle)
 {
+    HWND edit = reinterpret_cast<HWND>(editHandle);
     if (!edit || !IsWindow(edit)) return std::wstring();
     // 跨进程读 EDIT 必须走 WM_GETTEXT；GetWindowTextW 会读到陈旧 caption
     LRESULT len = SendMessageW(edit, WM_GETTEXTLENGTH, 0, 0);
@@ -155,7 +165,7 @@ BtnStyle ButtonStyleOf(HWND button)
     return s ? s->style : BtnStyle::Primary;
 }
 
-void DrawButton(HDC dc, const RECT& rc, const wchar_t* text, HFONT font,
+void DrawButton(HDC dc, const RECT& rc, const wchar_t* text, FontHandle font,
                 BtnStyle style, bool hover, bool pressed, bool disabled)
 {
     const Palette& p = Pal();
@@ -237,7 +247,7 @@ void NavBar::SetGroups(std::vector<NavGroup> groups)
     RebuildRects();
 }
 
-void NavBar::Layout(const RECT& side)
+void NavBar::Layout(const Rect& side)
 {
     m_side = side;
     RebuildRects();
@@ -273,7 +283,7 @@ void NavBar::RebuildRects()
     m_contentH = y - m_side.top;
 }
 
-void NavBar::Paint(HDC dc, const Fonts& fonts)
+void NavBar::Paint(DeviceContextHandle dc, const Fonts& fonts)
 {
     if (m_side.right <= m_side.left) return;
 
@@ -281,12 +291,12 @@ void NavBar::Paint(HDC dc, const Fonts& fonts)
     const Metrics& m = Mx();
 
     // 侧栏底色 + 右侧分隔线
-    gfx::Fill(dc, m_side, p.sidebar);
+    gfx::Fill(dc, ToRect(m_side), p.sidebar);
     gfx::VLine(dc, m_side.right - 1, m_side.top, m_side.bottom, p.sidebarLine);
 
     // 分组标题
     for (auto& gr : m_groupsRect) {
-        gfx::Text(dc, fonts.Get(FontRole::Meta), RGB(143, 149, 158), gr.rc,
+        gfx::Text(dc, fonts.Get(FontRole::Meta), RGB(143, 149, 158), ToRect(gr.rc),
                   gr.title, DT_SINGLELINE | DT_LEFT | DT_VCENTER);
     }
 
@@ -300,8 +310,8 @@ void NavBar::Paint(HDC dc, const Fonts& fonts)
             bool active = (it.id == m_active) && !it.disabled;
             bool hot    = (it.id == m_hoverId) && !it.disabled;
 
-            if (active)      gfx::FillRound(dc, ir.rc, p.selectFill, 6);
-            else if (hot)    gfx::FillRound(dc, ir.rc, p.active, 6);
+            if (active)      gfx::FillRound(dc, ToRect(ir.rc), p.selectFill, 6);
+            else if (hot)    gfx::FillRound(dc, ToRect(ir.rc), p.active, 6);
 
             // 图标
             RECT rcIc = { ir.rc.left + 12, ir.rc.top,
@@ -349,14 +359,15 @@ void NavBar::Paint(HDC dc, const Fonts& fonts)
     }
 }
 
-int NavBar::HitTest(POINT pt) const
+int NavBar::HitTest(Point pt) const
 {
+    POINT native = { pt.x, pt.y };
     for (auto& ir : m_items)
-        if (PtInRect(&ir.rc, pt)) return ir.id;
+        if (PtInRect(&ToRect(ir.rc), native)) return ir.id;
     return -1;
 }
 
-bool NavBar::OnMouseMove(POINT pt)
+bool NavBar::OnMouseMove(Point pt)
 {
     int id = HitTest(pt);
     if (id == m_hoverId) return false;
@@ -393,14 +404,15 @@ void NavBar::SetBadge(int id, const std::wstring& text, bool ok)
 // ============================================================
 // PaintDC
 // ============================================================
-void PaintDC::BackBuffer::Release()
+void BackBuffer::Release()
 {
-    if (mem) {
-        if (old) SelectObject(mem, old);
+    HDC dc = reinterpret_cast<HDC>(mem);
+    if (dc) {
+        if (old) SelectObject(dc, reinterpret_cast<HGDIOBJ>(old));
         old = nullptr;
     }
-    if (bmp) { DeleteObject(bmp); bmp = nullptr; }
-    if (mem) { DeleteDC(mem); mem = nullptr; }
+    if (bmp) { DeleteObject(reinterpret_cast<HGDIOBJ>(bmp)); bmp = nullptr; }
+    if (dc) { DeleteDC(dc); mem = nullptr; }
     w = h = 0;
 }
 
@@ -438,7 +450,9 @@ PaintDC::PaintDC(HWND hwnd, bool useBackBuffer, BackBuffer* cache)
             m_cache->mem = CreateCompatibleDC(m_wdc);
             m_cache->bmp = CreateCompatibleBitmap(m_wdc, w, h);
             if (m_cache->mem && m_cache->bmp) {
-                m_cache->old = SelectObject(m_cache->mem, m_cache->bmp);
+                HDC cacheDc = reinterpret_cast<HDC>(m_cache->mem);
+                m_cache->old = SelectObject(cacheDc,
+                                            reinterpret_cast<HGDIOBJ>(m_cache->bmp));
                 m_cache->w = w;
                 m_cache->h = h;
                 fresh = true;
@@ -446,9 +460,9 @@ PaintDC::PaintDC(HWND hwnd, bool useBackBuffer, BackBuffer* cache)
                 m_cache->Release();
             }
         }
-        m_mem = m_cache->mem;
-        m_bmp = m_cache->bmp;
-        m_old  = m_cache->old;
+        m_mem = reinterpret_cast<HDC>(m_cache->mem);
+        m_bmp = reinterpret_cast<HBITMAP>(m_cache->bmp);
+        m_old = reinterpret_cast<HGDIOBJ>(m_cache->old);
         if (fresh && m_mem && m_bmp) {
             // Only a brand-new DDB has undefined contents, so fill the
             // whole buffer once (a later partial paint may present an area

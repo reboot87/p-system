@@ -1,5 +1,5 @@
-#include "airui/Components.h"
-#include "airui/CanvasPainter.h"
+#include "internal/Components.h"
+#include "internal/CanvasPainter.h"
 #include "airui/ControlsExtra.h"
 #include <algorithm>
 
@@ -31,7 +31,7 @@ void Card::Paint(Canvas& g)
     st.iconColor     = m_cfg.icon.color;
 
     CanvasPainter painter(g);
-    PaintCard(painter, ToRect(m_cfg.rect), st, Pal(), Mx());
+    PaintCard(painter, m_cfg.rect, st, Pal(), Mx());
 }
 
 } // namespace ui

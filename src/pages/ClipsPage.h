@@ -5,7 +5,7 @@
 // 列表与表单走 IPC，备注就地编辑
 //
 // 全程使用 airui 高级 API：Canvas 绘制、Widget 控件，
-// 不接触 HDC / HWND / DRAWITEMSTRUCT。
+// 不接触 air::ui::DeviceContextHandle / air::ui::WindowHandle / air::ui::DrawItemInfo。
 // ============================================================
 #include "airui/AirUi.h"
 #include "airui/Interaction.h"
@@ -27,13 +27,13 @@ public:
     void OnAttach(air::ui::Shell& shell) override;
     void OnDetach() override;
     void OnShow(bool shown) override;
-    void OnLayout(const RECT& content) override;
-    void OnPaint(air::ui::Canvas& g, const RECT& content) override;
-    bool OnMouseDown(POINT pt) override;
-    bool OnMouseUp(POINT pt) override;
-    bool OnMouseMove(POINT pt) override;
+    void OnLayout(const air::ui::Rect& content) override;
+    void OnPaint(air::ui::Canvas& g, const air::ui::Rect& content) override;
+    bool OnMouseDown(air::ui::Point pt) override;
+    bool OnMouseUp(air::ui::Point pt) override;
+    bool OnMouseMove(air::ui::Point pt) override;
     bool OnMouseLeave() override;
-    bool HandCursorAt(POINT pt) override;
+    bool HandCursorAt(air::ui::Point pt) override;
     bool OnCommand(int ctrlId, int code) override;
     void OnSetFocus() override;
 
@@ -65,7 +65,7 @@ public:
 
     void ToggleForm(bool open);
     void OpenForm();          // 切页后展开表单卡并聚焦录入框
-    RECT PagerRect() const { return m_rcPager; }   // 分页条屏幕区域（3c）
+    air::ui::Rect PagerRect() const { return m_rcPager; }   // 分页条屏幕区域（3c）
 
 private:
     // 子控件创建与显隐
@@ -79,10 +79,10 @@ private:
     // code = PaginationSlot.page（-2 上一页 / -1 下一页 / >0 页号）
     void ApplyPage(int code);
     // 3c：分页条命中（返回 PaginationHit 的 code；0 = 非页码区）
-    int  PaginationHitAt(POINT absPt) const;
+    int  PaginationHitAt(air::ui::Point absPt) const;
     // 「×」清空按钮的显隐 + 搜索框右内边距（搜索文本非空时显示）
     void SyncSearchClearButton();
-    static RECT DetailNoteBox(RECT detail);
+    static air::ui::Rect DetailNoteBox(air::ui::Rect detail);
     static int  TypeOfEntry(const UiEntry& e);
 
     // 绘制
@@ -90,16 +90,16 @@ private:
     void DrawFormCard(air::ui::Canvas& g);
     void DrawDetailPanel(air::ui::Canvas& g);
     void DrawListRow(air::ui::Canvas& g, const air::ui::ListItemDraw& item);
-    void DrawOfflineBanner(air::ui::Canvas& g, const RECT& banner);
+    void DrawOfflineBanner(air::ui::Canvas& g, const air::ui::Rect& banner);
 
     // 交互
     void OnListOp(int entryIdx, int op);          // 0复制 1备注 2删除
     void OnListOpBulk(int op);                    // 0复制所选 1删除所选（第 3 项多选）
-    void ShowItemMenu(POINT screenPt, int entryIdx);
+    void ShowItemMenu(air::ui::Point screenPt, int entryIdx);
 
     // ---- 自绘热区 ----
     // 工具条胶囊、＋按钮、详情面板三键、备注框都是 Canvas 画的，没有
-    // HWND，Windows 不会替我们记悬停/按下：状态在这里维护。
+    // air::ui::WindowHandle，Windows 不会替我们记悬停/按下：状态在这里维护。
     enum HotId : int
     {
         kHotNone      = 0,
@@ -112,13 +112,13 @@ private:
     air::ui::HotState m_hot;
     int  m_hoverOp    = -1;   // 列表行内操作钮：0复制 1备注 2删除
     int  m_hoverOpRow = -1;
-    int  HitHot(POINT absPt) const;
+    int  HitHot(air::ui::Point absPt) const;
     void ActivateHot(int hotId);
-    void SyncHoverOp(int row, POINT ptInItem);
+    void SyncHoverOp(int row, air::ui::Point ptInItem);
 
     App& m_app;
 
-    // 控件（Widget 包装，HWND 在库内）
+    // 控件（Widget 包装，air::ui::WindowHandle 在库内）
     air::ui::TextBox* m_search      = nullptr;
     air::ui::Custom*  m_searchChip  = nullptr;
     air::ui::Custom*  m_searchClear = nullptr;
@@ -129,19 +129,19 @@ private:
     air::ui::Button*  m_saveBtn    = nullptr;
 
     // 几何（客户区绝对坐标）
-    RECT m_content     = {};
-    RECT m_rcListCard  = {};
-    RECT m_rcFormCard  = {};
-    RECT m_rcSearchBox = {};
-    RECT m_rcSearchClear = {};
-    RECT m_rcManualBox = {};
-    RECT m_rcNoteBox   = {};
-    RECT m_rcNoteMulti = {};
-    RECT m_rcChips[4]  = {};
-    RECT m_rcAddBtn    = {};
-    RECT m_rcFormClose = {};
-    RECT m_rcDetail    = {};
-    RECT m_rcDBtn[3]   = {};
+    air::ui::Rect m_content     = {};
+    air::ui::Rect m_rcListCard  = {};
+    air::ui::Rect m_rcFormCard  = {};
+    air::ui::Rect m_rcSearchBox = {};
+    air::ui::Rect m_rcSearchClear = {};
+    air::ui::Rect m_rcManualBox = {};
+    air::ui::Rect m_rcNoteBox   = {};
+    air::ui::Rect m_rcNoteMulti = {};
+    air::ui::Rect m_rcChips[4]  = {};
+    air::ui::Rect m_rcAddBtn    = {};
+    air::ui::Rect m_rcFormClose = {};
+    air::ui::Rect m_rcDetail    = {};
+    air::ui::Rect m_rcDBtn[3]   = {};
 
     // 行模型（分组头 / 条目）
     struct Row { bool header; std::wstring label; size_t entry; };
@@ -153,8 +153,8 @@ private:
     int   m_page = 1;
     int   m_pageSize = 10;
     int   m_pageCount = 1;       // 含当前页的总页数（SliceRowsForPage 更新）
-    RECT  m_rcPager = {};        // 分页条区域（客户区绝对坐标，驱动用）
-    HWND  m_pagerProbe = nullptr;   // 分页条的尺寸探针子窗口（1009）
+    air::ui::Rect  m_rcPager = {};        // 分页条区域（客户区绝对坐标，驱动用）
+    air::ui::WindowHandle  m_pagerProbe = nullptr;   // 分页条的尺寸探针子窗口（1009）
     int   m_pagerHit = 0;        // m_rcPager 上被按下的槽（PaginationHit 码）
     air::ui::PaginationState m_pagerState = {};
 

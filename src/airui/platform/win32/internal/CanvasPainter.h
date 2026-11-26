@@ -9,8 +9,8 @@
 //   CanvasPainter painter(canvas);
 //   PaintButton(painter, ToRect(rc), text, style, st, Pal(), Mx());
 // ============================================================
-#include "airui/Canvas.h"
-#include "airui/PaintFrame.h"
+#include "internal/Canvas.h"
+#include "internal/PaintFrame.h"
 #include "airui/hal.h"
 
 #include <vector>
@@ -39,7 +39,7 @@ public:
     // ---- shapes ----
     void FillRect(const Rect& r, Color c) override
     {
-        m_canvas.Fill(rect(r), c);
+        m_canvas.Fill(r, c);
     }
 
     // Modal scrims need real blending: an opaque fill would erase the
@@ -54,7 +54,7 @@ public:
         }
         if (alpha == 0) return;
         if (alpha == 255) { FillRect(r, c); return; }
-        HDC dc = m_canvas.Native();
+        HDC dc = reinterpret_cast<HDC>(m_canvas.Native());
         if (!dc) { FillRect(r, c); return; }
         const RECT rc = rect(r);
         const int w = rc.right - rc.left;
@@ -96,38 +96,38 @@ public:
 
     void FillRound(const Rect& r, int radius, Color c) override
     {
-        m_canvas.FillRound(rect(r), c, radius);
+        m_canvas.FillRound(r, c, radius);
     }
 
     void StrokeRect(const Rect& r, Color c, int width) override
     {
-        m_canvas.Stroke(rect(r), c, 0, width);
+        m_canvas.Stroke(r, c, 0, width);
     }
 
     void StrokeRound(const Rect& r, int radius, Color c, int width) override
     {
-        m_canvas.Stroke(rect(r), c, radius, width);
+        m_canvas.Stroke(r, c, radius, width);
     }
 
     void StrokeDashed(const Rect& r, Color c, int width, int dash) override
     {
         (void)width;
         (void)dash;
-        m_canvas.StrokeDashed(rect(r), c, 0);
+        m_canvas.StrokeDashed(r, c, 0);
     }
 
     // ---- text ----
     void Text(const Rect& r, const wchar_t* s, size_t len,
               FontRole role, Color c, TextFormat fmt) override
     {
-        m_canvas.Text(rect(r), std::wstring(s, len), role, c, fmt);
+        m_canvas.Text(r, std::wstring(s, len), role, c, fmt);
     }
 
     void TextBlock(const Rect& r, const wchar_t* s, size_t len,
                    FontRole role, Color c, int maxLines) override
     {
         (void)maxLines;   // Canvas::TextBlock already wraps + ellipsises
-        m_canvas.TextBlock(rect(r), std::wstring(s, len), role, c);
+        m_canvas.TextBlock(r, std::wstring(s, len), role, c);
     }
 
     int MeasureText(const wchar_t* s, size_t len, FontRole role) override
@@ -141,7 +141,7 @@ public:
         if (PaintFrame* f = CurrentPaintFrame()) {
             f->PushClip(ToRect(rect(r))); return;
         }
-        HDC dc = m_canvas.Native();
+        HDC dc = reinterpret_cast<HDC>(m_canvas.Native());
         if (!dc) {
             m_clipStack.push_back(0);
             return;
@@ -158,7 +158,7 @@ public:
         const int saved = m_clipStack.back();
         m_clipStack.pop_back();
 
-        HDC dc = m_canvas.Native();
+        HDC dc = reinterpret_cast<HDC>(m_canvas.Native());
         if (dc && saved) RestoreDC(dc, saved);
     }
 

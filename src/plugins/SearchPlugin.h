@@ -14,5 +14,5 @@ public:
     const wchar_t* Name() const override { return L"SearchDebounce"; }
     void OnDetach(App& app) override;
     void OnCommand(App& app, int ctrlId, int notifyCode) override;
-    void OnTimer(App& app, UINT_PTR timerId) override;
+    void OnTimer(App& app, uintptr_t timerId) override;
 };

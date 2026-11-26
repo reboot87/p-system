@@ -10,9 +10,9 @@
 #include <map>
 #include <memory>
 #include "airui/Layout.h"
-#include "airui/Canvas.h"
-#include "airui/CanvasPainter.h"
-#include "airui/Widgets.h"
+#include "internal/Canvas.h"
+#include "internal/CanvasPainter.h"
+#include "internal/Widgets.h"
 #include "airui/Theme.h"
 #include "airui/ControlsExtra.h"
 
@@ -21,8 +21,8 @@ namespace ui {
 
 struct Icon {
     std::wstring glyph;
-    COLORREF     bg    = 0;
-    COLORREF     color = 0;
+    Color        bg    = 0;
+    Color        color = 0;
     int          size  = 40;
     int          radius = 8;
 };
@@ -49,7 +49,7 @@ class Card
 {
 public:
     struct Config {
-        RECT rect = {};
+        Rect rect = {};
         Icon icon;
         std::wstring title;
         std::wstring desc;
@@ -65,9 +65,9 @@ public:
     explicit Card(const Config& cfg) : m_cfg(cfg) {}
 
     void Paint(Canvas& g);
-    bool HitTest(POINT pt) const { return PtInRect(&m_cfg.rect, pt); }
-    const RECT& GetRect() const { return m_cfg.rect; }
-    void SetRect(const RECT& r) { m_cfg.rect = r; }
+    bool HitTest(Point pt) const { return m_cfg.rect.Contains(pt); }
+    const Rect& GetRect() const { return m_cfg.rect; }
+    void SetRect(const Rect& r) { m_cfg.rect = r; }
     void SetNumber(const std::wstring& n) { m_cfg.number = n; }
     void SetBadge(const Badge& b) { m_cfg.badge = b; }
     // Interaction methods for GUI. SetHover reports whether the state
@@ -105,8 +105,8 @@ public:
     struct Config {
         std::vector<Column> columns;
         std::function<void(const T&)> onDoubleClick;
-        std::function<void(POINT, const T*)> onContextMenu;
-        std::function<bool(int, POINT, const T&)> onCellClick;
+        std::function<void(Point, const T*)> onContextMenu;
+        std::function<bool(int, Point, const T&)> onCellClick;
         int rowHeight = 54;
         bool showHeader = true;
         bool striped = true;
@@ -117,10 +117,10 @@ public:
         : m_list(list), m_cfg(cfg)
     {
         m_list->onPaintItem = [this](Canvas& g, const ListItemDraw& it) { PaintRow(g, it); };
-        m_list->onPaintEmpty = [this](Canvas& g, const RECT& rc) { PaintEmpty(g, rc); };
+        m_list->onPaintEmpty = [this](Canvas& g, const Rect& rc) { PaintEmpty(g, rc); };
         m_list->onDoubleClicked = [this](int sel) { OnDoubleClick(sel); };
-        m_list->onItemClicked = [this](int idx, POINT pt) { return OnCellClick(idx, pt); };
-        m_list->onContextMenu = [this](POINT pt, int idx) { OnContextMenu(pt, idx); };
+        m_list->onItemClicked = [this](int idx, Point pt) { return OnCellClick(idx, pt); };
+        m_list->onContextMenu = [this](Point pt, int idx) { OnContextMenu(pt, idx); };
     }
 
     void Bind(const std::vector<T>& data) {
@@ -199,7 +199,7 @@ private:
         for (size_t c = 0; c < m_cfg.columns.size(); ++c) {
             const auto& col = m_cfg.columns[c];
             int colW = col.width > 0 ? col.width : 120;
-            RECT cell = { x, it.rc.top, x + colW, it.rc.bottom };
+            Rect cell = { x, it.rc.top, x + colW, it.rc.bottom };
             if (col.render) {
                 std::wstring txt = col.render(item);
                 g.TextRow(cell, txt, FontRole::Body,
@@ -209,7 +209,7 @@ private:
         }
     }
 
-    void PaintEmpty(Canvas& g, const RECT& rc) {
+    void PaintEmpty(Canvas& g, const Rect& rc) {
         // Migrated: the platform-level EmptyState view now delegates
         // to the core PaintEmptyView through IPainter.
         EmptyState st;
@@ -225,7 +225,7 @@ private:
         }
     }
 
-    bool OnCellClick(int idx, POINT ptInItem) {
+    bool OnCellClick(int idx, Point ptInItem) {
         if (idx < 0 || idx >= (int)m_filtered.size()) return false;
         if (m_cfg.onCellClick) {
             return m_cfg.onCellClick(idx, ptInItem, m_filtered[idx]);
@@ -233,7 +233,7 @@ private:
         return false;
     }
 
-    void OnContextMenu(POINT screenPt, int idx) {
+    void OnContextMenu(Point screenPt, int idx) {
         const T* item = nullptr;
         if (idx >= 0 && idx < (int)m_filtered.size()) item = &m_filtered[idx];
         if (m_cfg.onContextMenu) m_cfg.onContextMenu(screenPt, item);
@@ -270,7 +270,7 @@ public:
 
     // 重命名为 Arrange 避免与 Layout 类冲突。
     // 布局几何来自 core 的 MeasureForm，平台层只把结果写回原生 widget。
-    void Arrange(const RECT& rc) {
+    void Arrange(const Rect& rc) {
         m_rc = rc;
         FormState st;
         st.labelWidth = m_cfg.labelWidth;
@@ -282,12 +282,12 @@ public:
             ff.required = f.required;
             st.fields.push_back(ff);
         }
-        const FormLayout layout = MeasureForm(ToRect(rc), st, Mx());
+        const FormLayout layout = MeasureForm(rc, st, Mx());
         for (size_t i = 0; i < m_cfg.fields.size() && i < layout.inputs.size(); ++i) {
             if (m_cfg.fields[i].input)
-                m_cfg.fields[i].input->Move(ToRect(layout.inputs[i]));
+                m_cfg.fields[i].input->Move(layout.inputs[i]);
         }
-        if (m_cfg.submitBtn) m_cfg.submitBtn->Move(ToRect(layout.submit));
+        if (m_cfg.submitBtn) m_cfg.submitBtn->Move(layout.submit);
     }
 
     bool Validate() {
@@ -315,7 +315,7 @@ public:
 
 private:
     Config m_cfg;
-    RECT m_rc = {};
+    Rect m_rc = {};
     std::map<std::wstring, std::wstring> m_values;
 };
 
@@ -337,8 +337,8 @@ public:
     explicit Toolbar(const Config& cfg) : m_cfg(cfg) {
         if (m_cfg.search) {
             m_cfg.search->SetPlaceholder(m_cfg.searchPlaceholder);
-            m_cfg.search->OnKey([this](UINT vk, bool, bool) {
-                if (vk == VK_RETURN && m_cfg.onSearch) {
+            m_cfg.search->OnKey([this](VirtualKey key, bool, bool) {
+                if (key == vkey::Return && m_cfg.onSearch) {
                     m_cfg.onSearch(m_cfg.search->Text());
                     return true;
                 }
@@ -347,7 +347,7 @@ public:
         }
     }
 
-    void Paint(Canvas& g, const RECT& rc) {
+    void Paint(Canvas& g, const Rect& rc) {
         // The whole toolbar visual (crumbs, search field, actions) is
         // now core geometry + core painting; the platform layer only
         // maps the legacy Config into ToolbarState and keeps the
@@ -365,12 +365,12 @@ public:
             item.disabled = a.disabled;
             st.actions.push_back(item);
         }
-        const Rect bounds = ToRect(rc);
+        const Rect bounds = rc;
         CanvasPainter painter(g);
         PaintToolbar(painter, bounds, st, Pal(), Mx());
         if (m_cfg.search) {
             const ToolbarLayout layout = MeasureToolbar(bounds, st, Mx());
-            if (!layout.search.Empty()) m_cfg.search->Move(ToRect(layout.search));
+            if (!layout.search.Empty()) m_cfg.search->Move(layout.search);
         }
     }
 

@@ -6,10 +6,10 @@
 // ============================================================
 #include <windows.h>
 
-#include "airui/Canvas.h"
+#include "internal/Canvas.h"
 #include "airui/Fonts.h"
-#include "airui/Gfx.h"
-#include "airui/PaintFrame.h"
+#include "internal/Gfx.h"
+#include "internal/PaintFrame.h"
 #include "airui/hal.h"
 
 #include <cstdint>
@@ -111,7 +111,7 @@ struct Surface
 
     uint32_t At(int x, int y) const
     {
-        // A 32bpp BI_RGB DIB stores B,G,R,A in memory, while COLORREF
+        // A 32bpp BI_RGB DIB stores B,G,R,A in memory, while Color
         // packs R,G,B. Convert so callers can compare against RGB().
         const uint32_t v =
             static_cast<const uint32_t*>(bits)[y * W + x] & 0x00FFFFFFu;
@@ -167,16 +167,16 @@ int main()
 
     // Composite helper (used by pages) must follow without changes.
     gfx::StatusTag(s.dc, 60, 15, L"\u72B6\u6001",
-                   (HFONT)GetStockObject(DEFAULT_GUI_FONT),
+                   (FontHandle)GetStockObject(DEFAULT_GUI_FONT),
                    RGB(240, 240, 240), RGB(1, 2, 3), RGB(2, 3, 4), RGB(3, 4, 5));
     Check(mock.Count("fillRound") >= 4 && mock.ops.size() > 8,
           "composite gfx widgets route through the frame too");
 
     // Text is recorded for host rasterisation, not sent to a backend
     // that cannot draw CJK glyphs.
-    gfx::Text(s.dc, (HFONT)GetStockObject(DEFAULT_GUI_FONT), RGB(0, 0, 0),
+    gfx::Text(s.dc, (FontHandle)GetStockObject(DEFAULT_GUI_FONT), RGB(0, 0, 0),
               RECT{ 2, 2, 60, 28 }, L"\u4E2D\u6587\u6E32\u67D3",
-              DT_SINGLELINE | DT_LEFT | DT_TOP | DT_NOPREFIX);
+              dt::SingleLine | dt::Left | dt::Top | dt::NoPrefix);
     Check(mock.Count("text") == 0,
           "host-text mode keeps text away from the backend");
     frame.Text(Rect(2, 2, 60, 28),L"\u4E2D\u6587", 2,FontRole::Body,MakeColor(0, 0, 0),dt::Top | dt::Left | dt::SingleLine);
@@ -199,9 +199,9 @@ int main()
     s.ClearWhite();
     mock.ops.clear();
     frame.Begin(&mock, s.dc, nullptr, true);
-    gfx::Text(s.dc, (HFONT)GetStockObject(DEFAULT_GUI_FONT), RGB(0, 0, 0),
+    gfx::Text(s.dc, (FontHandle)GetStockObject(DEFAULT_GUI_FONT), RGB(0, 0, 0),
               RECT{ 2, 2, 60, 28 }, L"\u4E2D\u6587",
-              DT_SINGLELINE | DT_LEFT | DT_TOP | DT_NOPREFIX);
+              dt::SingleLine | dt::Left | dt::Top | dt::NoPrefix);
     Check(mock.Count("text") == 1,
           "a CJK-capable backend receives text directly");
     frame.End();
@@ -215,16 +215,16 @@ int main()
           "GDI path fully restored after the frame closes");
 
     // ---------- 5. Canvas::PushClip is backend agnostic ----------
-    // Regression guard: a page that clipped its content with the HDC
+    // Regression guard: a page that clipped its content with the DeviceContextHandle
     // clip region only (IntersectClipRect) painted outside the content
-    // area under a compositing backend -- the HDC clip does not exist on
+    // area under a compositing backend -- the DeviceContextHandle clip does not exist on
     // the backend's own surface, so scrolled-away controls ended up on
     // the title bar. Canvas::PushClip must reach the backend clip stack.
     s.ClearWhite();
     {
         Canvas canvas(s.dc, Fonts::Default());
-        canvas.PushClip(RECT{ 0, 0, 32, 32 });
-        canvas.Fill(RECT{ 0, 0, 64, 32 }, RGB(0, 128, 255));
+        canvas.PushClip(Rect{ 0, 0, 32, 32 });
+        canvas.Fill(Rect{ 0, 0, 64, 32 }, RGB(0, 128, 255));
         canvas.PopClip();
     }
     Check(s.At(8, 8) == RGB(0, 128, 255),
@@ -237,8 +237,8 @@ int main()
     frame.Begin(&mock, s.dc, nullptr, true);
     {
         Canvas canvas(s.dc, Fonts::Default());
-        canvas.PushClip(RECT{ 0, 0, 32, 32 });
-        canvas.Fill(RECT{ 0, 0, 64, 32 }, RGB(0, 128, 255));
+        canvas.PushClip(Rect{ 0, 0, 32, 32 });
+        canvas.Fill(Rect{ 0, 0, 64, 32 }, RGB(0, 128, 255));
         canvas.PopClip();
     }
     Check(mock.Count("pushClip") == 1 && mock.Count("popClip") == 1,
@@ -252,7 +252,7 @@ int main()
     s.ClearWhite();
     {
         Canvas canvas(s.dc, Fonts::Default());
-        canvas.PushClip(RECT{ 0, 0, 32, 32 });
+        canvas.PushClip(Rect{ 0, 0, 32, 32 });
         // no PopClip on purpose: the Canvas destructor has to clean up
     }
     gfx::Fill(s.dc, RECT{ 0, 0, 64, 32 }, RGB(0, 255, 0));

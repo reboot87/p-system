@@ -1,6 +1,7 @@
 #include "airui/ThemeJson.h"
 #include "airui/Theme.h"
 #include "airui/Fonts.h"
+#include <windows.h>
 #include <fstream>
 #include <sstream>
 #include <iomanip>
@@ -45,7 +46,7 @@ void ApplyThemeJson(const ThemeJson& theme)
     Fonts::Default().Create();
 }
 
-COLORREF ParseColor(const std::wstring& str, COLORREF fallback)
+Color ParseColor(const std::wstring& str, Color fallback)
 {
     if (str.empty()) return fallback;
     std::wstring s = str;

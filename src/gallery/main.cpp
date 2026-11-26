@@ -8,19 +8,31 @@
 #include <map>
 
 #include "airui/AirUi.h"
-#include "airui/Components.h"
+#include "internal/Components.h"
 #include "airui/ShellCore.h"
 #include "airui/ControlsCore.h"
 #include "airui/OverlayCore.h"
 #include "airui/FrameworkCore.h"
 #include "airui/ControlsExtra.h"
 #include "ExtraGallery.h"
-#include "airui/platform/win32/airui/CanvasPainter.h"
-#include "airui/platform/win32/airui/Win32Window.h"
+#include "airui/platform/win32/internal/CanvasPainter.h"
+#include "airui/platform/win32/internal/Win32Window.h"
 
 using namespace air::ui;
 
 namespace {
+
+// App-layer adapters: the public AirUI API is platform-neutral, but the
+// gallery keeps the native hit-test convention (the platform widgets use
+// the same one), so the boundary conversions live in one place.
+inline RECT NativeRect(const Rect& r) { return RECT{ r.left, r.top, r.right, r.bottom }; }
+inline POINT NativePoint(const Point& p) { return POINT{ p.x, p.y }; }
+inline bool HitRect(const Rect& r, const Point& p)
+{
+    RECT native = NativeRect(r);
+    POINT pt = NativePoint(p);
+    return PtInRect(&native, pt) != FALSE;
+}
 
 // Page focus ids start at 100; layer ids start at 200 so a pointer
 // result can be recognised as a layer activation at a glance.
@@ -50,7 +62,7 @@ struct Item {
                 Badge, Alert, Tabs, Avatar, Skeleton,
                 Table, List, Tree, Breadcrumb, Pagination, Toast,
                 OverlayTrigger, OverlayHint, Extra } kind = Button;
-    RECT rect;
+    Rect rect;
     std::wstring text;
     BtnStyle style = BtnStyle::Primary;
     bool checked = false;
@@ -135,7 +147,7 @@ public:
         m_shellCore.SetNavGroups(std::move(groups));
         m_shellCore.SetActiveNav(1);
 
-        HWND hwnd = shell.Hwnd();
+        const HWND hwnd = reinterpret_cast<HWND>(shell.Hwnd());
         m_win = std::make_unique<Win32Window>(hwnd);
         // 声明式布局 demo：布局目录 = exe 同级 layouts（可放 demo.json 热重载）
         {
@@ -160,18 +172,19 @@ public:
             m_shellCore.SetNavHover(-1);
             if (!ok && m_shell) m_shell->Invalidate();   // 行定位失败：整窗兜底
         });
-        shell.SetMessageHook([this, hwnd](HWND,UINT msg,WPARAM wp,LPARAM lp,LRESULT& res){
-            if (m_win) m_win->PumpEvent(msg, wp, lp);
+        shell.SetMessageHook([this, hwnd](WindowHandle, MessageId msg, MessageWParam wp,
+                                      MessageLParam lp, MessageResult& res){
+            if (m_win) m_win->PumpEvent((UINT)msg, (WPARAM)wp, (LPARAM)lp);
             if (msg == WM_KEYDOWN) {
                 const int vk = (int)wp;
-                if (vk == VK_TAB || vk == VK_ESCAPE || vk == VK_RETURN || vk == VK_SPACE) {
-                    const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+                if (vk == vkey::Tab || vk == vkey::Escape || vk == vkey::Return || vk == vkey::Space) {
+                    const bool shift = (GetKeyState(vkey::Shift) & 0x8000) != 0;
                     HandleOverlayKey(vk, shift);
                     res = 0; return true;
                 }
                 // 搜索框聚焦时：Backspace 删字，Enter 交还焦点给内容。
                 if (m_searchFocus) {
-                    if (vk == VK_BACK) {
+                    if (vk == vkey::Backspace) {
                         if (!m_search.empty()) {
                             std::wstring q = m_search;
                             q.pop_back();
@@ -179,14 +192,14 @@ public:
                         }
                         res = 0; return true;
                     }
-                    if (vk == VK_ESCAPE || vk == VK_RETURN) {
+                    if (vk == vkey::Escape || vk == vkey::Return) {
                         m_searchFocus = false;
                         if (m_shell) m_shell->Invalidate();
                         res = 0; return true;
                     }
                     return true;   // 其它键在搜索框聚焦时被吸收
                 }
-                const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+                const bool ctrl = (GetKeyState(vkey::Control) & 0x8000) != 0;
                 if (HandleTextEditKey(vk, ctrl)) { res = 0; return true; }
             }
             if (msg == WM_CHAR) {
@@ -226,17 +239,18 @@ public:
                 res = 0; return true;
             }
             if (msg == WM_MOUSEWHEEL) {
-                POINT pt = {(short)LOWORD(lp),(short)HIWORD(lp)};
-                ScreenToClient(hwnd,&pt);
+                POINT nativePt = {(short)LOWORD(lp),(short)HIWORD(lp)};
+                ScreenToClient(hwnd,&nativePt);
+                Point pt = { nativePt.x, nativePt.y };
                 int d = GET_WHEEL_DELTA_WPARAM(wp);
                 const int step = d/120*30;
                 // A wheel over a virtual-scroll demo scrolls that list
                 // instead of the page.
-                POINT cp = { pt.x - m_content.left,
+                Point cp = { pt.x - m_content.left,
                              pt.y - (m_content.top - m_scroll) };
                 for (const auto& it : m_items) {
                     if (it.kind != Item::Extra || it.ext < 0) continue;
-                    if (!PtInRect(&it.rect, cp)) continue;
+                    if (!HitRect(it.rect, cp)) continue;
                     if (extragallery::ExtraWheel(it.ext, -step, m_x, Mx())) {
                         if (m_shell) m_shell->Invalidate();
                         res = 0; return true;
@@ -256,7 +270,7 @@ public:
                 res = 0; return true;
             }
             if (msg == WM_MOUSEMOVE || msg == WM_LBUTTONDOWN || msg == WM_LBUTTONUP) {
-                POINT pt = {(short)LOWORD(lp),(short)HIWORD(lp)};
+                Point pt = {(short)LOWORD(lp),(short)HIWORD(lp)};
                 if (msg == WM_LBUTTONUP && GetCapture()==hwnd) ReleaseCapture();
 
                 // 滚动条拖动（滑块）/ 点击（Track：跳一页）。先于其它处理。
@@ -305,7 +319,7 @@ public:
                 // 0) Overlay 层优先于页面：模态拦截、点击外部关闭、层内命中消费。
                 //    坐标与 Click() 一致，均为内容区坐标（不随滚动改变语义）。
                 if (msg == WM_LBUTTONDOWN) {
-                    POINT op = { pt.x - m_content.left, pt.y - (m_content.top - m_scroll) };
+                    Point op = { pt.x - m_content.left, pt.y - (m_content.top - m_scroll) };
                     const OverlayHit oh = m_overlayCtl.Stack().Hit(Point{op.x, op.y});
                     const OverlayResult ovr = m_overlayCtl.OnPointer(Point{op.x, op.y});
                     bool consumed = false;
@@ -352,7 +366,7 @@ public:
                 }
 
                 // 2) 内容区控件交互
-                if (!PtInRect(&m_content, pt)) return false;
+                if (!HitRect(m_content, pt)) return false;
                 if (msg == WM_LBUTTONDOWN) SetCapture(hwnd);
                 Click(pt,msg);
                 res = 0; return true;
@@ -442,7 +456,7 @@ public:
         const auto& ids   = m_shellCore.NavItemIds();
         for (size_t i = 0; i < ids.size() && i < rects.size(); ++i) {
             if (ids[i] != id) continue;
-            const RECT r{rects[i].left, rects[i].top,
+            const Rect r{rects[i].left, rects[i].top,
                          rects[i].right, rects[i].bottom};
             if (r.right > r.left && r.bottom > r.top) {
                 m_shell->InvalidateRegion(r);
@@ -453,7 +467,7 @@ public:
         return false;
     }
 
-    void OnLayout(const RECT& client) override {
+    void OnLayout(const Rect& client) override {
         m_lastClient = client;
         Rect rc{client.left, client.top, client.right, client.bottom};
         m_shellCore.Layout(rc);
@@ -471,12 +485,12 @@ public:
         if (m_shell) m_shell->Invalidate();
     }
 
-    void OnPaint(Canvas& g, const RECT& client) override {
+    void OnPaint(Canvas& g, const Rect& client) override {
         // Drive core animations from the injected platform clock.
         m_x.animPhase = SpinnerPhase(m_animClock.Tick(), 1200);
         const auto& p = Pal();
         g.Fill(client,p.bg);
-        HDC dc = g.Native();
+        HDC dc = reinterpret_cast<HDC>(g.Native());
         int s = dc ? SaveDC(dc) : 0;
         if (dc) IntersectClipRect(dc,client.left,client.top,client.right,client.bottom);
 
@@ -485,7 +499,7 @@ public:
             Rect rc{client.left, client.top, client.right, client.bottom};
             CanvasPainter painter(g);
             // 局部重绘时把脏区交给 ShellCore：只重画相交的导航行/条带。
-            const RECT& clip = m_shell ? m_shell->PaintClip() : client;
+            const Rect& clip = m_shell ? m_shell->PaintClip() : client;
             const bool partial = clip.left > client.left || clip.top > client.top ||
                                  clip.right < client.right || clip.bottom < client.bottom;
             Rect hint{clip.left, clip.top, clip.right, clip.bottom};
@@ -493,29 +507,26 @@ public:
         }
 
         // 画廊条目只在 ContentRect（导航右侧、标题下方、状态栏上方）内绘制
-        const RECT region = m_content;
+        const Rect region = m_content;
         if (region.right <= region.left || region.bottom <= region.top) {
             if (dc && s) RestoreDC(dc,s);
             return;
         }
-        // 后端无关的裁剪栈：GDI 走 HDC 裁剪区，合成后端（Skia）有自己的
-        // surface，HDC 裁剪区对它无效。只用 IntersectClipRect 的话，滚出
+        // 后端无关的裁剪栈：GDI 走 DeviceContextHandle 裁剪区，合成后端（Skia）有自己的
+        // surface，DeviceContextHandle 裁剪区对它无效。只用 IntersectClipRect 的话，滚出
         // 内容区的组件会画到标题栏/页面标题上（Skia 下复现过）。
         g.PushClip(region);
 
         // 本次 WM_PAINT 真正脏的客户区（整窗失效时 == client；一次 hover 失效时
         // 只包含命中的条目/行）。窗口帧位图只 blit 这块（见 PaintDC::Flush）。
-        const RECT& clip = m_shell ? m_shell->PaintClip() : region;
+        const Rect& clip = m_shell ? m_shell->PaintClip() : region;
         const bool partial = clip.left > region.left || clip.top > region.top ||
                              clip.right < region.right || clip.bottom < region.bottom;
         // 条目会在自身矩形外多画一点（hover 底光 ±4px、分组标题底线 +8px），
         // 失效区已按同样边距外扩，所以“外扩后仍不相交”即可安全跳过。
-        auto touchesClip = [&](const RECT& r) {
+        auto touchesClip = [&](const Rect& r) {
             if (!partial) return true;
-            RECT t = r;
-            InflateRect(&t, 8, 10);
-            RECT i;
-            return IntersectRect(&i, &t, &clip) != FALSE;
+            return !r.Inflated(8, 10).Intersect(clip).Empty();
         };
 
         // 内容区整块白底，与灰底页面、侧边导航形成三层结构
@@ -530,17 +541,16 @@ public:
         // 滚动时内容会盖住搜索框）。窗口很矮时视口高度为 0（不画内容）。
         const int viewTop = m_searchBox.bottom < region.bottom
                           ? m_searchBox.bottom : region.bottom;
-        g.PushClip(RECT{region.left, viewTop, region.right, region.bottom});
+        g.PushClip(Rect{region.left, viewTop, region.right, region.bottom});
 
         for (auto& it : m_items) {
-            RECT r = it.rect;
-            OffsetRect(&r, ox, oy);
+            Rect r = it.rect.Offset(ox, oy);
             if (r.bottom < region.top || r.top > region.bottom) continue;
             if (!touchesClip(r)) continue;
             // Hover highlight for all interactive items
             if (it.kind != Item::Section && it.kind != Item::Extra &&
                 it.hover && !it.disabled) {
-                RECT hl = r;
+                Rect hl = r;
                 hl.top -= 4;
                 hl.bottom += 4;
                 hl.left -= 4;
@@ -549,12 +559,12 @@ public:
             }
             if (it.kind == Item::Section) {
                 // 分组标题：左侧主色强调条 + 标题 + 底部分隔线
-                RECT accent = { r.left, r.top + 3, r.left + 4, r.bottom - 3 };
+                Rect accent = { r.left, r.top + 3, r.left + 4, r.bottom - 3 };
                 g.FillRound(accent, p.primary, 2);
-                RECT tr = r;
+                Rect tr = r;
                 tr.left += 14;
                 g.Text(tr, it.text, FontRole::Section, p.text,
-                       DT_SINGLELINE | DT_LEFT | DT_VCENTER);
+                       dt::SingleLine | dt::Left | dt::VCenter);
                 g.HLine(r.left, r.right, r.bottom + 8, p.split);
             } else if (it.kind == Item::Button) {
                 g.Button(r,it.text,it.style,it.hover,it.pressed,it.disabled);
@@ -713,7 +723,7 @@ public:
                     g.StrokeDashed(r, p.border, 6);
                     g.Text(r, L"Toast 已关闭 · 点击重新显示", FontRole::Meta,
                            p.textFaint,
-                           DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
+                           dt::SingleLine | dt::Center | dt::VCenter | dt::NoPrefix);
                 } else {
                     ToastState st = m_toasts[idx];
                     st.hoveredClose = (m_toastHoverIndex == idx && m_toastHoverClose);
@@ -730,7 +740,7 @@ public:
                             it.text, ButtonStyle::Secondary, st, Pal(), Mx());
             } else if (it.kind == Item::OverlayHint) {
                 g.Text(r, it.text, FontRole::Meta, p.textSub,
-                       DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
+                       dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix);
             } else if (it.kind == Item::Extra && it.ext >= 0) {
                 CanvasPainter painter(g);
                 extragallery::DrawExtraControl(painter,
@@ -739,11 +749,10 @@ public:
             }
         }
         for (auto& c : m_cards) {
-            RECT r = c->GetRect();
-            OffsetRect(&r, ox, oy);
+            Rect r = c->GetRect().Offset(ox, oy);
             if (r.bottom < region.top || r.top > region.bottom) continue;
             if (!touchesClip(r)) continue;
-            RECT old = c->GetRect(); c->SetRect(r); c->Paint(g); c->SetRect(old);
+            Rect old = c->GetRect(); c->SetRect(r); c->Paint(g); c->SetRect(old);
         }
         // Overlay 层与焦点圈属于滚动内容，必须画在视口裁剪之内：否则焦点
         // 圈会盖到固定表头（搜索框）上，看上去像“透过搜索组件看到了按钮”。
@@ -768,7 +777,7 @@ public:
         // FillRect 的下沿是排他的，所以用 bottom+1 才能盖住搜索框下边框
         // 所在的那一行（m_searchBox.bottom）。
         {
-            RECT header{region.left, region.top, region.right, m_searchBox.bottom + 1};
+            Rect header{region.left, region.top, region.right, m_searchBox.bottom + 1};
             if (header.bottom > header.top) g.Fill(header, p.surface);
         }
 
@@ -788,28 +797,28 @@ public:
             if (!m_search.empty()) {
                 const int cy = (m_searchBox.top + m_searchBox.bottom) / 2;
                 (void)cy;
-                RECT clear = { m_searchBox.right - 30, m_searchBox.top,
+                Rect clear = { m_searchBox.right - 30, m_searchBox.top,
                                m_searchBox.right - 8, m_searchBox.bottom };
                 g.Text(clear, L"\u2715", FontRole::Body, p.textDisabled,
-                       DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
+                       dt::SingleLine | dt::Center | dt::VCenter | dt::NoPrefix);
             }
         }
 
         // 空结果提示：过滤没有任何命中时，在搜索框下方给出说明。
         if (m_items.empty() && FilterActive()) {
-            RECT hint = { m_searchBox.left, m_searchBox.bottom + 24,
+            Rect hint = { m_searchBox.left, m_searchBox.bottom + 24,
                           m_searchBox.right, m_searchBox.bottom + 60 };
             g.Text(hint, L"没有匹配“" + m_search + L"”的组件 · 按 Esc 清空",
                    FontRole::Meta, p.textSub,
-                   DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
+                   dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix);
         }
         g.PopClip();                 // 解除内容区裁剪（后端无关）
         if (dc && s) RestoreDC(dc,s);
 
         if (m_max > 0) {
             const Rect sbTrack = PageSbTrack(), sbThumb = PageSbThumb();
-            RECT track = { sbTrack.left, sbTrack.top, sbTrack.right, sbTrack.bottom };
-            RECT thumb = { sbThumb.left, sbThumb.top, sbThumb.right, sbThumb.bottom };
+            Rect track = { sbTrack.left, sbTrack.top, sbTrack.right, sbTrack.bottom };
+            Rect thumb = { sbThumb.left, sbThumb.top, sbThumb.right, sbThumb.bottom };
             g.FillRound(track, p.split, 2);
             g.FillRound(thumb, p.textDisabled, 2);
         }
@@ -890,12 +899,12 @@ private:
             }
         } else {
             switch (vk) {
-            case VK_BACK:   action = EditAction::Backspace; break;
-            case VK_DELETE: action = EditAction::Delete;    break;
-            case VK_LEFT:   action = EditAction::MoveLeft;  break;
-            case VK_RIGHT:  action = EditAction::MoveRight; break;
-            case VK_HOME:   action = EditAction::Home;      break;
-            case VK_END:    action = EditAction::End;       break;
+            case vkey::Backspace:   action = EditAction::Backspace; break;
+            case vkey::Delete: action = EditAction::Delete;    break;
+            case vkey::Left:   action = EditAction::MoveLeft;  break;
+            case vkey::Right:  action = EditAction::MoveRight; break;
+            case vkey::Home:   action = EditAction::Home;      break;
+            case vkey::End:    action = EditAction::End;       break;
             default: return false;
             }
         }
@@ -911,7 +920,7 @@ private:
         // to invalidate just that strip instead of the whole window.
         if (m_shell) {
             Rect sr = m_shellCore.StatusRect();
-            RECT r{sr.left, sr.top, sr.right, sr.bottom};
+            Rect r{sr.left, sr.top, sr.right, sr.bottom};
             if (r.right > r.left && r.bottom > r.top) m_shell->InvalidateRegion(r);
         }
     }
@@ -954,8 +963,8 @@ private:
     }
 
     // 命中测试：鼠标点进搜索框就返回 true（用于失效与点击）。
-    bool SearchHit(POINT pt) const {
-        return PtInRect(&m_searchBox, pt) != FALSE;
+    bool SearchHit(Point pt) const {
+        return HitRect(m_searchBox, pt);
     }
 
     // --------------------------------------------------------
@@ -1109,7 +1118,7 @@ private:
         // 其它控件复用既有鼠标交互：把矩形中心转成客户区坐标再转发。
         // 先把它滚进可见视口：被固定表头盖住的控件点不到。
         ScrollIntoView(it.rect.top, it.rect.bottom);
-        POINT pt = { m_content.left + (it.rect.left + it.rect.right) / 2,
+        Point pt = { m_content.left + (it.rect.left + it.rect.right) / 2,
                      m_content.top - m_scroll + (it.rect.top + it.rect.bottom) / 2 };
         Click(pt, WM_LBUTTONDOWN);
     }
@@ -1150,7 +1159,7 @@ private:
 
     // Returns true when the hovered dropdown option changed, and writes the
     // affected layer rect (content-local) to outLocal so only that repaints.
-    bool UpdateOverlayHover(const POINT& p, RECT& outLocal) {
+    bool UpdateOverlayHover(const Point& p, Rect& outLocal) {
         int hov = -1;
         Rect content{};
         for (const auto& layer : m_overlayCtl.Stack().Layers()) {
@@ -1162,20 +1171,20 @@ private:
         }
         if (hov == m_overlayHoverOption) return false;
         m_overlayHoverOption = hov;
-        outLocal = RECT{content.left, content.top, content.right, content.bottom};
+        outLocal = Rect{content.left, content.top, content.right, content.bottom};
         return true;
     }
 
     // 计算数据控件的 hover；changed 为 true 时把命中的条目矩形（内容区
     // 局部坐标）写到 outLocal，供调用方只失效那一块。
-    bool UpdateDataHover(const POINT& p, RECT& outLocal) {
+    bool UpdateDataHover(const Point& p, Rect& outLocal) {
         int tableHover = -1, listHover = -1, treeHover = -1, crumbHover = -1;
         int pagerHover = 0, toastHover = -1;
         bool toastClose = false;
-        RECT hitRect{};
+        Rect hitRect{};
 
         for (const auto& it : m_items) {
-            if (PtInRect(&it.rect, p) == FALSE) continue;
+            if (!HitRect(it.rect, p)) continue;
             hitRect = it.rect;
             Rect rc{it.rect.left, it.rect.top, it.rect.right, it.rect.bottom};
             Point hit{p.x, p.y};
@@ -1626,47 +1635,46 @@ private:
         if (m_max < 0) m_max = 0;
     }
 
-    void Click(POINT pt, UINT msg) {
+    void Click(Point pt, UINT msg) {
         // 与 OnPaint 相同的坐标映射：内容区原点 - 滚动量
-        POINT p = { pt.x - m_content.left, pt.y - (m_content.top - m_scroll) };
+        Point p = { pt.x - m_content.left, pt.y - (m_content.top - m_scroll) };
 
         // 累积本次改动涉及的客户区矩形。一次 hover 通常只改一两个控件，
         // 不该让整窗重绘 —— Shell 现在会按 update region 裁剪绘制，
         // 所以这里失效得越精确，帧成本就越低。
-        RECT dirty{}; bool any = false;
-        auto markLocal = [&](const RECT& local) {
-            RECT r = local;
-            OffsetRect(&r, m_content.left, m_content.top - m_scroll);
+        Rect dirty{}; bool any = false;
+        auto markLocal = [&](const Rect& local) {
+            Rect r = local.Offset(m_content.left, m_content.top - m_scroll);
             // 控件会在自身矩形外多画一点：hover 底光四周各 4px，分组标题的
             // 分隔线在底边下方 8px。失效区必须把这个外扩量算进去，否则
             // 局部重绘会在这些边缘留下上一帧的像素。
-            InflateRect(&r, 8, 10);
+            r = r.Inflated(8, 10);
             if (r.left   < m_content.left)   r.left   = m_content.left;
             if (r.top    < m_content.top)    r.top    = m_content.top;
             if (r.right  > m_content.right)  r.right  = m_content.right;
             if (r.bottom > m_content.bottom) r.bottom = m_content.bottom;
             if (r.right <= r.left || r.bottom <= r.top) return;
             if (!any) { dirty = r; any = true; }
-            else { RECT u; UnionRect(&u, &dirty, &r); dirty = u; }
+            else { dirty = dirty.Union(r); }
         };
         // 搜索框在客户区顶部、固定不随内容滚动，直接以客户区坐标失效。
         auto markSearchClient = [&]() {
-            RECT r = m_searchBox;
-            InflateRect(&r, 4, 4);
+            Rect r = m_searchBox;
+            r = r.Inflated(4, 4);
             if (r.left   < m_content.left)   r.left   = m_content.left;
             if (r.right  > m_content.right)  r.right  = m_content.right;
             if (r.bottom > m_content.bottom) r.bottom = m_content.bottom;
             if (r.right <= r.left || r.bottom <= r.top) return;
             if (!any) { dirty = r; any = true; }
-            else { RECT u; UnionRect(&u, &dirty, &r); dirty = u; }
+            else { dirty = dirty.Union(r); }
         };
 
         // 数据/导航控件的 hover 保存在成员里（而非 Item），这样
         // 窗口 resize 重建布局后状态不会丢。先算出目标值再比较标脏。
-        RECT dataRect{};
+        Rect dataRect{};
         if (UpdateDataHover(p, dataRect)) markLocal(dataRect);
         if (msg == WM_MOUSEMOVE) {
-            RECT ovlRect{};
+            Rect ovlRect{};
             if (UpdateOverlayHover(p, ovlRect)) markLocal(ovlRect);
         }
 
@@ -1700,7 +1708,7 @@ private:
         // 行开始。
         const bool inViewport = pt.y > m_searchBox.bottom;
         for (auto& it : m_items) {
-            bool h = inViewport && PtInRect(&it.rect,p)!=FALSE;
+            bool h = inViewport && HitRect(it.rect, p);
             d = false;                           // 本轮该控件是否有改动
             // hover for all interactive items
             if (msg==WM_MOUSEMOVE) {
@@ -1930,7 +1938,7 @@ private:
             if (d) markLocal(it.rect);
         }
         for (auto& c : m_cards) {
-            const bool h = PtInRect(&c->GetRect(),p)!=FALSE;
+            const bool h = HitRect(c->GetRect(), p);
             if (c->SetHover(h)) markLocal(c->GetRect());
         }
         // Build() 会清空 m_items，不能在上面的遍历过程中调用
@@ -1946,7 +1954,7 @@ private:
     }
 
     Shell* m_shell=nullptr;
-    RECT m_content{};
+    Rect m_content{};
     std::vector<Item> m_items;
     std::vector<std::unique_ptr<Card>> m_cards;
     std::map<std::wstring, bool> m_checked;   // resize 后保留选中状态
@@ -1965,7 +1973,7 @@ private:
 
     // 组件搜索：顶部搜索框 + 按名称过滤分组。过滤结果只画命中的
     // 控件与分组标题；查询词为空时恢复全量。
-    RECT m_searchBox{};                     // 内容区顶部搜索框
+    Rect m_searchBox{};                     // 内容区顶部搜索框
     bool m_searchHover = false;             // 鼠标悬停搜索框
     bool m_searchFocus = false;             // 键盘输入进入搜索框
     std::wstring m_search;                  // 当前查询词
@@ -1997,7 +2005,7 @@ private:
     AnimationClock m_animClock;
     DemoClock      m_tickClock;
     int            m_dpiIndex = 0;
-    RECT           m_lastClient{};
+    Rect           m_lastClient{};
 };
 }
 

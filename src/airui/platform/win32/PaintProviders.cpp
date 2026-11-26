@@ -7,7 +7,7 @@
 // ============================================================
 #include "airui/PaintProviders.h"
 
-#include "airui/GdiPainter.h"
+#include "internal/GdiPainter.h"
 #include "airui/PaintBackend.h"
 #include "airui/SkiaPluginAbi.h"
 #ifdef AIRUI_HAVE_SKIA

@@ -1,11 +1,12 @@
-#include "airui/Shell.h"
-#include "airui/OverlayWindow.h"
-#include "airui/GdiPainter.h"
+#include "internal/Shell.h"
+#include "internal/OverlayWindow.h"
+#include "internal/Controls.h"
+#include "internal/GdiPainter.h"
 #include "airui/PaintProviders.h"
-#include "airui/PaintFrame.h"
-#include "airui/Gfx.h"
+#include "internal/PaintFrame.h"
+#include "internal/Gfx.h"
 #include "airui/Responsive.h"
-#include "airui/RaII.h"
+#include "internal/RaII.h"
 #include "airui/Accessibility.h"
 #include "core/DiagLog.h"
 #include <commctrl.h>
@@ -151,7 +152,7 @@ static void uiDebugLog(const wchar_t* fmt, ...)
 // ============================================================
 // IPage::ParentWnd
 // ============================================================
-HWND IPage::ParentWnd() const
+WindowHandle IPage::ParentWnd() const
 {
     return m_shell ? m_shell->Hwnd() : nullptr;
 }
@@ -171,6 +172,20 @@ const int kPaintBtnGap = 12;   // gap between the button and the 3 caption keys
 RECT ToWinRect(const Rect& r)
 {
     return RECT{ r.left, r.top, r.right, r.bottom };
+}
+
+HWND HwndOf(WindowHandle h) { return reinterpret_cast<HWND>(h); }
+HDC DcOf(DeviceContextHandle h) { return reinterpret_cast<HDC>(h); }
+POINT ToWinPoint(const Point& p) { return POINT{ p.x, p.y }; }
+Rect FromWinRect(const RECT& r)
+{
+    return Rect{ r.left, r.top, r.right, r.bottom };
+}
+Point FromWinPoint(const POINT& p) { return Point{ p.x, p.y }; }
+void InvalidateRectRect(HWND hwnd, const Rect& r)
+{
+    RECT native = ToWinRect(r);
+    InvalidateRect(hwnd, &native, FALSE);
 }
 
 // NavGroup / NavItem are Win32 control types; ShellNavGroup /
@@ -226,15 +241,15 @@ Shell::~Shell()
 // ============================================================
 // 创建
 // ============================================================
-bool Shell::RegisterWindowClass(HINSTANCE hInst)
+bool Shell::RegisterWindowClass(InstanceHandle hInst)
 {
     WNDCLASSEXW wc = { sizeof(wc) };
     wc.style         = CS_HREDRAW | CS_VREDRAW;
-    wc.lpfnWndProc   = &Shell::WndProc;
-    wc.hInstance     = hInst;
+    wc.lpfnWndProc   = reinterpret_cast<WNDPROC>(&Shell::WndProc);
+    wc.hInstance     = reinterpret_cast<HINSTANCE>(hInst);
     wc.hCursor       = LoadCursor(nullptr, IDC_ARROW);
-    wc.hIcon         = m_opt.icon ? m_opt.icon
-                                  : LoadIconW(hInst, MAKEINTRESOURCEW(1));
+    wc.hIcon         = m_opt.icon ? reinterpret_cast<HICON>(m_opt.icon)
+                                  : LoadIconW(reinterpret_cast<HINSTANCE>(hInst), MAKEINTRESOURCEW(1));
     if (!wc.hIcon) wc.hIcon = LoadIcon(nullptr, IDI_APPLICATION);
     wc.hIconSm       = wc.hIcon;
     wc.hbrBackground = nullptr;   // 全自绘，禁用系统擦背景
@@ -247,7 +262,7 @@ bool Shell::RegisterWindowClass(HINSTANCE hInst)
     return true;
 }
 
-bool Shell::Create(HINSTANCE hInstance, const ShellOptions& options)
+bool Shell::Create(InstanceHandle hInstance, const ShellOptions& options)
 {
     m_hinst = hInstance;
     m_opt   = options;
@@ -312,13 +327,13 @@ bool Shell::Create(HINSTANCE hInstance, const ShellOptions& options)
                              WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
                              CW_USEDEFAULT, CW_USEDEFAULT,
                              m_opt.width, m_opt.height,
-                             nullptr, nullptr, hInstance, this);
+                             nullptr, nullptr, reinterpret_cast<HINSTANCE>(hInstance), this);
     if (!m_hwnd) {
         uiDebugLog(L"CreateWindowEx failed, gle=%lu", GetLastError());
         return false;
     }
 
-    ApplyDwmFrame(m_hwnd);
+    ApplyDwmFrame(HwndOf(m_hwnd));
     uiDebugLog(L"Create ok, hwnd=%p", (void*)m_hwnd);
     return true;
 }
@@ -337,8 +352,8 @@ int Shell::RunMessageLoop()
     if (m_pageId < 0 && !m_pages.empty()) SwitchPage(m_pages.front().id);
 
     // 静默启动：窗口已建好但不显示（页面/子控件仍完成挂载与首帧布局）
-    ShowWindow(m_hwnd, m_opt.showOnCreate ? SW_SHOW : SW_HIDE);
-    UpdateWindow(m_hwnd);
+    ShowWindow(HwndOf(m_hwnd), m_opt.showOnCreate ? SW_SHOW : SW_HIDE);
+    UpdateWindow(HwndOf(m_hwnd));
 
     MSG msg;
     while (GetMessage(&msg, nullptr, 0, 0) > 0) {
@@ -346,8 +361,13 @@ int Shell::RunMessageLoop()
         // 而焦点几乎总在页面的 EDIT / LISTBOX 上，主窗口 WndProc
         // 根本收不到 F3/F4。交给应用层判断消息归属，库里不含业务语义。
         if ((msg.message == WM_KEYDOWN || msg.message == WM_SYSKEYDOWN) &&
-            !m_modalActive && m_accel && m_accel(msg))
-            continue;
+            !m_modalActive && m_accel) {
+            MessageInfo info{
+                msg.hwnd, msg.message, msg.wParam, msg.lParam,
+                msg.time, Point{ msg.pt.x, msg.pt.y }
+            };
+            if (m_accel(info)) continue;
+        }
         TranslateMessage(&msg);
         DispatchMessage(&msg);
     }
@@ -404,7 +424,7 @@ bool Shell::SwitchPage(int id)
     // RAII 冻结整窗重绘：OnShow(false)→LayoutAll→OnShow(true) 中间若
     // return / 抛异常，析构也会恢复重绘并连子控件一起失效，不会把窗口
     // 永久冻住。
-    ScopedRedrawFreeze freeze(m_hwnd);
+    ScopedRedrawFreeze freeze(HwndOf(m_hwnd));
     // Lifting the freeze repaints the client area WITH an erase. Suppress
     // that fill for the duration of the switch, otherwise the user sees a
     // flat background frame until the (slow) Skia frame lands. Only safe
@@ -424,7 +444,7 @@ bool Shell::SwitchPage(int id)
     // 异步失效而不是 RDW_UPDATENOW：同步重绘会阻塞 UI 线程整整一帧，
     // Skia 后端 30-50ms，反复切换时会把用户点击积压起来。下一次空闲的
     // WM_PAINT 把它呈现出来。
-    ::InvalidateRect(m_hwnd, nullptr, FALSE);
+    ::InvalidateRect(HwndOf(m_hwnd), nullptr, FALSE);
     m_eraseSuppressed = false;
     return true;
 }
@@ -558,33 +578,33 @@ void Shell::SetSidebarInfo(const std::wstring& title,
 // ============================================================
 void Shell::Invalidate()
 {
-    if (m_hwnd) ::InvalidateRect(m_hwnd, nullptr, FALSE);
+    if (m_hwnd) ::InvalidateRect(HwndOf(m_hwnd), nullptr, FALSE);
 }
 
 void Shell::InvalidateContent()
 {
-    if (m_hwnd) ::InvalidateRect(m_hwnd, &m_content, FALSE);
+    if (m_hwnd) InvalidateRectRect(HwndOf(m_hwnd), m_content);
 }
 
 void Shell::InvalidateTitle()
 {
     if (!m_hwnd) return;
     RECT rc;
-    GetClientRect(m_hwnd, &rc);
+    GetClientRect(HwndOf(m_hwnd), &rc);
     rc.bottom = Mx().titleH;
-    ::InvalidateRect(m_hwnd, &rc, FALSE);
+    ::InvalidateRect(HwndOf(m_hwnd), &rc, FALSE);
 }
 
-void Shell::InvalidateRegion(const RECT& rcClient)
+void Shell::InvalidateRegion(const Rect& rcClient)
 {
-    if (m_hwnd) ::InvalidateRect(m_hwnd, &rcClient, FALSE);
+    if (m_hwnd) InvalidateRectRect(HwndOf(m_hwnd), rcClient);
 }
 
 void Shell::SetRedraw(bool on)
 {
     if (!m_hwnd) return;
 
-    SendMessageW(m_hwnd, WM_SETREDRAW, on ? TRUE : FALSE, 0);
+    SendMessageW(HwndOf(m_hwnd), WM_SETREDRAW, on ? TRUE : FALSE, 0);
     if (!on) return;
 
     // 重新打开重绘时要**连子控件一起**失效。
@@ -599,23 +619,23 @@ void Shell::SetRedraw(bool on)
     //
     // RDW_ALLCHILDREN 把所有后代一起标脏，把批处理吞掉的那次重绘补回来。
     // 代价是一次整窗失效（本来就是这一帧要做的事），不能省。
-    RedrawWindow(m_hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN);
+    RedrawWindow(HwndOf(m_hwnd), nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN);
 }
 
 int Shell::ShowMessageBox(const std::wstring& text, const std::wstring& caption,
-                          UINT flags)
+                          MessageBoxFlags flags)
 {
     if (!m_hwnd) return 0;
     // 应用内所有确认框都走自绘 Modal：风格跟设计系统一致，也避免
     // 原生弹窗把无边框窗口的焦点/重绘节奏打乱。服务安装器是命令行
     // 工具，没有 Shell，仍用系统弹窗。
     m_modalActive = true;
-    const int rc = RunModalDialog(m_hwnd, m_fonts, caption, text, flags);
+    const int rc = RunModalDialog(HwndOf(m_hwnd), m_fonts, caption, text, flags);
     m_modalActive = false;
     return rc;
 }
 
-int Shell::ShowPopupMenu(POINT screenPt, const std::vector<MenuItem>& items)
+int Shell::ShowPopupMenu(Point screenPt, const std::vector<MenuItem>& items)
 {
     if (!m_hwnd || items.empty()) return 0;
 
@@ -626,7 +646,7 @@ int Shell::ShowPopupMenu(POINT screenPt, const std::vector<MenuItem>& items)
     for (const auto& it : items)
         converted.push_back({ it.id, it.label, it.separator, it.disabled });
 
-    return ::air::ui::RunPopupMenu(m_hwnd, m_fonts, screenPt, converted);
+    return ::air::ui::RunPopupMenu(HwndOf(m_hwnd), m_fonts, ToWinPoint(screenPt), converted);
 }
 
 int Shell::MeasureTextWidth(const std::wstring& s, FontRole role)
@@ -661,12 +681,12 @@ Widget* Shell::WidgetAt(int id)
 }
 
 void Shell::SetMessageHook(
-    std::function<bool(HWND, UINT, WPARAM, LPARAM, LRESULT&)> hook)
+    std::function<bool(WindowHandle, MessageId, MessageWParam, MessageLParam, MessageResult&)> hook)
 {
     m_hook = std::move(hook);
 }
 
-void Shell::SetAcceleratorHandler(std::function<bool(const MSG&)> handler)
+void Shell::SetAcceleratorHandler(std::function<bool(const MessageInfo&)> handler)
 {
     m_accel = std::move(handler);
 }
@@ -683,7 +703,7 @@ void Shell::LayoutAll()
 {
     if (!m_hwnd) return;
     RECT rc;
-    GetClientRect(m_hwnd, &rc);
+    GetClientRect(HwndOf(m_hwnd), &rc);
     const Metrics& m = Mx();
 
     int W = rc.right, H = rc.bottom;
@@ -793,26 +813,26 @@ int Shell::CaptionActionWidth() const
     return Mx().capBtnW * 3 + kPaintBtnGap + kPaintBtnW + 10;
 }
 
-RECT Shell::PaintBackendButtonRect() const
+Rect Shell::PaintBackendButtonRect() const
 {
     RECT rc = {};
-    if (!m_hwnd) return rc;
-    GetClientRect(m_hwnd, &rc);
+    if (!m_hwnd) return Rect{};
+    GetClientRect(HwndOf(m_hwnd), &rc);
     const int right = rc.right - Mx().capBtnW * 3 - kPaintBtnGap;
     const int top   = (Mx().titleH - kPaintBtnH) / 2;
-    return RECT{ right - kPaintBtnW, top, right, top + kPaintBtnH };
+    return FromWinRect(RECT{ right - kPaintBtnW, top, right, top + kPaintBtnH });
 }
 
-bool Shell::HitTestPaintBackendButton(POINT pt) const
+bool Shell::HitTestPaintBackendButton(Point pt) const
 {
-    const RECT r = PaintBackendButtonRect();
+    const Rect r = PaintBackendButtonRect();
     return pt.x >= r.left && pt.x < r.right &&
            pt.y >= r.top  && pt.y < r.bottom;
 }
 
-void Shell::DrawPaintBackendButton(HDC dc)
+void Shell::DrawPaintBackendButton(DeviceContextHandle dc)
 {
-    const RECT r = PaintBackendButtonRect();
+    const Rect r = PaintBackendButtonRect();
     if (r.right <= r.left) return;
 
     const Palette& p = Pal();
@@ -849,8 +869,8 @@ void Shell::DrawPaintBackendButton(HDC dc)
         }
     }
 
-    gfx::FillRound(dc, r, bg, 6);
-    gfx::Stroke(dc, r, border, 6);
+    gfx::FillRound(dc, ToWinRect(r), bg, 6);
+    gfx::Stroke(dc, ToWinRect(r), border, 6);
     RECT tr = { r.left + 8, r.top, r.right - 8, r.bottom };
     gfx::Text(dc, m_fonts.Get(FontRole::Meta), fg, tr, label,
               DT_SINGLELINE | DT_CENTER | DT_VCENTER |
@@ -882,11 +902,11 @@ void Shell::SetPaintBackendChangedHandler(
 // ============================================================
 // 绘制
 // ============================================================
-void Shell::Paint(HDC dc)
+void Shell::Paint(DeviceContextHandle dc)
 {
     const long long tPaint0 = QpcUs();
     RECT rc;
-    GetClientRect(m_hwnd, &rc);
+    GetClientRect(HwndOf(m_hwnd), &rc);
 
     // ---- Open ONE frame for the entire client area -----------------
     // gfx::* and CanvasPainter both route through PaintFrame, so the
@@ -907,7 +927,7 @@ void Shell::Paint(HDC dc)
         const std::string& err = PainterRegistry::Instance().LastError();
         if (backend && err.empty()) {
             PaintFrame& frame = PaintFrame::Instance();
-            frame.Begin(backend.get(), dc, &m_fonts,
+            frame.Begin(backend.get(), DcOf(dc), &m_fonts,
                         SkiaPluginSupportsWideText());
             frameActive = frame.Active();
         } else {
@@ -927,14 +947,16 @@ void Shell::Paint(HDC dc)
     // this only ever narrows work on the GDI path.
     if (m_paintClip.right <= m_paintClip.left ||
         m_paintClip.bottom <= m_paintClip.top) {
-        m_paintClip = rc;                    // Paint() called outside WM_PAINT
+        m_paintClip = FromWinRect(rc);                    // Paint() called outside WM_PAINT
     }
     const bool partialPaint =
         m_paintClip.left > rc.left || m_paintClip.top > rc.top ||
         m_paintClip.right < rc.right || m_paintClip.bottom < rc.bottom;
     RECT isect;
-    auto hits = [this, &isect](const RECT& r) {
-        return IntersectRect(&isect, &r, &m_paintClip) != FALSE;
+    auto hits = [this, &isect](const Rect& r) {
+        RECT native = ToWinRect(r);
+        RECT clip   = ToWinRect(m_paintClip);
+        return IntersectRect(&isect, &native, &clip) != FALSE;
     };
     const bool chromeDirty = !partialPaint ||
         hits(m_caption) || hits(m_side) || hits(m_status);
@@ -951,14 +973,14 @@ void Shell::Paint(HDC dc)
             if (frameActive) {
                 m_shellCore.Paint(PaintFrame::Instance(), Pal(), Mx(), clipHint);
             } else {
-                GdiPainter fallback(dc);
+                GdiPainter fallback(DcOf(dc));
                 m_shellCore.Paint(fallback, Pal(), Mx(), clipHint);
             }
         }
     } else {
         // Legacy rich chrome (logo, three caption buttons, status pills,
         // key hints). Its state is read back from ShellCore.
-        if (chromeDirty && hits(m_caption)) DrawCaption(dc, rc);
+        if (chromeDirty && hits(m_caption)) DrawCaption(dc, FromWinRect(rc));
         if (m_opt.sidebar && chromeDirty && hits(m_side)) {
             m_nav.Paint(dc, m_fonts);
             DrawSidebarFooter(dc);
@@ -970,12 +992,12 @@ void Shell::Paint(HDC dc)
     }
 
     if (!m_opt.coreShell && m_opt.statusBar && chromeDirty && hits(m_status))
-        DrawStatusBar(dc, rc);
+        DrawStatusBar(dc, FromWinRect(rc));
 
     // 外壳动作区最后画：两条 chrome 路径下都在最上层，且不会被页面
     // 的 HWND 子控件遮挡（标题栏内没有子控件）。
     if (chromeDirty && hits(m_caption)) {
-        if (m_opt.coreShell) DrawCaptionButtons(dc, rc);
+        if (m_opt.coreShell) DrawCaptionButtons(dc, FromWinRect(rc));
         DrawPaintBackendButton(dc);
     }
 
@@ -1017,13 +1039,13 @@ void Shell::Paint(HDC dc)
 // ------------------------------------------------------------
 // 标题栏：Logo + 应用名 + 竖线 + 副标题 + 自定义区 + 状态胶囊 + 三键
 // ------------------------------------------------------------
-void Shell::DrawCaption(HDC dc, const RECT& rc)
+void Shell::DrawCaption(DeviceContextHandle dc, const Rect& rc)
 {
     const Palette& p = Pal();
     const Metrics& m = Mx();
     const CaptionState& cs = m_shellCore.Caption();   // core is the state source
 
-    gfx::Fill(dc, m_caption, p.surface);
+    gfx::Fill(dc, ToWinRect(m_caption), p.surface);
     gfx::HLine(dc, 0, rc.right, m.titleH - 1, p.split);
 
     // Logo 26x26
@@ -1070,7 +1092,7 @@ void Shell::DrawCaption(HDC dc, const RECT& rc)
 
     // 自定义区（派生类）
     RECT rcExtra = { dx + 10, 0, nameRight, m.titleH };
-    OnPaintCaptionExtra(dc, rcExtra);
+    OnPaintCaptionExtra(dc, FromWinRect(rcExtra));
 
     // 状态胶囊
     if (!cs.badge.empty()) {
@@ -1093,13 +1115,13 @@ void Shell::DrawCaption(HDC dc, const RECT& rc)
 // ShellCore 不画三键，但命中测试一直存在 —— 这里补画，避免切到 Skia
 // 后「关闭/最小化按钮变成隐形」。
 // ------------------------------------------------------------
-void Shell::DrawCaptionButtons(HDC dc, const RECT& rc)
+void Shell::DrawCaptionButtons(DeviceContextHandle dc, const Rect& rc)
 {
     const Palette& p = Pal();
     const Metrics& m = Mx();
     const wchar_t* glyphs[3] = {
         L"\xE921",                                     // 最小化
-        IsZoomed(m_hwnd) ? L"\xE923" : L"\xE922",      // 还原 / 最大化
+        IsZoomed(HwndOf(m_hwnd)) ? L"\xE923" : L"\xE922",      // 还原 / 最大化
         L"\xE8BB"                                      // 关闭
     };
     for (int i = 0; i < 3; ++i) {
@@ -1121,14 +1143,14 @@ void Shell::DrawCaptionButtons(HDC dc, const RECT& rc)
 // ------------------------------------------------------------
 // 状态栏：左「状态点 + 文本 + 副信息」，右 kbd 键位提示
 // ------------------------------------------------------------
-void Shell::DrawStatusBar(HDC dc, const RECT& rc)
+void Shell::DrawStatusBar(DeviceContextHandle dc, const Rect& rc)
 {
     const Palette& p = Pal();
     const Metrics& m = Mx();
     const StatusState& ss = m_shellCore.Status();   // core is the state source
     (void)rc;
 
-    gfx::Fill(dc, m_status, p.surface);
+    gfx::Fill(dc, ToWinRect(m_status), p.surface);
     gfx::HLine(dc, 0, m_status.right, m_status.top, p.split);
 
     int cy = m_status.top + m.statusH / 2;
@@ -1167,7 +1189,7 @@ void Shell::DrawStatusBar(HDC dc, const RECT& rc)
 // ------------------------------------------------------------
 // 侧栏底部：信息卡 + 版本行
 // ------------------------------------------------------------
-void Shell::DrawSidebarFooter(HDC dc)
+void Shell::DrawSidebarFooter(DeviceContextHandle dc)
 {
     if (m_infoRows.empty() && m_footerText.empty()) return;
 
@@ -1220,11 +1242,11 @@ void Shell::DrawSidebarFooter(HDC dc)
 // ============================================================
 // 命中测试
 // ============================================================
-int Shell::CaptionButtonAt(POINT pt) const
+int Shell::CaptionButtonAt(Point pt) const
 {
     const Metrics& m = Mx();
     RECT rc;
-    GetClientRect(m_hwnd, &rc);
+    GetClientRect(HwndOf(m_hwnd), &rc);
     if (pt.y < 0 || pt.y >= m.titleH) return 0;
     if (pt.x >= rc.right - m.capBtnW)     return 3;
     if (pt.x >= rc.right - m.capBtnW * 2) return 2;
@@ -1235,22 +1257,22 @@ int Shell::CaptionButtonAt(POINT pt) const
 // ============================================================
 // 窗口过程
 // ============================================================
-LRESULT CALLBACK Shell::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+MessageResult Shell::WndProc(WindowHandle hwnd, MessageId msg, MessageWParam wParam, MessageLParam lParam)
 {
     Shell* self = nullptr;
     if (msg == WM_NCCREATE) {
         auto* cs = (CREATESTRUCTW*)lParam;
         self = (Shell*)cs->lpCreateParams;
-        SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)self);
+        SetWindowLongPtrW(HwndOf(hwnd), GWLP_USERDATA, (LONG_PTR)self);
         if (self) self->m_hwnd = hwnd;
     } else {
-        self = (Shell*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+        self = (Shell*)GetWindowLongPtrW(HwndOf(hwnd), GWLP_USERDATA);
     }
-    if (!self) return DefWindowProcW(hwnd, msg, wParam, lParam);
+    if (!self) return DefWindowProcW(HwndOf(hwnd), msg, wParam, lParam);
     return self->HandleMessage(hwnd, msg, wParam, lParam);
 }
 
-LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+MessageResult Shell::HandleMessage(WindowHandle hwnd, MessageId msg, MessageWParam wParam, MessageLParam lParam)
 {
     // 1) 外部钩子（插件 / 快捷键）最优先
     LRESULT hooked = 0;
@@ -1285,9 +1307,9 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_ERASEBKGND: {
         HDC dc = (HDC)wParam;
         RECT rcClient;
-        GetClientRect(hwnd, &rcClient);
+        GetClientRect(HwndOf(hwnd), &rcClient);
         RECT upd = {};
-        GetUpdateRect(hwnd, &upd, FALSE);
+        GetUpdateRect(HwndOf(hwnd), &upd, FALSE);
         uiDebugLog(L"[erase] page=%d %dx%d suppressed=%d strips=%d "
                    L"update=%ld,%ld-%ld,%ld",
                    m_pageId,
@@ -1325,7 +1347,7 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             s_bg      = CreateSolidBrush(s_bgColor);
         }
         for (int i = 0; i < m_eraseCount; ++i) {
-            RECT r = m_eraseRects[i];
+            RECT r = ToWinRect(m_eraseRects[i]);
             if (r.right > r.left && r.bottom > r.top) FillRect(dc, &r, s_bg);
         }
         m_eraseCount = 0;
@@ -1335,7 +1357,7 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     // ---- 无边框：客户区 = 整个窗口 ----
     case WM_NCCALCSIZE:
         if (!wParam) break;
-        if (IsZoomed(hwnd)) {
+        if (IsZoomed(HwndOf(hwnd))) {
             auto* r = (RECT*)lParam;
             int fw = GetSystemMetrics(SM_CXSIZEFRAME) +
                      GetSystemMetrics(SM_CXPADDEDBORDER);
@@ -1347,22 +1369,22 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
     case WM_NCACTIVATE:
         m_active = (wParam != FALSE);
-        return DefWindowProcW(hwnd, msg, wParam, -1);
+        return DefWindowProcW(HwndOf(hwnd), msg, wParam, -1);
 
     case WM_NCHITTEST: {
         POINT pt = { (short)LOWORD(lParam), (short)HIWORD(lParam) };
-        ScreenToClient(hwnd, &pt);
+        ScreenToClient(HwndOf(hwnd), &pt);
 
         // 1) 标题栏三键 / 渲染后端按钮优先：按客户区点击处理
         //    （否则标题栏会被判成 HTCAPTION，点击变成拖动窗口）
-        if (CaptionButtonAt(pt)) return HTCLIENT;
-        if (HitTestPaintBackendButton(pt)) return HTCLIENT;
+        if (CaptionButtonAt(FromWinPoint(pt))) return HTCLIENT;
+        if (HitTestPaintBackendButton(FromWinPoint(pt))) return HTCLIENT;
 
         // 2) 无边框 + NCCALCSIZE 返回 0 后，DefWindowProc 找不到边缘区；
         //    这里显式提供 6px 边缘热区，拖拽边框即可调整窗口大小。
-        if (!IsZoomed(hwnd)) {
+        if (!IsZoomed(HwndOf(hwnd))) {
             RECT rc;
-            GetClientRect(hwnd, &rc);
+            GetClientRect(HwndOf(hwnd), &rc);
             const int B = 6;
             bool onLeft   = pt.x >= 0 && pt.x < B;
             bool onRight  = pt.x < rc.right && pt.x >= rc.right - B;
@@ -1379,7 +1401,7 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             if (onBottom)            return HTBOTTOM;
         }
 
-        LRESULT ht = DefWindowProcW(hwnd, msg, wParam, lParam);
+        LRESULT ht = DefWindowProcW(HwndOf(hwnd), msg, wParam, lParam);
         if (ht != HTCLIENT) return ht;
         if (pt.y >= 0 && pt.y < m.titleH) return HTCAPTION;  // 拖动/双击/吸附
         return HTCLIENT;
@@ -1393,7 +1415,7 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         if ((HWND)wParam != hwnd && (HWND)wParam != nullptr) {
             if (IPage* p = CurrentPage())
                 if (p->OnMouseLeave())
-                    ::InvalidateRect(hwnd, &m_content, FALSE);
+                    InvalidateRectRect(HwndOf(hwnd), m_content);
             break;
         }
 
@@ -1403,10 +1425,10 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         // I-beam 会被换成手型。
         if ((HWND)wParam == hwnd && LOWORD(lParam) == HTCLIENT) {
             POINT pt = {};
-            if (::GetCursorPos(&pt) && ::ScreenToClient(hwnd, &pt)) {
+            if (::GetCursorPos(&pt) && ::ScreenToClient(HwndOf(hwnd), &pt)) {
                 POINT cp = { pt.x - m_content.left, pt.y - m_content.top };
                 IPage* p = CurrentPage();
-                if (p && p->HandCursorAt(cp)) {
+                if (p && p->HandCursorAt(FromWinPoint(cp))) {
                     // IDC_HAND 是 MAKEINTRESOURCE(32649)，写死成宽字符版本
                     // 才能直接喂给 LoadCursorW（IDC_HAND 本身是 ANSI 资源名）。
                     static HCURSOR hand =
@@ -1424,12 +1446,12 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         bool captionDirty = false;   // 标题栏三键 / 渲染后端按钮
         bool navDirty     = false;   // 侧栏导航列表
 
-        int btn = CaptionButtonAt(pt);
+        int btn = CaptionButtonAt(FromWinPoint(pt));
         if (btn != m_capHover) {
             m_capHover = btn;
             captionDirty = true;
         }
-        bool onPaintBtn = HitTestPaintBackendButton(pt);
+        bool onPaintBtn = HitTestPaintBackendButton(FromWinPoint(pt));
         if (onPaintBtn != m_paintBtnHover) {
             m_paintBtnHover = onPaintBtn;
             captionDirty = true;
@@ -1437,7 +1459,7 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         bool tracking = (btn != 0) || onPaintBtn;
 
         if (m_opt.sidebar && pt.x < m_side.right && pt.y >= m.titleH) {
-            if (m_nav.OnMouseMove(pt)) navDirty = true;
+            if (m_nav.OnMouseMove(FromWinPoint(pt))) navDirty = true;
             tracking = true;
         } else {
             if (m_nav.OnMouseLeave()) navDirty = true;
@@ -1448,27 +1470,27 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         POINT cp = { pt.x - m_content.left, pt.y - m_content.top };
         bool contentDirty = false;
         if (IPage* p = CurrentPage())
-            contentDirty = p->OnMouseMove(cp);
+            contentDirty = p->OnMouseMove(FromWinPoint(cp));
 
         if (contentDirty) {
-            ::InvalidateRect(hwnd, nullptr, FALSE);
+            ::InvalidateRect(HwndOf(hwnd), nullptr, FALSE);
         } else if (captionDirty || navDirty) {
             // 只失效真正变化的那一块。整窗失效会连带把子控件（剪贴板
             // 列表）拖进一次重绘：LISTBOX 的 owner-draw 帧是"先擦成背
             // 景色，再逐行画回来"，十几次这样闪就会看成列表在抖。
             RECT rcClient;
-            GetClientRect(hwnd, &rcClient);
+            GetClientRect(HwndOf(hwnd), &rcClient);
             if (captionDirty) {
                 RECT rcCap = { 0, 0, rcClient.right, m.titleH };
-                ::InvalidateRect(hwnd, &rcCap, FALSE);
+                ::InvalidateRect(HwndOf(hwnd), &rcCap, FALSE);
             }
             if (navDirty && m_opt.sidebar) {
                 RECT rcNav = { 0, m.titleH, m_side.right, rcClient.bottom };
-                ::InvalidateRect(hwnd, &rcNav, FALSE);
+                ::InvalidateRect(HwndOf(hwnd), &rcNav, FALSE);
             }
         }
         if (tracking) {
-            TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hwnd, 0 };
+            TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, HwndOf(hwnd), 0 };
             TrackMouseEvent(&tme);
         }
         return 0;
@@ -1483,18 +1505,18 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         bool contentDirty = false;
         if (IPage* p = CurrentPage()) contentDirty = p->OnMouseLeave();
         if (contentDirty) {
-            ::InvalidateRect(hwnd, nullptr, FALSE);
+            ::InvalidateRect(HwndOf(hwnd), nullptr, FALSE);
             return 0;
         }
         RECT rcClient;
-        GetClientRect(hwnd, &rcClient);
+        GetClientRect(HwndOf(hwnd), &rcClient);
         if (captionDirty) {
             RECT rcCap = { 0, 0, rcClient.right, m.titleH };
-            ::InvalidateRect(hwnd, &rcCap, FALSE);
+            ::InvalidateRect(HwndOf(hwnd), &rcCap, FALSE);
         }
         if (navDirty) {
             RECT rcNav = { 0, m.titleH, m_side.right, rcClient.bottom };
-            ::InvalidateRect(hwnd, &rcNav, FALSE);
+            ::InvalidateRect(HwndOf(hwnd), &rcNav, FALSE);
         }
         return 0;
     }
@@ -1504,24 +1526,24 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
         // 三键最优先：任何页面都必须响应
         // （曾因页面分支提前 return 导致默认页点三键无反应）
-        int btn = CaptionButtonAt(pt);
-        if (btn == 1) { PostMessageW(hwnd, WM_SYSCOMMAND, SC_MINIMIZE, 0); return 0; }
+        int btn = CaptionButtonAt(FromWinPoint(pt));
+        if (btn == 1) { PostMessageW(HwndOf(hwnd), WM_SYSCOMMAND, SC_MINIMIZE, 0); return 0; }
         if (btn == 2) {
-            PostMessageW(hwnd, WM_SYSCOMMAND,
-                         IsZoomed(hwnd) ? SC_RESTORE : SC_MAXIMIZE, 0);
+            PostMessageW(HwndOf(hwnd), WM_SYSCOMMAND,
+                         IsZoomed(HwndOf(hwnd)) ? SC_RESTORE : SC_MAXIMIZE, 0);
             return 0;
         }
-        if (btn == 3) { PostMessageW(hwnd, WM_SYSCOMMAND, SC_CLOSE, 0); return 0; }
+        if (btn == 3) { PostMessageW(HwndOf(hwnd), WM_SYSCOMMAND, SC_CLOSE, 0); return 0; }
 
         // 渲染后端切换：热切换，下一帧生效；首次点击顺带打开 HAL 外壳
-        if (HitTestPaintBackendButton(pt)) {
+        if (HitTestPaintBackendButton(FromWinPoint(pt))) {
             TogglePaintBackend();
             return 0;
         }
 
         // 侧栏导航
         if (m_opt.sidebar && pt.x < m_side.right && pt.y >= m.titleH) {
-            int id = m_nav.HitTest(pt);
+            int id = m_nav.HitTest(FromWinPoint(pt));
             if (id >= 0 && !m_nav.IsDisabled(id)) {
                 if (FindPage(id)) SwitchPage(id);
                 else if (m_navHandler) m_navHandler(id);
@@ -1531,7 +1553,7 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
         // 页面
         POINT cp = { pt.x - m_content.left, pt.y - m_content.top };
-        if (IPage* p = CurrentPage()) p->OnMouseDown(cp);
+        if (IPage* p = CurrentPage()) p->OnMouseDown(FromWinPoint(cp));
         return 0;
     }
 
@@ -1544,8 +1566,8 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         POINT pt = { (short)LOWORD(lParam), (short)HIWORD(lParam) };
         POINT cp = { pt.x - m_content.left, pt.y - m_content.top };
         if (IPage* p = CurrentPage()) {
-            if (p->OnMouseUp(cp))
-                ::InvalidateRect(hwnd, &m_content, FALSE);
+            if (p->OnMouseUp(FromWinPoint(cp)))
+                InvalidateRectRect(HwndOf(hwnd), m_content);
         }
         return 0;
     }
@@ -1553,7 +1575,7 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_PAINT: {
         if (PaintTraceEnabled()) {
             RECT upd = {};
-            GetUpdateRect(hwnd, &upd, FALSE);
+            GetUpdateRect(HwndOf(hwnd), &upd, FALSE);
             uiDebugLog(L"[paint-req] page=%d update=%ld,%ld-%ld,%ld", m_pageId,
                        (long)upd.left, (long)upd.top,
                        (long)upd.right, (long)upd.bottom);
@@ -1567,7 +1589,7 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         const bool skiaDirect =
             (NormalizeBackend(m_paintBackend) == "skia") &&
             PainterRegistry::Instance().Available("skia");
-        PaintDC pdc(hwnd, !skiaDirect, skiaDirect ? nullptr : &m_backBuffer);
+        PaintDC pdc(HwndOf(hwnd), !skiaDirect, skiaDirect ? nullptr : &m_backBuffer);
         const long long tDc1 = QpcUs();
         if (pdc.dc()) {
             const RECT& upd = pdc.update();
@@ -1579,7 +1601,7 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             // work. A compositing backend (Skia) rebuilds the whole client
             // in its own framebuffer, so for it the effective clip is
             // always the full client even when rcPaint is partial.
-            m_paintClip = partial ? upd : cli;
+            m_paintClip = FromWinRect(partial ? upd : cli);
             // Honour the update region. BeginPaint's rcPaint is exactly
             // what changed; for a one-row hover that is a fraction of the
             // client, yet Paint() used to fill and draw all of it (about
@@ -1626,7 +1648,7 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                   m_dpi, Mx().searchH, Mx().itemH);
         if (lParam) {
             const RECT* sr = (const RECT*)lParam;
-            SetWindowPos(hwnd, nullptr, sr->left, sr->top,
+            SetWindowPos(HwndOf(hwnd), nullptr, sr->left, sr->top,
                          sr->right - sr->left, sr->bottom - sr->top,
                          SWP_NOZORDER | SWP_NOACTIVATE);
         }
@@ -1634,19 +1656,19 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         // WM_SIZE 已跑过一次，这里再跑一次无害；尺寸未变 / lParam=0
         // 时它就是唯一的重排入口。
         LayoutAll();
-        ::InvalidateRect(hwnd, nullptr, FALSE);
+        ::InvalidateRect(HwndOf(hwnd), nullptr, FALSE);
         return 0;
     }
 
     case WM_SIZE: {
         RECT nrc = {};
-        GetClientRect(hwnd, &nrc);
+        GetClientRect(HwndOf(hwnd), &nrc);
         const int nw = nrc.right - nrc.left;
         const int nh = nrc.bottom - nrc.top;
-        const int ow = m_lastClient.cx;
-        const int oh = m_lastClient.cy;
-        m_lastClient.cx = nw;
-        m_lastClient.cy = nh;
+        const int ow = m_lastClient.w;
+        const int oh = m_lastClient.h;
+        m_lastClient.w = nw;
+        m_lastClient.h = nh;
 
         LayoutAll();
 
@@ -1658,7 +1680,7 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         // that reads as the window blinking to a blank surface.
         m_eraseCount = 0;
         if (!m_paintedOnce || ow <= 0 || oh <= 0) {
-            m_eraseRects[m_eraseCount++] = nrc;                    // 从没画过
+            m_eraseRects[m_eraseCount++] = FromWinRect(nrc);                    // 从没画过
         } else {
             if (nw > ow) {                                        // 右边新露出一条
                 m_eraseRects[m_eraseCount].left   = ow;
@@ -1676,7 +1698,7 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             }
         }
         if (m_toastMgr) m_toastMgr->Reposition();
-        ::InvalidateRect(hwnd, nullptr, FALSE);
+        ::InvalidateRect(HwndOf(hwnd), nullptr, FALSE);
         return 0;
     }
 
@@ -1689,8 +1711,8 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         // Same exposure problem on the very first show / after a hide.
         if (wParam) {
             RECT rcShow = {};
-            GetClientRect(hwnd, &rcShow);
-            m_eraseRects[0] = rcShow;
+            GetClientRect(HwndOf(hwnd), &rcShow);
+            m_eraseRects[0] = FromWinRect(rcShow);
             m_eraseCount    = 1;
             if (rcShow.right <= rcShow.left) m_eraseCount = 0;
         }
@@ -1751,14 +1773,14 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     }
 
     case WM_MEASUREITEM:
-        if (Widget* w = WidgetAt((int)((MEASUREITEMSTRUCT*)lParam)->CtlID))
-            if (w->HandleMeasureItem((MEASUREITEMSTRUCT*)lParam)) return TRUE;
+        if (Widget* w = WidgetAt((int)((MeasureItemInfo*)lParam)->CtlID))
+            if (w->HandleMeasureItem((MeasureItemInfo*)lParam)) return TRUE;
         if (IPage* p = CurrentPage())
-            if (p->OnMeasureItem((MEASUREITEMSTRUCT*)lParam)) return TRUE;
+            if (p->OnMeasureItem((MeasureItemInfo*)lParam)) return TRUE;
         break;
 
     case WM_DRAWITEM: {
-        auto* dis = (DRAWITEMSTRUCT*)lParam;
+        auto* dis = (DrawItemInfo*)lParam;
         if (Widget* w = WidgetAt((int)dis->CtlID))
             if (w->HandleDrawItem(dis)) return TRUE;
         if (IPage* p = CurrentPage())
@@ -1773,7 +1795,7 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
     case WM_CLOSE:
         if (m_closeGuard && !m_closeGuard()) return 0;
-        DestroyWindow(hwnd);
+        DestroyWindow(HwndOf(hwnd));
         return 0;
 
     case WM_DESTROY:
@@ -1785,7 +1807,7 @@ LRESULT Shell::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         return 0;
     }
 
-    return DefWindowProcW(hwnd, msg, wParam, lParam);
+    return DefWindowProcW(HwndOf(hwnd), msg, wParam, lParam);
 }
 
 // ============================================================

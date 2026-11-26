@@ -22,8 +22,8 @@
 #include <string>
 #include <functional>
 #include <memory>
-#include "airui/Shell.h"
-#include "airui/Canvas.h"
+#include "internal/Shell.h"
+#include "internal/Canvas.h"
 #include "airui/DrawCall.h"
 
 namespace air {
@@ -99,7 +99,7 @@ public:
     size_t CountDrawCalls(DrawCall::Type type) const;
 
     // 访问内部状态
-    const RECT& ContentRect() const { return m_content; }
+    const Rect& ContentRect() const { return m_content; }
     const RECT& ClientRect() const { return m_client; }
     int Dpi() const { return m_dpi; }
     Fonts& GetFonts() { return m_fonts; }
@@ -122,7 +122,7 @@ private:
 
     // 虚拟窗口状态
     RECT m_client = {};
-    RECT m_content = {};
+    Rect m_content = {};
     RECT m_side = {};
     RECT m_status = {};
     RECT m_caption = {};
@@ -137,7 +137,7 @@ private:
     HBITMAP m_memBmp = nullptr;
 
     // 递归绘制页面
-    void PaintPage(IPage* page, HDC dc);
+    void PaintPage(IPage* page, DeviceContextHandle dc);
     void RecordDrawCall(const DrawCall& call) { m_drawCalls.push_back(call); }
 };
 

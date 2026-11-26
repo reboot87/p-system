@@ -1,8 +1,8 @@
 #include <iostream>
 #include <fstream>
 #include <windows.h>
-#include "airui/TestShell.h"
-#include "airui/Page.h"
+#include "internal/TestShell.h"
+#include "internal/Page.h"
 
 // 输出文件写到系统临时目录，避免依赖任何机器特定的绝对路径
 static std::wstring TempFilePath(const wchar_t* name)
@@ -17,9 +17,9 @@ using namespace air::ui;
 class SimplePage : public IPage {
 public:
     const wchar_t* Title() const override { return L"Simple"; }
-    void OnPaint(HDC dc, const RECT& content) override {
+    void OnPaint(DeviceContextHandle dc, const Rect& content) override {
         Canvas g(dc, Fonts::Default());
-        RECT rc = {10, 10, 110, 110};
+        Rect rc = {10, 10, 110, 110};
         g.Fill(rc, RGB(255,0,0));
         g.FillRound({120,10,220,110}, RGB(0,255,0), 8);
     }

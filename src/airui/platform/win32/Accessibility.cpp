@@ -1,5 +1,5 @@
 #include "airui/Accessibility.h"
-#include "airui/Widgets.h"
+#include "internal/Widgets.h"
 #include <oleacc.h>
 #include <commctrl.h>
 #include <sstream>
@@ -336,93 +336,101 @@ private:
 // ------------------------------------------------------------
 // WM_GETOBJECT 管线（由宿主 WndProc / 子类过程转发）
 // ------------------------------------------------------------
-LRESULT HandleGetObject(HWND hwnd, WPARAM wParam, LPARAM lParam)
+MessageResult HandleGetObject(WindowHandle hwnd, MessageWParam wParam, MessageLParam lParam)
 {
-    if (!hwnd || !IsWindow(hwnd)) return 0;
+    const HWND h = reinterpret_cast<HWND>(hwnd);
+    if (!h || !IsWindow(h)) return 0;
     const LONG objId = (LONG)(LONG_PTR)lParam;
     // 只接管 CLIENT / WINDOW；UNICOBJ / OEMID 等原样交回系统。
     if (objId != OBJID_CLIENT && objId != OBJID_WINDOW) return 0;
-    AccessibleObject* acc = new (std::nothrow) AccessibleObject(hwnd);
+    AccessibleObject* acc = new (std::nothrow) AccessibleObject(h);
     if (!acc) return 0;
     // LresultFromObject 会 AddRef 并做调用线程 <-> 窗口线程校验。
-    const LRESULT res = LresultFromObject(IID_IAccessible, wParam, acc);
+    const LRESULT res = LresultFromObject(IID_IAccessible, (WPARAM)wParam, acc);
     acc->Release();   // 只释放创建引用
-    return res;
+    return (MessageResult)res;
 }
 
-LRESULT HandleGetObjectIfAnnotated(HWND hwnd, WPARAM wParam, LPARAM lParam)
+MessageResult HandleGetObjectIfAnnotated(WindowHandle hwnd, MessageWParam wParam, MessageLParam lParam)
 {
-    if (!hwnd || !IsWindow(hwnd)) return 0;
+    const HWND h = reinterpret_cast<HWND>(hwnd);
+    if (!h || !IsWindow(h)) return 0;
     const LONG objId = (LONG)(LONG_PTR)lParam;
     if (objId != OBJID_CLIENT && objId != OBJID_WINDOW) return 0;
     {
         AcquireSRWLockShared(&g_lock);
-        const bool annotated = g_accProps.find(hwnd) != g_accProps.end();
+        const bool annotated = g_accProps.find(h) != g_accProps.end();
         ReleaseSRWLockShared(&g_lock);
         if (!annotated) return 0;   // 未标注：交给系统原生 provider
     }
     return HandleGetObject(hwnd, wParam, lParam);
 }
 
-void ForgetWindow(HWND hwnd)
+void ForgetWindow(WindowHandle hwnd)
 {
-    if (!hwnd) return;
-    EraseProps(hwnd);
+    const HWND h = reinterpret_cast<HWND>(hwnd);
+    if (!h) return;
+    EraseProps(h);
 }
 
-void SetAccessibleRole(HWND hwnd, Role role)
+void SetAccessibleRole(WindowHandle hwnd, Role role)
 {
-    if (!hwnd) return;
-    WidgetAccProps p = GetProps(hwnd);
+    const HWND h = reinterpret_cast<HWND>(hwnd);
+    if (!h) return;
+    WidgetAccProps p = GetProps(h);
     p.role = role;
-    PutProps(hwnd, p);
+    PutProps(h, p);
 }
 
-void SetAccessibleName(HWND hwnd, const std::wstring& name)
+void SetAccessibleName(WindowHandle hwnd, const std::wstring& name)
 {
-    if (!hwnd) return;
-    WidgetAccProps p = GetProps(hwnd);
+    const HWND h = reinterpret_cast<HWND>(hwnd);
+    if (!h) return;
+    WidgetAccProps p = GetProps(h);
     p.name = name;
-    PutProps(hwnd, p);
+    PutProps(h, p);
     // 屏幕阅读器监听 NAMECHANGE 朗读新文本（LiveRegion 依赖此事件）。
-    NotifyWinEvent(EVENT_OBJECT_NAMECHANGE, hwnd, OBJID_CLIENT, CHILDID_SELF);
+    NotifyWinEvent(EVENT_OBJECT_NAMECHANGE, h, OBJID_CLIENT, CHILDID_SELF);
 }
 
-void SetAccessibleDescription(HWND hwnd, const std::wstring& desc)
+void SetAccessibleDescription(WindowHandle hwnd, const std::wstring& desc)
 {
-    if (!hwnd) return;
-    WidgetAccProps p = GetProps(hwnd);
+    const HWND h = reinterpret_cast<HWND>(hwnd);
+    if (!h) return;
+    WidgetAccProps p = GetProps(h);
     p.desc = desc;
-    PutProps(hwnd, p);
+    PutProps(h, p);
     // MSAA 无 description 专用事件；UIA 桥在读取
     // UIA_FullDescriptionPropertyId 时取到最新值即可。
 }
 
-void SetAccessibleState(HWND hwnd, State state, bool on)
+void SetAccessibleState(WindowHandle hwnd, State state, bool on)
 {
-    if (!hwnd) return;
-    WidgetAccProps p = GetProps(hwnd);
+    const HWND h = reinterpret_cast<HWND>(hwnd);
+    if (!h) return;
+    WidgetAccProps p = GetProps(h);
     if (on) p.state |= state; else p.state &= ~(DWORD)state;
-    PutProps(hwnd, p);
-    NotifyWinEvent(EVENT_OBJECT_STATECHANGE, hwnd, OBJID_CLIENT, CHILDID_SELF);
+    PutProps(h, p);
+    NotifyWinEvent(EVENT_OBJECT_STATECHANGE, h, OBJID_CLIENT, CHILDID_SELF);
 }
 
-void SetAccessibleValue(HWND hwnd, const std::wstring& value,
+void SetAccessibleValue(WindowHandle hwnd, const std::wstring& value,
                         const std::wstring& min, const std::wstring& max)
 {
-    if (!hwnd) return;
-    WidgetAccProps p = GetProps(hwnd);
+    const HWND h = reinterpret_cast<HWND>(hwnd);
+    if (!h) return;
+    WidgetAccProps p = GetProps(h);
     p.value    = value;
     p.valueMin = min;
     p.valueMax = max;
-    PutProps(hwnd, p);
-    NotifyWinEvent(EVENT_OBJECT_VALUECHANGE, hwnd, OBJID_CLIENT, CHILDID_SELF);
+    PutProps(h, p);
+    NotifyWinEvent(EVENT_OBJECT_VALUECHANGE, h, OBJID_CLIENT, CHILDID_SELF);
 }
 
 void EnableForWidget(Widget* w, const std::wstring& name, Role role)
 {
     if (!w || !w->Native()) return;
-    HWND hwnd = w->Native();
+    HWND hwnd = reinterpret_cast<HWND>(w->Native());
     if (role != ROLE_UNKNOWN) SetAccessibleRole(hwnd, role);
     if (!name.empty()) SetAccessibleName(hwnd, name);
 
@@ -435,6 +443,10 @@ void EnableForWidget(Widget* w, const std::wstring& name, Role role)
         else if (wcscmp(className, L"ListBox") == 0) SetAccessibleRole(hwnd, ROLE_LISTBOX);
     }
 }
+
+namespace {
+inline HWND HwndOf(WindowHandle h) { return reinterpret_cast<HWND>(h); }
+} // namespace
 
 LiveRegion::LiveRegion()
 {
@@ -452,7 +464,7 @@ LiveRegion::~LiveRegion()
 {
     if (m_hwnd) {
         ForgetWindow(m_hwnd);   // 先清属性表再销毁窗口
-        DestroyWindow(m_hwnd);
+        DestroyWindow(HwndOf(m_hwnd));
     }
 }
 
@@ -464,7 +476,7 @@ void LiveRegion::Announce(const std::wstring& text, bool polite)
     // 高优先级播报追加 ALERT 事件：Narrator 立即打断当前朗读；
     // polite 只依赖 NAMECHANGE + LiveSetting=polite 的正常队列。
     if (!polite)
-        NotifyWinEvent(EVENT_SYSTEM_ALERT, m_hwnd, OBJID_CLIENT, CHILDID_SELF);
+        NotifyWinEvent(EVENT_SYSTEM_ALERT, HwndOf(m_hwnd), OBJID_CLIENT, CHILDID_SELF);
 }
 
 void LiveRegion::SetAssertive(bool assertive)
@@ -474,7 +486,7 @@ void LiveRegion::SetAssertive(bool assertive)
     // UIA provider（IRawElementProviderSimple::GetPropertyValue(
     // UIA_LiveSettingPropertyId)）直接读取。Assertive 播报的即时送达
     // 由 Announce() 的 EVENT_SYSTEM_ALERT 承担。
-    SetPropW(m_hwnd, L"AirUI_A11y_LiveSetting",
+    SetPropW(HwndOf(m_hwnd), L"AirUI_A11y_LiveSetting",
              (HANDLE)(ULONG_PTR)(assertive ? 1 : 0));
 }
 
@@ -612,13 +624,14 @@ static LRESULT CALLBACK KbdNavProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
     return DefSubclassProc(hwnd, msg, wp, lp);
 }
 
-void EnableKeyboardNavigation(HWND hwnd)
+void EnableKeyboardNavigation(WindowHandle hwnd)
 {
-    if (!hwnd) return;
+    const HWND h = HwndOf(hwnd);
+    if (!h) return;
     // WS_TABSTOP 保证 Tab 序里有它（旧实现保留的行为）。
-    LONG style = GetWindowLongW(hwnd, GWL_STYLE);
-    SetWindowLongW(hwnd, GWL_STYLE, style | WS_TABSTOP);
-    SetWindowSubclass(hwnd, &KbdNavProc, kSubKbdNav, 0);
+    LONG style = GetWindowLongW(h, GWL_STYLE);
+    SetWindowLongW(h, GWL_STYLE, style | WS_TABSTOP);
+    SetWindowSubclass(h, &KbdNavProc, kSubKbdNav, 0);
 }
 
 } // namespace a11y
@@ -738,20 +751,20 @@ std::wstring LocalizationManager::Tr(const std::wstring& key, const std::wstring
     return Tr(key, {{arg1, val1}, {arg2, val2}});
 }
 
-std::wstring LocalizationManager::FormatDate(const SYSTEMTIME& st) const
+std::wstring LocalizationManager::FormatDate(const DateTime& st) const
 {
     const Locale* loc = Current();
     if (!loc) return L"";
     // 简化实现
     wchar_t buf[64];
-    swprintf_s(buf, L"%04d/%02d/%02d", st.wYear, st.wMonth, st.wDay);
+    swprintf_s(buf, L"%04d/%02d/%02d", st.year, st.month, st.day);
     return buf;
 }
 
-std::wstring LocalizationManager::FormatTime(const SYSTEMTIME& st) const
+std::wstring LocalizationManager::FormatTime(const DateTime& st) const
 {
     wchar_t buf[64];
-    swprintf_s(buf, L"%02d:%02d:%02d", st.wHour, st.wMinute, st.wSecond);
+    swprintf_s(buf, L"%02d:%02d:%02d", st.hour, st.minute, st.second);
     return buf;
 }
 

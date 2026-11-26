@@ -1,5 +1,6 @@
 #include "airui/Fonts.h"
 #include "airui/Theme.h"
+#include <windows.h>
 
 namespace air {
 namespace ui {
@@ -20,14 +21,15 @@ Fonts::~Fonts()
     Destroy();
 }
 
-HFONT Fonts::Make(int pixelHeight, int weight, const std::wstring& family) const
+FontHandle Fonts::Make(int pixelHeight, int weight, const std::wstring& family) const
 {
     int h = -MulDiv(pixelHeight, m_dpi, 96);
     if (h == 0) h = -pixelHeight;
-    return CreateFontW(h, 0, 0, 0, weight, 0, 0, 0,
+    // CreateFontW 返回原生字体句柄；公开边界用不透明 void* 承载。
+    return reinterpret_cast<FontHandle>(CreateFontW(h, 0, 0, 0, weight, 0, 0, 0,
                        DEFAULT_CHARSET, OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS,
                        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
-                       family.c_str());
+                       family.c_str()));
 }
 
 bool Fonts::Create(int dpi)
@@ -66,14 +68,14 @@ bool Fonts::Create(int dpi)
 
 void Fonts::Destroy()
 {
-    HFONT* all[] = { &m_body, &m_meta, &m_title, &m_section,
-                     &m_button, &m_icon, &m_iconLg, &m_display };
-    for (HFONT* p : all) {
-        if (*p) { DeleteObject(*p); *p = nullptr; }
+    FontHandle* all[] = { &m_body, &m_meta, &m_title, &m_section,
+                          &m_button, &m_icon, &m_iconLg, &m_display };
+    for (FontHandle* p : all) {
+        if (*p) { DeleteObject(static_cast<HGDIOBJ>(*p)); *p = nullptr; }
     }
 }
 
-HFONT Fonts::Get(FontRole role) const
+FontHandle Fonts::Get(FontRole role) const
 {
     switch (role) {
     case FontRole::Body:      return m_body;

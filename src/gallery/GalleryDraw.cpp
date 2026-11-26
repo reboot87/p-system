@@ -4,7 +4,7 @@
 // ============================================================
 #include "GalleryDraw.h"
 #include "airui/AirUi.h"
-#include "airui/Components.h"
+#include "internal/Components.h"
 
 #include <cstdio>
 #include <string>
@@ -13,7 +13,7 @@ namespace air {
 namespace ui {
 namespace gallery {
 
-static std::wstring ColorToHex(COLORREF c)
+static std::wstring ColorToHex(Color c)
 {
     wchar_t buf[16] = {};
     swprintf_s(buf, L"#%02X%02X%02X", GetRValue(c), GetGValue(c), GetBValue(c));
@@ -25,37 +25,37 @@ static void Section(Canvas& g, int x, int y, int right,
 {
     const Palette& p = Pal();
     g.Text({x, y, right, y + 28}, title, FontRole::Section, p.text,
-           DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
+           dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix);
     if (desc && *desc) {
         int titleW = g.MeasureWidth(title, FontRole::Section);
         int dx = x + (titleW + 24 > 220 ? titleW + 24 : 220);
         g.Text({dx, y, right, y + 28}, desc, FontRole::Meta, p.textFaint,
-               DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS |
-               DT_NOPREFIX);
+               dt::SingleLine | dt::Left | dt::VCenter | dt::EndEllipsis |
+               dt::NoPrefix);
     }
     g.HLine(x, right, y + 32, p.split);
 }
 
-static COLORREF ContrastText(COLORREF c)
+static Color ContrastText(Color c)
 {
     int lum = (GetRValue(c) * 299 + GetGValue(c) * 587 + GetBValue(c) * 114) / 1000;
     return lum > 140 ? RGB(31, 35, 41) : RGB(255, 255, 255);
 }
 
-static void Swatch(Canvas& g, const RECT& rc, COLORREF color,
+static void Swatch(Canvas& g, const Rect& rc, Color color,
                    const std::wstring& name)
 {
     const Palette& p = Pal();
-    COLORREF tx = ContrastText(color);
+    Color tx = ContrastText(color);
     g.FillRound(rc, color, Mx().radiusMd);
     g.Stroke(rc, p.border, Mx().radiusMd);
     g.Text({rc.left + 8, rc.top + 6, rc.right - 8, rc.top + 24},
            name, FontRole::Meta, tx,
-           DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS |
-           DT_NOPREFIX);
+           dt::SingleLine | dt::Left | dt::VCenter | dt::EndEllipsis |
+           dt::NoPrefix);
     g.Text({rc.left + 8, rc.bottom - 26, rc.right - 8, rc.bottom - 6},
            ColorToHex(color), FontRole::Meta, tx,
-           DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
+           dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix);
 }
 
 static void ButtonMatrix(Canvas& g, int x, int y)
@@ -77,17 +77,17 @@ static void ButtonMatrix(Canvas& g, int x, int y)
         int cx = x + labelW + c * (bw + gapX);
         g.Text({cx, y - 22, cx + bw, y},
                colNames[c], FontRole::Meta, p.textFaint,
-               DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
+               dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix);
     }
 
     for (int r = 0; r < 4; ++r) {
         int ry = y + r * rowH;
         g.Text({x, ry, x + labelW - 12, ry + bh},
                rowNames[r], FontRole::Meta, p.textSub,
-               DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
+               dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix);
         for (int c = 0; c < 4; ++c) {
             int cx = x + labelW + c * (bw + gapX);
-            RECT rc = { cx, ry, cx + bw, ry + bh };
+            Rect rc = { cx, ry, cx + bw, ry + bh };
             g.Button(rc, colText[c], styles[c],
                      r == 1, r == 2, r == 3);
         }
@@ -102,7 +102,7 @@ static void PrimitiveSection(Canvas& g, int x, int y, int right)
 
     // 标签
     g.Text({x, y, x + 88, y + 24}, L"Tag", FontRole::Meta, p.textFaint,
-           DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
+           dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix);
     int tx = x + 96;
     tx = g.Tag(tx, y + 1, L"剪贴板", FontRole::Meta,
                p.primarySoft, p.primaryText, m.tagH) + 8;
@@ -118,14 +118,14 @@ static void PrimitiveSection(Canvas& g, int x, int y, int right)
     // 胶囊 / 状态胶囊
     int y2 = y + 46;
     g.Text({x, y2 - 12, x + 88, y2 + 12}, L"Pill", FontRole::Meta, p.textFaint,
-           DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
+           dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix);
     g.PillRight(x + 420, y2, L"运行中", FontRole::Meta,
                 p.okSoft, p.okText, m.tagH);
     g.PillRight(x + 570, y2, L"规划中", FontRole::Meta,
                 p.sunken, p.textSub, m.tagH);
 
     g.Text({x, y2 + 34, x + 88, y2 + 58}, L"Status", FontRole::Meta, p.textFaint,
-           DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
+           dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix);
     g.StatusTag(x + 420, y2 + 46, L"服务正常", FontRole::Meta,
                 p.okSoft, p.okBorder, p.okText, p.ok, m.statusTagH);
     g.StatusTag(x + 570, y2 + 46, L"服务异常", FontRole::Meta,
@@ -135,7 +135,7 @@ static void PrimitiveSection(Canvas& g, int x, int y, int right)
     // 键位提示
     int y3 = y + 112;
     g.Text({x, y3 - 12, x + 88, y3 + 12}, L"Kbd", FontRole::Meta, p.textFaint,
-           DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
+           dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix);
     g.KbdChip(x + 570, y3, L"Ctrl", L"搜索");
     g.KbdChip(x + 420, y3, L"Enter", L"确认");
 
@@ -143,14 +143,14 @@ static void PrimitiveSection(Canvas& g, int x, int y, int right)
     int y4 = y + 160;
     g.Text({x, y4 - 12, x + 88, y4 + 12}, L"IconTile", FontRole::Meta,
            p.textFaint,
-           DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
+           dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix);
     const wchar_t* glyphs[] = { L"\xE8C8", L"\xE8B7", L"\xE749", L"\xE70F", L"\xE713" };
-    COLORREF iconBg[] = { p.primarySoft, RGB(230,244,241), RGB(243,238,255),
+    Color iconBg[] = { p.primarySoft, RGB(230,244,241), RGB(243,238,255),
                           p.okSoft, p.warnSoft };
-    COLORREF iconTx[] = { p.primary, RGB(15,163,127), RGB(123,97,255),
+    Color iconTx[] = { p.primary, RGB(15,163,127), RGB(123,97,255),
                           p.okText, p.warnText };
     for (int i = 0; i < 5; ++i) {
-        RECT rc = { x + 96 + i * 56, y4 - 8, x + 136 + i * 56, y4 + 32 };
+        Rect rc = { x + 96 + i * 56, y4 - 8, x + 136 + i * 56, y4 + 32 };
         g.IconTile(rc, glyphs[i], FontRole::IconLarge,
                    iconBg[i], iconTx[i], m.radiusMd);
     }
@@ -159,22 +159,22 @@ static void PrimitiveSection(Canvas& g, int x, int y, int right)
     int y5 = y + 220;
     g.Text({x, y5 - 12, x + 88, y5 + 12}, L"Progress", FontRole::Meta,
            p.textFaint,
-           DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
+           dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix);
     int pcts[] = { 24, 64, 92 };
-    COLORREF cols[] = { p.primary, p.warn, p.error };
+    Color cols[] = { p.primary, p.warn, p.error };
     for (int i = 0; i < 3; ++i) {
         int px = x + 96 + i * 176;
-        RECT rc = { px, y5 - 4, px + 150, y5 + 4 };
+        Rect rc = { px, y5 - 4, px + 150, y5 + 4 };
         g.ProgressBar(rc, pcts[i], p.sunken, cols[i], p.warn, p.error);
         wchar_t buf[16];
         swprintf_s(buf, L"%d%%", pcts[i]);
         g.Text({px, y5 - 30, px + 150, y5 - 10}, buf, FontRole::Meta,
                p.textSub,
-               DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
+               dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix);
     }
 }
 
-static void TypographyPanel(Canvas& g, const RECT& rc)
+static void TypographyPanel(Canvas& g, const Rect& rc)
 {
     const Palette& p = Pal();
     g.FillRound(rc, p.surface, Mx().radiusLg);
@@ -185,43 +185,43 @@ static void TypographyPanel(Canvas& g, const RECT& rc)
     int y = rc.top + 14;
 
     g.Text({x, y, right, y + 24}, L"Typography", FontRole::Section, p.text,
-           DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
+           dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix);
     y += 34;
 
     g.Text({x, y, right, y + 30}, L"1,286", FontRole::Display, p.text,
-           DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
+           dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix);
     g.Text({x + 88, y + 14, right, y + 30}, L"条记录 · Display / 22", FontRole::Meta,
-           p.textFaint, DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
+           p.textFaint, dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix);
     y += 40;
 
     g.Text({x, y, right, y + 24}, L"区块标题 Section / 14 semibold",
            FontRole::Section, p.text,
-           DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
+           dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix);
     y += 28;
 
     g.Text({x, y, right, y + 22}, L"小标题 Title / 13 semibold",
            FontRole::Title, p.text,
-           DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
+           dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix);
     y += 26;
 
     g.Text({x, y, right, y + 22},
            L"正文 Body：自动记录剪贴板内容，支持搜索与备注。",
            FontRole::Body, p.text,
-           DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS |
-           DT_NOPREFIX);
+           dt::SingleLine | dt::Left | dt::VCenter | dt::EndEllipsis |
+           dt::NoPrefix);
     y += 26;
 
     g.Text({x, y, right, y + 20},
            L"元信息 Meta：2026-11-03 20:30 · 来源 剪贴板",
            FontRole::Meta, p.textFaint,
-           DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS |
-           DT_NOPREFIX);
+           dt::SingleLine | dt::Left | dt::VCenter | dt::EndEllipsis |
+           dt::NoPrefix);
 
     // 模拟列表行
     y += 34;
-    RECT row = { x, y, right, y + 56 };
+    Rect row = { x, y, right, y + 56 };
     g.FillRound(row, p.hover, Mx().radiusMd);
-    RECT ic = { row.left + 12, row.top + 12, row.left + 44, row.top + 44 };
+    Rect ic = { row.left + 12, row.top + 12, row.left + 44, row.top + 44 };
     g.IconTile(ic, L"\xE8C8", FontRole::Icon, p.iconTile, p.primary, 6);
     g.TextRow({row.left + 56, row.top, row.right - 160, row.bottom},
               L"复制的一段示例文本，用于展示列表条目的排版层级",
@@ -230,7 +230,7 @@ static void TypographyPanel(Canvas& g, const RECT& rc)
           p.primarySoft, p.primaryText, Mx().tagH);
 }
 
-static void EmptyPanel(Canvas& g, const RECT& rc)
+static void EmptyPanel(Canvas& g, const Rect& rc)
 {
     const Palette& p = Pal();
     g.FillRound(rc, p.surface, Mx().radiusLg);
@@ -253,11 +253,11 @@ void DrawGallery(Canvas& g, int left, int top, int width, bool dark)
     // ---- 页头 ----
     g.Text({left, y0 + 22, right, y0 + 58}, L"AirUI 组件渲染预览",
            FontRole::Display, p.text,
-           DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
+           dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix);
     g.Text({left, y0 + 58, right, y0 + 82},
            L"企业级 Win32 自绘组件库 · Theme / Canvas / Gfx / Components",
            FontRole::Meta, p.textSub,
-           DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
+           dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix);
     g.StatusTag(right, y0 + 52, dark ? L"Dark · 96 DPI" : L"Light · 96 DPI",
                 FontRole::Meta,
                 p.okSoft, p.okBorder, p.okText, p.ok, m.statusTagH);
@@ -267,7 +267,7 @@ void DrawGallery(Canvas& g, int left, int top, int width, bool dark)
     Section(g, left, y0 + 110, right, L"调色板 / Palette",
             L"语义化设计令牌，换肤只改这一层");
 
-    struct SwatchDef { const wchar_t* name; COLORREF color; };
+    struct SwatchDef { const wchar_t* name; Color color; };
     SwatchDef sw1[] = {
         { L"bg",          p.bg },
         { L"surface",     p.surface },
@@ -320,8 +320,8 @@ void DrawGallery(Canvas& g, int left, int top, int width, bool dark)
     int cardW = (width - 32) / 3;
     int cardH = 188;
     int cardY = y0 + 874;
-    auto makeCard = [&](int idx, const wchar_t* glyph, COLORREF icBg,
-                        COLORREF icTx, const wchar_t* title,
+    auto makeCard = [&](int idx, const wchar_t* glyph, Color icBg,
+                        Color icTx, const wchar_t* title,
                         const wchar_t* desc, const wchar_t* number,
                         const wchar_t* unit, const wchar_t* badgeText,
                         bool badgeOk, bool disabled) {
@@ -405,8 +405,8 @@ std::vector<ComponentLayout> CalculateGalleryLayout(int left, int top, int width
     int cardY = top + 874;
     
     // 创建卡片组件配置
-    auto makeCardConfig = [&](int idx, const wchar_t* glyph, COLORREF icBg,
-                            COLORREF icTx, const wchar_t* title,
+    auto makeCardConfig = [&](int idx, const wchar_t* glyph, Color icBg,
+                            Color icTx, const wchar_t* title,
                             const wchar_t* desc, const wchar_t* number,
                             const wchar_t* unit, const wchar_t* badgeText,
                             bool badgeOk, bool disabled) {

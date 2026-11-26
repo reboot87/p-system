@@ -12,9 +12,9 @@
 // ListBox becomes a pure core control.
 // ============================================================
 #include "airui/Observable.h"
-#include "airui/Widgets.h"
-#include "airui/Canvas.h"
-#include "airui/Controls.h"
+#include "internal/Widgets.h"
+#include "internal/Canvas.h"
+#include "internal/Controls.h"
 #include <memory>
 
 namespace air {

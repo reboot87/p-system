@@ -1,18 +1,18 @@
-#include "airui/Canvas.h"
-#include "airui/CanvasPainter.h"
+#include "internal/Canvas.h"
+#include "internal/CanvasPainter.h"
 #include "airui/ControlsCore.h"
 #include "airui/ControlsExtra.h"
-#include "airui/Gfx.h"
-#include "airui/Controls.h"
+#include "internal/Gfx.h"
+#include "internal/Controls.h"
 
 namespace air {
 namespace ui {
 
 std::vector<DrawCall>* Canvas::s_recorder = nullptr;
 
-Canvas::Canvas(HDC dc, const Fonts& fonts) : m_dc(dc), m_fonts(fonts)
+Canvas::Canvas(DeviceContextHandle dc, const Fonts& fonts) : m_dc(dc), m_fonts(fonts)
 {
-    if (m_dc) SetBkMode(m_dc, TRANSPARENT);
+    if (m_dc) SetBkMode(reinterpret_cast<HDC>(m_dc), TRANSPARENT);
 }
 
 Canvas::~Canvas()
@@ -24,7 +24,7 @@ Canvas::~Canvas()
 }
 
 // ---- clip ----
-void Canvas::PushClip(const RECT& rc)
+void Canvas::PushClip(const Rect& rc)
 {
     // A compositing backend renders into its own surface: the HDC clip
     // region does not exist there, so the clip has to go to the frame
@@ -35,8 +35,8 @@ void Canvas::PushClip(const RECT& rc)
         return;
     }
     if (!m_dc) { m_clipStack.push_back(0); return; }
-    const int saved = SaveDC(m_dc);
-    IntersectClipRect(m_dc, rc.left, rc.top, rc.right, rc.bottom);
+    const int saved = SaveDC(reinterpret_cast<HDC>(m_dc));
+    IntersectClipRect(reinterpret_cast<HDC>(m_dc), rc.left, rc.top, rc.right, rc.bottom);
     m_clipStack.push_back(saved);
 }
 
@@ -49,47 +49,47 @@ void Canvas::PopClip()
         if (PaintFrame* f = CurrentPaintFrame()) f->PopClip();
         return;
     }
-    if (m_dc && saved) RestoreDC(m_dc, saved);
+    if (m_dc && saved) RestoreDC(reinterpret_cast<HDC>(m_dc), saved);
 }
 
 // ---- 形状 ----
-void Canvas::Fill(const RECT& rc, COLORREF color)
+void Canvas::Fill(const Rect& rc, Color color)
 {
     if (s_recorder) {
         DrawCall dc; dc.type = DrawCall::Fill; dc.rect = rc; dc.color = color;
         s_recorder->push_back(dc);
     }
-    gfx::Fill(m_dc, rc, color);
+    gfx::Fill(m_dc, ToRect(rc), color);
 }
 
-void Canvas::FillRound(const RECT& rc, COLORREF color, int radius)
+void Canvas::FillRound(const Rect& rc, Color color, int radius)
 {
     if (s_recorder) {
         DrawCall dc; dc.type = DrawCall::FillRound; dc.rect = rc; dc.color = color; dc.radius = radius;
         s_recorder->push_back(dc);
     }
-    gfx::FillRound(m_dc, rc, color, radius);
+    gfx::FillRound(m_dc, ToRect(rc), color, radius);
 }
 
-void Canvas::Stroke(const RECT& rc, COLORREF color, int radius, int width)
+void Canvas::Stroke(const Rect& rc, Color color, int radius, int width)
 {
     if (s_recorder) {
         DrawCall dc; dc.type = DrawCall::Stroke; dc.rect = rc; dc.color = color; dc.radius = radius; dc.width = width;
         s_recorder->push_back(dc);
     }
-    gfx::Stroke(m_dc, rc, color, radius, width);
+    gfx::Stroke(m_dc, ToRect(rc), color, radius, width);
 }
 
-void Canvas::StrokeDashed(const RECT& rc, COLORREF color, int radius)
+void Canvas::StrokeDashed(const Rect& rc, Color color, int radius)
 {
     if (s_recorder) {
         DrawCall dc; dc.type = DrawCall::StrokeDashed; dc.rect = rc; dc.color = color; dc.radius = radius;
         s_recorder->push_back(dc);
     }
-    gfx::StrokeDashed(m_dc, rc, color, radius);
+    gfx::StrokeDashed(m_dc, ToRect(rc), color, radius);
 }
 
-void Canvas::HLine(int x1, int x2, int y, COLORREF color)
+void Canvas::HLine(int x1, int x2, int y, Color color)
 {
     if (s_recorder) {
         DrawCall dc; dc.type = DrawCall::HLine; dc.rect = {x1, y, x2, y+1}; dc.color = color;
@@ -98,7 +98,7 @@ void Canvas::HLine(int x1, int x2, int y, COLORREF color)
     gfx::HLine(m_dc, x1, x2, y, color);
 }
 
-void Canvas::HLineDashed(int x1, int x2, int y, COLORREF color)
+void Canvas::HLineDashed(int x1, int x2, int y, Color color)
 {
     if (s_recorder) {
         DrawCall dc; dc.type = DrawCall::HLineDashed; dc.rect = {x1, y, x2, y+1}; dc.color = color;
@@ -107,7 +107,7 @@ void Canvas::HLineDashed(int x1, int x2, int y, COLORREF color)
     gfx::HLineDashed(m_dc, x1, x2, y, color);
 }
 
-void Canvas::VLine(int x, int y1, int y2, COLORREF color)
+void Canvas::VLine(int x, int y1, int y2, Color color)
 {
     if (s_recorder) {
         DrawCall dc; dc.type = DrawCall::VLine; dc.rect = {x, y1, x+1, y2}; dc.color = color;
@@ -116,76 +116,76 @@ void Canvas::VLine(int x, int y1, int y2, COLORREF color)
     gfx::VLine(m_dc, x, y1, y2, color);
 }
 
-void Canvas::Dot(int cx, int cy, int diameter, COLORREF color)
+void Canvas::Dot(int cx, int cy, int diameter, Color color)
 {
     if (s_recorder) {
         RECT rc = {cx - diameter/2, cy - diameter/2, cx + diameter/2, cy + diameter/2};
-        DrawCall dc; dc.type = DrawCall::Dot; dc.rect = rc; dc.color = color;
+        DrawCall dc; dc.type = DrawCall::Dot; dc.rect = ToRect(rc); dc.color = color;
         s_recorder->push_back(dc);
     }
     gfx::Dot(m_dc, cx, cy, diameter, color);
 }
 
-void Canvas::ProgressBar(const RECT& rc, int pct, COLORREF track,
-                         COLORREF colorNormal, COLORREF colorWarn,
-                         COLORREF colorHot)
+void Canvas::ProgressBar(const Rect& rc, int pct, Color track,
+                         Color colorNormal, Color colorWarn,
+                         Color colorHot)
 {
     if (s_recorder) {
         DrawCall dc; dc.type = DrawCall::ProgressBar; dc.rect = rc; dc.color = track; dc.color2 = colorNormal; dc.color3 = colorWarn;
         s_recorder->push_back(dc);
     }
-    gfx::ProgressBar(m_dc, rc, pct, track, colorNormal, colorWarn, colorHot);
+    gfx::ProgressBar(m_dc, ToRect(rc), pct, track, colorNormal, colorWarn, colorHot);
 }
 
 // ---- 文本 ----
-void Canvas::Text(const RECT& rc, const std::wstring& s, FontRole role,
-                  COLORREF color, UINT format)
+void Canvas::Text(const Rect& rc, const std::wstring& s, FontRole role,
+                  Color color, TextFormat format)
 {
     if (s_recorder) {
         DrawCall dc; dc.type = DrawCall::Text; dc.rect = rc; dc.text = s; dc.color = color; dc.fontRole = role; dc.format = format;
         s_recorder->push_back(dc);
     }
-    gfx::Text(m_dc, m_fonts.Get(role), color, rc, s, format);
+    gfx::Text(m_dc, m_fonts.Get(role), color, ToRect(rc), s, format);
 }
 
-void Canvas::TextRow(const RECT& rc, const std::wstring& s, FontRole role,
-                     COLORREF color, UINT extra)
+void Canvas::TextRow(const Rect& rc, const std::wstring& s, FontRole role,
+                     Color color, TextFormat extra)
 {
     if (s_recorder) {
         DrawCall dc; dc.type = DrawCall::TextRow; dc.rect = rc; dc.text = s; dc.color = color; dc.fontRole = role;
         s_recorder->push_back(dc);
     }
-    gfx::TextRow(m_dc, m_fonts.Get(role), color, rc, s, extra);
+    gfx::TextRow(m_dc, m_fonts.Get(role), color, ToRect(rc), s, extra);
 }
 
-void Canvas::TextRowRight(const RECT& rc, const std::wstring& s, FontRole role,
-                          COLORREF color, UINT extra)
+void Canvas::TextRowRight(const Rect& rc, const std::wstring& s, FontRole role,
+                          Color color, TextFormat extra)
 {
     if (s_recorder) {
         DrawCall dc; dc.type = DrawCall::TextRowRight; dc.rect = rc; dc.text = s; dc.color = color; dc.fontRole = role;
         s_recorder->push_back(dc);
     }
-    gfx::TextRowRight(m_dc, m_fonts.Get(role), color, rc, s, extra);
+    gfx::TextRowRight(m_dc, m_fonts.Get(role), color, ToRect(rc), s, extra);
 }
 
-void Canvas::TextRowCenter(const RECT& rc, const std::wstring& s, FontRole role,
-                           COLORREF color, UINT extra)
+void Canvas::TextRowCenter(const Rect& rc, const std::wstring& s, FontRole role,
+                           Color color, TextFormat extra)
 {
     if (s_recorder) {
         DrawCall dc; dc.type = DrawCall::TextRowCenter; dc.rect = rc; dc.text = s; dc.color = color; dc.fontRole = role;
         s_recorder->push_back(dc);
     }
-    gfx::TextRowCenter(m_dc, m_fonts.Get(role), color, rc, s, extra);
+    gfx::TextRowCenter(m_dc, m_fonts.Get(role), color, ToRect(rc), s, extra);
 }
 
-void Canvas::TextBlock(const RECT& rc, const std::wstring& s, FontRole role,
-                       COLORREF color, UINT extra)
+void Canvas::TextBlock(const Rect& rc, const std::wstring& s, FontRole role,
+                       Color color, TextFormat extra)
 {
     if (s_recorder) {
         DrawCall dc; dc.type = DrawCall::TextBlock; dc.rect = rc; dc.text = s; dc.color = color; dc.fontRole = role;
         s_recorder->push_back(dc);
     }
-    gfx::TextBlock(m_dc, m_fonts.Get(role), color, rc, s, extra);
+    gfx::TextBlock(m_dc, m_fonts.Get(role), color, ToRect(rc), s, extra);
 }
 
 int Canvas::MeasureWidth(const std::wstring& s, FontRole role)
@@ -200,18 +200,18 @@ int Canvas::LineHeight(FontRole role)
 
 // ---- 复合部件 ----
 int Canvas::Tag(int x, int y, const std::wstring& s, FontRole role,
-                COLORREF bg, COLORREF tx, int height)
+                Color bg, Color tx, int height)
 {
     if (s_recorder) {
         RECT rc = {x, y, x+100, y+height}; // approx
-        DrawCall dc; dc.type = DrawCall::Tag; dc.rect = rc; dc.text = s; dc.color = bg; dc.color2 = tx; dc.fontRole = role;
+        DrawCall dc; dc.type = DrawCall::Tag; dc.rect = ToRect(rc); dc.text = s; dc.color = bg; dc.color2 = tx; dc.fontRole = role;
         s_recorder->push_back(dc);
     }
     return gfx::Tag(m_dc, x, y, s.c_str(), m_fonts.Get(role), bg, tx, height);
 }
 
 void Canvas::PillRight(int rightX, int y, const std::wstring& s, FontRole role,
-                       COLORREF bg, COLORREF tx, int height)
+                       Color bg, Color tx, int height)
 {
     if (s_recorder) {
         DrawCall dc; dc.type = DrawCall::PillRight; dc.text = s; dc.color = bg; dc.color2 = tx; dc.fontRole = role;
@@ -222,8 +222,8 @@ void Canvas::PillRight(int rightX, int y, const std::wstring& s, FontRole role,
 }
 
 void Canvas::StatusTag(int rightX, int centerY, const std::wstring& s,
-                       FontRole role, COLORREF bg, COLORREF border,
-                       COLORREF tx, COLORREF dot, int height)
+                       FontRole role, Color bg, Color border,
+                       Color tx, Color dot, int height)
 {
     if (s_recorder) {
         DrawCall dc; dc.type = DrawCall::StatusTag; dc.text = s; dc.color = bg; dc.color2 = border; dc.color3 = tx; dc.fontRole = role;
@@ -269,17 +269,17 @@ int Canvas::KbdChipWidth(const std::wstring& key, const std::wstring& label)
                              m_fonts.Get(FontRole::Meta));
 }
 
-void Canvas::IconTile(const RECT& rc, const wchar_t* glyph, FontRole role,
-                      COLORREF bg, COLORREF tx, int radius)
+void Canvas::IconTile(const Rect& rc, const wchar_t* glyph, FontRole role,
+                      Color bg, Color tx, int radius)
 {
     if (s_recorder) {
         DrawCall dc; dc.type = DrawCall::IconTile; dc.rect = rc; dc.color = bg; dc.color2 = tx; dc.radius = radius;
         s_recorder->push_back(dc);
     }
-    gfx::IconTile(m_dc, rc, glyph, m_fonts.Get(role), bg, tx, radius);
+    gfx::IconTile(m_dc, ToRect(rc), glyph, m_fonts.Get(role), bg, tx, radius);
 }
 
-void Canvas::EmptyState(const RECT& rc, const air::ui::EmptyState& state)
+void Canvas::EmptyState(const Rect& rc, const air::ui::EmptyState& state)
 {
     if (s_recorder) {
         DrawCall dc; dc.type = DrawCall::EmptyState; dc.rect = rc;
@@ -292,11 +292,11 @@ void Canvas::EmptyState(const RECT& rc, const air::ui::EmptyState& state)
     CanvasPainter painter(*this);
     std::vector<DrawCall>* saved = s_recorder;
     s_recorder = nullptr;
-    PaintEmptyView(painter, ToRect(rc), st, Pal(), Mx());
+    PaintEmptyView(painter, rc, st, Pal(), Mx());
     s_recorder = saved;
 }
 
-void Canvas::Pagination(const RECT& rc, const air::ui::PaginationState& state)
+void Canvas::Pagination(const Rect& rc, const air::ui::PaginationState& state)
 {
     if (s_recorder) {
         DrawCall dc; dc.type = DrawCall::Pagination; dc.rect = rc;
@@ -305,23 +305,23 @@ void Canvas::Pagination(const RECT& rc, const air::ui::PaginationState& state)
     CanvasPainter painter(*this);
     std::vector<DrawCall>* saved = s_recorder;
     s_recorder = nullptr;
-    air::ui::PaintPagination(painter, ToRect(rc), state, Pal(), Mx());
+    air::ui::PaintPagination(painter, rc, state, Pal(), Mx());
     s_recorder = saved;
 }
 
 std::vector<air::ui::PaginationSlot> Canvas::PaginationLayout(
-    const RECT& rc, const air::ui::PaginationState& state) const
+    const Rect& rc, const air::ui::PaginationState& state) const
 {
-    return air::ui::MeasurePagination(ToRect(rc), state, Mx());
+    return air::ui::MeasurePagination(rc, state, Mx());
 }
 
-int Canvas::PaginationHit(const RECT& rc, const air::ui::PaginationState& state,
+int Canvas::PaginationHit(const Rect& rc, const air::ui::PaginationState& state,
                           Point pt) const
 {
-    return air::ui::PaginationHit(ToRect(rc), state, Mx(), pt);
+    return air::ui::PaginationHit(rc, state, Mx(), pt);
 }
 
-void Canvas::Button(const RECT& rc, const std::wstring& text, BtnStyle style,
+void Canvas::Button(const Rect& rc, const std::wstring& text, BtnStyle style,
                     bool hover, bool pressed, bool disabled)
 {
     if (s_recorder) {
@@ -340,12 +340,12 @@ void Canvas::Button(const RECT& rc, const std::wstring& text, BtnStyle style,
     st.disabled = disabled;
 
     CanvasPainter painter(*this);
-    PaintButton(painter, ToRect(rc), text, style, st, Pal(), Mx());
+    PaintButton(painter, rc, text, style, st, Pal(), Mx());
 
     s_recorder = saved;
 }
 
-void Canvas::Checkbox(const RECT& rc, const std::wstring& text, bool checked,
+void Canvas::Checkbox(const Rect& rc, const std::wstring& text, bool checked,
                       bool hover, bool disabled)
 {
     ControlState st;
@@ -354,10 +354,10 @@ void Canvas::Checkbox(const RECT& rc, const std::wstring& text, bool checked,
     st.disabled = disabled;
 
     CanvasPainter painter(*this);
-    PaintCheckbox(painter, ToRect(rc), text, st, Pal());
+    PaintCheckbox(painter, rc, text, st, Pal());
 }
 
-void Canvas::Radio(const RECT& rc, const std::wstring& text, bool checked,
+void Canvas::Radio(const Rect& rc, const std::wstring& text, bool checked,
                    bool hover, bool disabled)
 {
     ControlState st;
@@ -366,7 +366,7 @@ void Canvas::Radio(const RECT& rc, const std::wstring& text, bool checked,
     st.disabled = disabled;
 
     CanvasPainter painter(*this);
-    PaintRadio(painter, ToRect(rc), text, st, Pal());
+    PaintRadio(painter, rc, text, st, Pal());
 }
 
 } // namespace ui

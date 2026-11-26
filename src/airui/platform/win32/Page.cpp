@@ -1,5 +1,6 @@
-#include "airui/Page.h"
-#include "airui/Shell.h"
+#include <windows.h>
+#include "internal/Page.h"
+#include "internal/Shell.h"
 
 namespace air {
 namespace ui {
@@ -54,30 +55,30 @@ Custom& Page::CreateCustom(const CustomDesc& desc)
 // ============================================================
 // 常用操作
 // ============================================================
-void Page::StartTimer(UINT_PTR id, int ms)
+void Page::StartTimer(uintptr_t id, int ms)
 {
     if (m_shell && m_shell->Hwnd())
-        SetTimer(m_shell->Hwnd(), id, (UINT)ms, nullptr);
+        SetTimer(reinterpret_cast<HWND>(m_shell->Hwnd()), id, (UINT)ms, nullptr);
 }
 
-void Page::KillTimer(UINT_PTR id)
+void Page::KillTimer(uintptr_t id)
 {
     if (m_shell && m_shell->Hwnd())
-        ::KillTimer(m_shell->Hwnd(), id);
+        ::KillTimer(reinterpret_cast<HWND>(m_shell->Hwnd()), id);
 }
 
 int Page::ShowMessageBox(const std::wstring& text, const std::wstring& caption,
-                         UINT flags)
+                         MessageBoxFlags flags)
 {
     return m_shell ? m_shell->ShowMessageBox(text, caption, flags) : 0;
 }
 
-int Page::ShowPopupMenu(POINT screenPt, const std::vector<MenuItem>& items)
+int Page::ShowPopupMenu(Point screenPt, const std::vector<MenuItem>& items)
 {
     return m_shell ? m_shell->ShowPopupMenu(screenPt, items) : 0;
 }
 
-void Page::InvalidateRegion(const RECT& rcClient)
+void Page::InvalidateRegion(const Rect& rcClient)
 {
     if (m_shell) m_shell->InvalidateRegion(rcClient);
 }
@@ -90,7 +91,7 @@ void Page::BatchDraw(bool begin)
 void Page::SetCapture(bool on)
 {
     if (!m_shell || !m_shell->Hwnd()) return;
-    HWND hwnd = m_shell->Hwnd();
+    HWND hwnd = reinterpret_cast<HWND>(m_shell->Hwnd());
     if (on) {
         ::SetCapture(hwnd);
     } else if (::GetCapture() == hwnd) {
@@ -106,21 +107,21 @@ const Fonts& Page::Fonts() const
 // ============================================================
 // IPage 绘制入口收编 —— HDC / DRAWITEMSTRUCT 到此为止
 // ============================================================
-void Page::OnPaint(HDC dc, const RECT& content)
+void Page::OnPaint(DeviceContextHandle dc, const Rect& content)
 {
     if (!m_shell) return;
     Canvas g(dc, m_shell->UiFonts());
     OnPaint(g, content);
 }
 
-bool Page::OnDrawItem(const DRAWITEMSTRUCT* dis)
+bool Page::OnDrawItem(const DrawItemInfo* dis)
 {
     // 控件的 owner-draw 由 Shell → Widget 路由，页面不再参与
     (void)dis;
     return false;
 }
 
-bool Page::OnMeasureItem(MEASUREITEMSTRUCT* mis)
+bool Page::OnMeasureItem(MeasureItemInfo* mis)
 {
     (void)mis;
     return false;

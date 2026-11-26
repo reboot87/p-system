@@ -7,11 +7,11 @@
 // 因此「垂直居中」只能靠把 EDIT 客户区压到恰好一行文字高。
 // BodyLineHeight() 给出的就是这个高度。
 // ============================================================
-#include <windows.h>
+#include "airui/types.h"
 #include <string>
 
 // FontRole is defined once, in the platform-free HAL. The Win32
-// backend only maps each role to an HFONT.
+// backend only maps each role to a platform font handle.
 #include "airui/hal.h"
 
 namespace air {
@@ -31,9 +31,9 @@ public:
     void Destroy();
     bool Valid() const { return m_body != nullptr; }
 
-    HFONT Get(FontRole role) const;
-    HFONT Body() const { return m_body; }
-    HFONT Meta() const { return m_meta; }
+    FontHandle Get(FontRole role) const;
+    FontHandle Body() const { return m_body; }
+    FontHandle Meta() const { return m_meta; }
 
     // 单行 EDIT 客户区应设为这个高度，文字才真正上下居中
     int BodyLineHeight() const { return m_lineH; }
@@ -49,16 +49,16 @@ public:
     static Fonts& Default();
 
 private:
-    HFONT Make(int pixelHeight, int weight, const std::wstring& family) const;
+    FontHandle Make(int pixelHeight, int weight, const std::wstring& family) const;
 
-    HFONT m_body    = nullptr;
-    HFONT m_meta    = nullptr;
-    HFONT m_title   = nullptr;
-    HFONT m_section = nullptr;
-    HFONT m_button  = nullptr;
-    HFONT m_icon    = nullptr;
-    HFONT m_iconLg  = nullptr;
-    HFONT m_display = nullptr;
+    FontHandle m_body    = nullptr;
+    FontHandle m_meta    = nullptr;
+    FontHandle m_title   = nullptr;
+    FontHandle m_section = nullptr;
+    FontHandle m_button  = nullptr;
+    FontHandle m_icon    = nullptr;
+    FontHandle m_iconLg  = nullptr;
+    FontHandle m_display = nullptr;
 
     int m_dpi   = 96;
     int m_lineH = 21;

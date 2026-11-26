@@ -1,4 +1,5 @@
 #include "OverviewPage.h"
+#include "NeutralWin32.h"
 #include "core/App.h"
 #include "core/Format.h"
 #include "core/UiEntry.h"
@@ -16,7 +17,7 @@ void OverviewPage::OnShow(bool shown)
     if (shown) m_app.RefreshData();
 }
 
-void OverviewPage::OnLayout(const RECT& content)
+void OverviewPage::OnLayout(const air::ui::Rect& content)
 {
     m_content = content;
     m_bannerH = m_app.IsServiceOffline() ? kBannerH : 0;
@@ -34,9 +35,9 @@ void OverviewPage::OnLayout(const RECT& content)
     m_rcModCard[2] = { x0 + cardW * 2 + 24, y, x1, y + cardH };
 }
 
-void OverviewPage::DrawModuleCard(Canvas& g, RECT r, int idx,
+void OverviewPage::DrawModuleCard(Canvas& g, air::ui::Rect r, int idx,
                                   const wchar_t* glyph,
-                                  COLORREF icBg, COLORREF icTx,
+                                  air::ui::Color icBg, air::ui::Color icTx,
                                   const wchar_t* name, const wchar_t* desc,
                                   const std::wstring& number, const wchar_t* unit,
                                   const wchar_t* badge, bool off, bool badgeOk,
@@ -51,12 +52,12 @@ void OverviewPage::DrawModuleCard(Canvas& g, RECT r, int idx,
     g.FillRound(r, p.surface, m.radiusCard);
     g.Stroke(r, hover ? p.hoverBorder : p.split, m.radiusCard);
     if (hover) {
-        RECT ring = { r.left - 1, r.top - 1, r.right + 1, r.bottom + 1 };
+        air::ui::Rect ring = { r.left - 1, r.top - 1, r.right + 1, r.bottom + 1 };
         g.Stroke(ring, p.selectRing, m.radiusCard + 1);
     }
 
     // 图标块 40px
-    RECT ic = { r.left + 16, r.top + 16, r.left + 56, r.top + 56 };
+    air::ui::Rect ic = { r.left + 16, r.top + 16, r.left + 56, r.top + 56 };
     g.IconTile(ic, glyph, FontRole::IconLarge, icBg, icTx, 10);
 
     // 右上角状态
@@ -65,35 +66,35 @@ void OverviewPage::DrawModuleCard(Canvas& g, RECT r, int idx,
                 badgeOk ? p.okText : RGB(143, 149, 158));
 
     // 名称 + 描述
-    RECT rcName = { r.left + 16, r.top + 64, r.right - 16, r.top + 86 };
+    air::ui::Rect rcName = { r.left + 16, r.top + 64, r.right - 16, r.top + 86 };
     g.Text(rcName, name, FontRole::Title, off ? p.textFaint : p.text,
            DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
 
-    RECT rcDesc = { r.left + 16, r.top + 88, r.right - 16, r.top + 108 };
+    air::ui::Rect rcDesc = { r.left + 16, r.top + 88, r.right - 16, r.top + 108 };
     g.Text(rcDesc, desc, FontRole::Meta, p.textFaint,
            DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS |
            DT_NOPREFIX);
 
     // 大数字 + 单位
-    RECT rcNum = { r.left + 16, r.top + 114, r.right - 16, r.top + 148 };
+    air::ui::Rect rcNum = { r.left + 16, r.top + 114, r.right - 16, r.top + 148 };
     g.Text(rcNum, number, FontRole::Display, off ? p.textFaint : p.text,
            DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
 
     int numW = g.MeasureWidth(number, FontRole::Display);
-    RECT rcUnit = { r.left + 16 + numW + 8, r.top + 114, r.right - 16,
+    air::ui::Rect rcUnit = { r.left + 16 + numW + 8, r.top + 114, r.right - 16,
                     r.top + 148 };
     g.Text(rcUnit, unit, FontRole::Meta, p.textFaint,
            DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS |
            DT_NOPREFIX);
 
     // 底部入口
-    RECT rcLink = { r.left + 16, r.top + 154, r.right - 16, r.top + 176 };
+    air::ui::Rect rcLink = { r.left + 16, r.top + 154, r.right - 16, r.top + 176 };
     g.Text(rcLink, off ? L"敬请期待" : L"进入模块 →", FontRole::Button,
            off ? RGB(169, 174, 184) : (hover ? p.primary : p.primaryText),
            DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
 }
 
-void OverviewPage::OnPaint(Canvas& g, const RECT& content)
+void OverviewPage::OnPaint(Canvas& g, const air::ui::Rect& content)
 {
     const Palette& p = Pal();
     const Metrics& m = Mx();
@@ -101,7 +102,7 @@ void OverviewPage::OnPaint(Canvas& g, const RECT& content)
     // 离线态实时切换：横幅出现/消失时内容同步下移
     m_bannerH = m_app.IsServiceOffline() ? kBannerH : 0;
     if (m_bannerH > 0) {
-        RECT banner = { content.left, content.top,
+        air::ui::Rect banner = { content.left, content.top,
                         content.right, content.top + m_bannerH };
         DrawOfflineBanner(g, banner);
     }
@@ -144,11 +145,11 @@ void OverviewPage::OnPaint(Canvas& g, const RECT& content)
 
     // ---- 最近动态 ----
     int y2 = y + cardH + 16;
-    RECT rcAct = { x0, y2, x1, content.bottom };
+    air::ui::Rect rcAct = { x0, y2, x1, content.bottom };
     g.FillRound(rcAct, p.surface, m.radiusLg);
     g.Stroke(rcAct, p.split, m.radiusLg);
 
-    RECT rcHead = { x0 + 16, y2 + 12, x1 - 16, y2 + 32 };
+    air::ui::Rect rcHead = { x0 + 16, y2 + 12, x1 - 16, y2 + 32 };
     g.Text(rcHead, L"最近动态 · 全部模块", FontRole::Section, p.text,
            DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
 
@@ -161,14 +162,14 @@ void OverviewPage::OnPaint(Canvas& g, const RECT& content)
         if (rowBottom > rcAct.bottom - 4) break;
 
         // 图标块 26px
-        RECT ic = { x0 + 16, ry + 4, x0 + 42, ry + 30 };
+        air::ui::Rect ic = { x0 + 16, ry + 4, x0 + 42, ry + 30 };
         bool manual = (e.source == L"Manual");
         g.IconTile(ic, manual ? L"\xE70F" : L"\xE8C8",
                    FontRole::Icon, p.iconTile,
                    manual ? RGB(123, 97, 255) : p.primary, 6);
 
         // 内容
-        RECT rcTxt = { x0 + 52, ry, x1 - 230, ry + 34 };
+        air::ui::Rect rcTxt = { x0 + 52, ry, x1 - 230, ry + 34 };
         g.TextRow(rcTxt, gfx::OneLine(e.content), FontRole::Body, p.text);
 
         // 模块标签
@@ -176,7 +177,7 @@ void OverviewPage::OnPaint(Canvas& g, const RECT& content)
                        p.primarySoft, p.primaryText, m.tagH);
 
         // 时间
-        RECT rcTime = { px + 12, ry, x1 - 16, ry + 34 };
+        air::ui::Rect rcTime = { px + 12, ry, x1 - 16, ry + 34 };
         g.Text(rcTime, fmt::RelTime(e.createdAt), FontRole::Meta,
                RGB(169, 174, 184),
                DT_SINGLELINE | DT_RIGHT | DT_VCENTER | DT_NOPREFIX);
@@ -187,38 +188,38 @@ void OverviewPage::OnPaint(Canvas& g, const RECT& content)
     }
 
     if (!rows) {
-        RECT rcEmpty = { x0 + 16, ry + 8, x1 - 16, rcAct.bottom - 8 };
+        air::ui::Rect rcEmpty = { x0 + 16, ry + 8, x1 - 16, rcAct.bottom - 8 };
         g.Text(rcEmpty, L"暂无记录 —— 复制任意文字将自动出现在这里",
                FontRole::Meta, p.textFaint,
                DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
     }
 }
 
-bool OverviewPage::OnMouseDown(POINT pt)
+bool OverviewPage::OnMouseDown(air::ui::Point pt)
 {
     // Shell 传的是相对内容区坐标；卡片矩形是客户区绝对坐标
-    POINT abs = { pt.x + m_content.left, pt.y + m_content.top };
-    if (PtInRect(&m_rcModCard[0], abs)) {
+    air::ui::Point abs = { pt.x + m_content.left, pt.y + m_content.top };
+    if (arecord::detail::Hit(m_rcModCard[0], abs)) {
         m_shell->SwitchPage(1);
         return true;
     }
     return true;   // 总览页吞掉内容区点击，避免穿透到别处
 }
 
-bool OverviewPage::OnMouseMove(POINT pt)
+bool OverviewPage::OnMouseMove(air::ui::Point pt)
 {
-    POINT abs = { pt.x + m_content.left, pt.y + m_content.top };
+    air::ui::Point abs = { pt.x + m_content.left, pt.y + m_content.top };
     // 只有「剪贴板监控」是真能进的；另外两张是规划中，悬停高亮会骗人。
-    const int card = PtInRect(&m_rcModCard[0], abs) ? 0 : -1;
+    const int card = arecord::detail::Hit(m_rcModCard[0], abs) ? 0 : -1;
     if (card == m_hoverCard) return false;
     m_hoverCard = card;
     return true;
 }
 
-bool OverviewPage::HandCursorAt(POINT pt)
+bool OverviewPage::HandCursorAt(air::ui::Point pt)
 {
-    POINT abs = { pt.x + m_content.left, pt.y + m_content.top };
-    return PtInRect(&m_rcModCard[0], abs) != FALSE;
+    air::ui::Point abs = { pt.x + m_content.left, pt.y + m_content.top };
+    return arecord::detail::Hit(m_rcModCard[0], abs) != FALSE;
 }
 
 bool OverviewPage::OnMouseLeave()
@@ -229,11 +230,11 @@ bool OverviewPage::OnMouseLeave()
 }
 
 // 服务离线横幅：内容区顶部一条全宽红色告警条（红色底 + 白字）。
-void OverviewPage::DrawOfflineBanner(Canvas& g, const RECT& banner)
+void OverviewPage::DrawOfflineBanner(Canvas& g, const air::ui::Rect& banner)
 {
     const Palette& p = Pal();
     g.Fill(banner, p.error);
-    RECT rcTxt = { banner.left + 14, banner.top, banner.right - 14, banner.bottom };
+    air::ui::Rect rcTxt = { banner.left + 14, banner.top, banner.right - 14, banner.bottom };
     g.Text(rcTxt, L"服务不可用 · 剪贴板记录暂存本地 · 恢复后自动同步",
            FontRole::Body, p.textInverse,
            DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);

@@ -27,7 +27,6 @@
 //   }
 // }
 // ============================================================
-#include <windows.h>
 #include <string>
 #include <map>
 #include "airui/Theme.h"
@@ -55,7 +54,7 @@ bool ExportTheme(const std::wstring& jsonPath);
 const std::wstring& LastLoadedThemeName();
 
 // 解析十六进制颜色字符串（支持 #RRGGBB / #AARRGGBB / rgb() / rgba()）
-COLORREF ParseColor(const std::wstring& str, COLORREF fallback = 0);
+Color ParseColor(const std::wstring& str, Color fallback = 0);
 
 // 内部：应用 ThemeJson 到全局 Palette/Metrics/Fonts
 void ApplyThemeJson(const ThemeJson& theme);

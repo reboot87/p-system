@@ -3,7 +3,7 @@
 // Frame-scoped routing of every drawing primitive to a runtime
 // selected IPainter. See PaintFrame.h for the architecture notes.
 // ============================================================
-#include "airui/PaintFrame.h"
+#include "internal/PaintFrame.h"
 
 #include "airui/Fonts.h"
 
@@ -278,7 +278,7 @@ Rect PaintFrame::CurrentClip() const
 
 HFONT PaintFrame::RoleFont(FontRole role) const
 {
-    return AnyFonts(m_fonts).Get(role);
+    return static_cast<HFONT>(AnyFonts(m_fonts).Get(role));
 }
 
 FontRole PaintFrame::FontRoleOf(HFONT font) const

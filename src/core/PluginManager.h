@@ -19,10 +19,13 @@ public:
     void DetachAll(App& app);
 
     // 事件分发
-    bool DispatchWndProc(App& app, HWND hwnd, UINT msg,
-                         WPARAM wParam, LPARAM lParam, LRESULT& result);
+    bool DispatchWndProc(App& app, air::ui::WindowHandle hwnd,
+                         air::ui::MessageId msg,
+                         air::ui::MessageWParam wParam,
+                         air::ui::MessageLParam lParam,
+                         air::ui::MessageResult& result);
     void DispatchCommand(App& app, int ctrlId, int notifyCode);
-    void DispatchTimer(App& app, UINT_PTR timerId);
+    void DispatchTimer(App& app, uintptr_t timerId);
 
     size_t Count() const { return m_plugins.size(); }
 

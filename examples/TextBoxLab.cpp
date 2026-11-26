@@ -99,7 +99,7 @@ public:
 
     // 顺序级联：标签 → 控件 → 间距，逐行往下排（④ 给足高度看滚动，
     // ⑤⑥⑦ 功能验证框固定行高，铺满由 ④ 承担而非最后那个框）
-    void OnLayout(const RECT& content) override
+    void OnLayout(const Rect& content) override
     {
         m_content = content;
         const int x = content.left;
@@ -123,7 +123,7 @@ public:
         }
     }
 
-    void OnPaint(Canvas& g, const RECT&) override
+    void OnPaint(Canvas& g, const Rect&) override
     {
         const Palette& p = Pal();
         const std::wstring labels[7] = {
@@ -140,11 +140,11 @@ public:
         Label(g, m_probe.label, m_content.bottom - 32);   // 底部探针行
     }
 
-    bool OnTimer(UINT_PTR id) override
+    bool OnTimer(uintptr_t id) override
     {
         if (id != 1) return false;
         m_probe.Tick();
-        InvalidateRegion(RECT{ m_content.left, m_content.bottom - 40,
+        InvalidateRegion(Rect{ m_content.left, m_content.bottom - 40,
                                m_content.right, m_content.bottom });
         return false;
     }
@@ -169,9 +169,9 @@ private:
     void Label(Canvas& g, const std::wstring& s, int top) const
     {
         const Palette& p = Pal();
-        g.Text(RECT{ m_content.left, top, m_content.right, top + kLabelH },
+        g.Text(Rect{ m_content.left, top, m_content.right, top + kLabelH },
                s, FontRole::Meta, p.textSub,
-               DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
+               dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix);
     }
 
     TextBox* m_single     = nullptr;
@@ -182,7 +182,7 @@ private:
     TextBox* m_password   = nullptr;   // ⑥ password 掩码
     TextBox* m_plainTwin  = nullptr;   // ⑦ ⑥ 的明文孪生（像素对照）
     BlinkProbe m_probe;
-    RECT m_content = {};
+    Rect m_content = {};
     Row  m_rows[7];
 };
 
@@ -215,13 +215,13 @@ public:
 
         m_mirror = CreateWindowExW(0, L"EDIT", L"multi=[] single=-1",
                                    WS_CHILD | ES_READONLY | ES_AUTOHSCROLL,
-                                   0, 0, 0, 0, ParentWnd(),
+                                   0, 0, 0, 0, reinterpret_cast<HWND>(ParentWnd()),
                                    (HMENU)(INT_PTR)IDC_LBL_MIRROR,
                                    GetModuleHandleW(nullptr), nullptr);
         UpdateMirror();
     }
 
-    void OnLayout(const RECT& content) override
+    void OnLayout(const Rect& content) override
     {
         const int gap = 14;
         const int w = (int)(content.right - content.left);
@@ -255,14 +255,14 @@ private:
             g.FillRound(it.rc, p.primarySoft, 0);
         else if (it.hovered)
             g.FillRound(it.rc, p.hover, 0);
-        g.Text(RECT{ it.rc.left + 10, it.rc.top + 2, it.rc.left + 40, it.rc.bottom },
+        g.Text(Rect{ it.rc.left + 10, it.rc.top + 2, it.rc.left + 40, it.rc.bottom },
                std::to_wstring(it.index), FontRole::Body,
-               p.text, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+               p.text, dt::SingleLine | dt::VCenter | dt::NoPrefix);
         if (it.selected) {
             const int gy = it.rc.top + h / 2 - 8;
-            g.Text(RECT{ it.rc.left + 10, gy, it.rc.left + 40, gy + 16 },
+            g.Text(Rect{ it.rc.left + 10, gy, it.rc.left + 40, gy + 16 },
                    L"\xE91B", FontRole::Icon, p.primary,
-                   DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+                   dt::SingleLine | dt::VCenter | dt::NoPrefix);
         }
     }
 
@@ -281,9 +281,9 @@ private:
     ListBox* m_list   = nullptr;   // 3201
     ListBox* m_single = nullptr;   // 3202
     HWND     m_mirror = nullptr;   // 3203
-    RECT     m_rcMulti  = {};
-    RECT     m_rcMirror = {};
-    RECT     m_rcSingle = {};
+    Rect     m_rcMulti  = {};
+    Rect     m_rcMirror = {};
+    Rect     m_rcSingle = {};
 };
 
 int APIENTRY wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR lpCmdLine, int)

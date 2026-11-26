@@ -24,8 +24,11 @@ void PluginManager::DetachAll(App& app)
         (*it)->OnDetach(app);
 }
 
-bool PluginManager::DispatchWndProc(App& app, HWND hwnd, UINT msg,
-                                    WPARAM wParam, LPARAM lParam, LRESULT& result)
+bool PluginManager::DispatchWndProc(App& app, air::ui::WindowHandle hwnd,
+                                    air::ui::MessageId msg,
+                                    air::ui::MessageWParam wParam,
+                                    air::ui::MessageLParam lParam,
+                                    air::ui::MessageResult& result)
 {
     for (auto& p : m_plugins) {
         if (p->OnWndProc(app, hwnd, msg, wParam, lParam, result))
@@ -40,7 +43,7 @@ void PluginManager::DispatchCommand(App& app, int ctrlId, int notifyCode)
         p->OnCommand(app, ctrlId, notifyCode);
 }
 
-void PluginManager::DispatchTimer(App& app, UINT_PTR timerId)
+void PluginManager::DispatchTimer(App& app, uintptr_t timerId)
 {
     for (auto& p : m_plugins)
         p->OnTimer(app, timerId);

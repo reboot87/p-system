@@ -3,7 +3,6 @@
 // AirUI — Shell.h
 // 无边框窗口外壳 + 页面框架
 // ============================================================
-#include <windows.h>
 #include <functional>
 #include <memory>
 #include <string>
@@ -12,6 +11,7 @@
 #include <cstdint>
 #include "airui/Theme.h"
 #include "airui/Fonts.h"
+#include "airui/types.h"
 #include "airui/Controls.h"
 #include "airui/Page.h"
 #include "airui/ShellCore.h"
@@ -31,7 +31,7 @@ namespace air { namespace ui {
 // ToastManager —— 自绘消息提示（定义在 Shell.h 避免循环依赖）
 //
 // 卡片由 core 的 PaintToast 画在独立分层窗口上：主窗口带
-// WS_CLIPCHILDREN，右下角被子控件占着，画在父窗口的 WM_PAINT 里
+// WS_CLIPCHILDREN，右下角被子控件占着，画在父窗口的 msg-PAINT 里
 // 会被裁掉。浮层自己带 50ms 定时器做淡入淡出 / 自动消失。
 // ------------------------------------------------------------
 namespace air {
@@ -67,19 +67,19 @@ private:
         uint64_t startTime = 0;
     };
 
-    RECT ComputeRect() const;
-    RECT CardRect(int index) const;
+    Rect ComputeRect() const;
+    Rect CardRect(int index) const;
     bool OwnerVisible() const;
     void AdvanceClock(uint64_t now, bool ownerVisible);
     void Resume();
     void EnsureLayer();
-    void Paint(HDC dc, int width, int height);
-    void HitTest(POINT pt, int& index, bool& onClose) const;
-    bool OnEvent(UINT msg, WPARAM wp, LPARAM lp, LRESULT& res);
+    void Paint(DeviceContextHandle dc, int width, int height);
+    void HitTest(Point pt, int& index, bool& onClose) const;
+    bool OnEvent(MessageId msg, MessageWParam wp, MessageLParam lp, MessageResult& res);
 
     std::vector<InternalToast> m_toasts;
     std::unique_ptr<OverlayWindow> m_layer;
-    HWND        m_owner  = nullptr;
+    WindowHandle        m_owner  = nullptr;
     const Fonts* m_fonts = nullptr;
     int  m_hoverIndex  = -1;
     bool m_hoverClose  = false;
@@ -117,14 +117,14 @@ struct ShellOptions
     bool         showOnCreate= true;
     bool         dark        = false;
     int          dpi         = 0;
-    HICON        icon        = nullptr;
+    IconHandle        icon        = nullptr;
     // Phase 1 HAL route: let the platform-free ShellCore draw the chrome
     // through GdiPainter instead of the legacy rich renderer. Default off
     // so the existing caption (logo / three buttons) never regresses.
     bool         coreShell   = false;
     // Runtime painter backend for the ShellCore chrome: "gdi", "skia",
     // "auto" (read AIRUI_PAINT_BACKEND, else gdi), or any registered
-    // provider id. Empty = "auto". Switching needs no rebuild: Skia is
+    // provider id. Empty = "auto". Switching needs no rebuild: the compositing backend is
     // linked in when a SDK was present, otherwise loaded from
     // airui-skia.dll at runtime. Unavailable backends fall back to gdi.
     std::string  paintBackend;
@@ -142,9 +142,9 @@ public:
     Shell(const Shell&) = delete;
     Shell& operator=(const Shell&) = delete;
 
-    bool Create(HINSTANCE hInstance, const ShellOptions& options);
+    bool Create(InstanceHandle hInstance, const ShellOptions& options);
     int  RunMessageLoop();
-    HWND Hwnd() const { return m_hwnd; }
+    WindowHandle Hwnd() const { return m_hwnd; }
 
     void    AddPage(int id, std::unique_ptr<IPage> page);
     bool    SwitchPage(int id);
@@ -174,18 +174,18 @@ public:
     void Invalidate();
     void InvalidateContent();
     void InvalidateTitle();
-    void InvalidateRegion(const RECT& rcClient);
+    void InvalidateRegion(const Rect& rcClient);
     void SetRedraw(bool on);
 
-    // Region the current WM_PAINT is repainting, in client coordinates.
+    // Region the current msg-PAINT is repainting, in client coordinates.
     // Equals the whole client for a full repaint and for any backend that
-    // composites the full client (Skia); narrower for a partial GDI
+    // composites the full client (the compositing backend); narrower for a partial the backend
     // repaint. A page may use it to skip work that would only be clipped.
-    const RECT& PaintClip() const { return m_paintClip; }
+    const Rect& PaintClip() const { return m_paintClip; }
 
     int ShowMessageBox(const std::wstring& text, const std::wstring& caption,
-                       UINT flags = MB_OK);
-    int ShowPopupMenu(POINT screenPt, const std::vector<MenuItem>& items);
+                       MessageBoxFlags flags = mb::Ok);
+    int ShowPopupMenu(Point screenPt, const std::vector<MenuItem>& items);
 
     int MeasureTextWidth(const std::wstring& s, FontRole role);
     int TextLineHeight(FontRole role);
@@ -200,8 +200,8 @@ public:
     ToastManager& ToastManager();
 
     const ui::Fonts& UiFonts() const { return m_fonts; }
-    const RECT&  ContentRect() const { return m_content; }
-    const RECT&  SidebarRect() const { return m_side; }
+    const Rect&  ContentRect() const { return m_content; }
+    const Rect&  SidebarRect() const { return m_side; }
 
     // Runtime painter backend selection (no rebuild required).
     // SetPaintBackend() takes effect on the next painted frame.
@@ -222,63 +222,63 @@ public:
         std::function<void(const std::string&, bool)> handler);
 
     // DPI change hook: called (on the UI thread) after the shell has
-    // rebuilt fonts + metrics in response to WM_DPICHANGED.  The app
+    // rebuilt fonts + metrics in response to msg-DPICHANGED.  The app
     // layer uses it to rebuild page content whose geometry was cached
     // in pixels at the old DPI (e.g. ListBox row heights).
     void SetDpiChangedHandler(std::function<void(int dpi)> handler);
     int  Dpi() const { return m_dpi; }
 
     // Platform-free shell state / layout / hit test. Core owns state,
-    // the Win32 backend owns pixels (see ShellCore.h).
+    // the native backend owns pixels (see ShellCore.h).
     ShellCore&       Core()       { return m_shellCore; }
     const ShellCore& Core() const { return m_shellCore; }
 
     void SetMessageHook(
-        std::function<bool(HWND, UINT, WPARAM, LPARAM, LRESULT&)> hook);
+        std::function<bool(WindowHandle, MessageId, MessageWParam, MessageLParam, MessageResult&)> hook);
 
     // 功能键等加速键：在消息循环里、TranslateMessage 之前过一遍。
-    // 焦点常落在 EDIT / LISTBOX 上，主窗口的 WM_KEYDOWN 收不到，
-    // 只挂在 WndProc 上是「按了没反应」最常见的原因。返回 true 吞掉。
-    void SetAcceleratorHandler(std::function<bool(const MSG&)> handler);
+    // 焦点常落在 edit control / list control 上，主窗口的 msg-KEYDOWN 收不到，
+    // 只挂在 window procedure 上是「按了没反应」最常见的原因。返回 true 吞掉。
+    void SetAcceleratorHandler(std::function<bool(const MessageInfo&)> handler);
     bool IsModalActive() const { return m_modalActive; }
 
-    virtual bool OnShellMessage(HWND hwnd, UINT msg, WPARAM wParam,
-                                LPARAM lParam, LRESULT& result)
+    virtual bool OnShellMessage(WindowHandle hwnd, MessageId msg, MessageWParam wParam,
+                                MessageLParam lParam, MessageResult& result)
     { (void)hwnd; (void)msg; (void)wParam; (void)lParam; (void)result; return false; }
 
     void SetCloseGuard(std::function<bool()> guard);
 
 protected:
-    virtual void OnPaintCaptionExtra(HDC dc, const RECT& bar) { (void)dc; (void)bar; }
+    virtual void OnPaintCaptionExtra(DeviceContextHandle dc, const Rect& bar) { (void)dc; (void)bar; }
 
     friend class Page;
     void    RegisterWidget(Widget* w);
     Widget* WidgetAt(int id);
 
 private:
-    static LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
-    LRESULT HandleMessage(HWND, UINT, WPARAM, LPARAM);
+    static MessageResult WndProc(WindowHandle, MessageId, MessageWParam, MessageLParam);
+    MessageResult HandleMessage(WindowHandle, MessageId, MessageWParam, MessageLParam);
 
-    bool RegisterWindowClass(HINSTANCE);
+    bool RegisterWindowClass(InstanceHandle);
     void CreateNavItems();
     void LayoutAll();
     void ApplyDpiChange(int newDpi);
-    void Paint(HDC dc);
+    void Paint(DeviceContextHandle dc);
     void InitPaintBackends();
 
-    void DrawCaption(HDC dc, const RECT& rc);
-    void DrawCaptionButtons(HDC dc, const RECT& rc);
-    void DrawStatusBar(HDC dc, const RECT& rc);
-    void DrawSidebarFooter(HDC dc);
+    void DrawCaption(DeviceContextHandle dc, const Rect& rc);
+    void DrawCaptionButtons(DeviceContextHandle dc, const Rect& rc);
+    void DrawStatusBar(DeviceContextHandle dc, const Rect& rc);
+    void DrawSidebarFooter(DeviceContextHandle dc);
 
-    int  CaptionButtonAt(POINT clientPt) const;
+    int  CaptionButtonAt(Point clientPt) const;
 
     // Caption-bar renderer switch button (drawn on top of both chrome
-    // paths so it stays visible after switching to Skia).
+    // paths so it stays visible after switching to the compositing backend).
     int  CaptionActionWidth() const;
-    RECT PaintBackendButtonRect() const;
-    bool HitTestPaintBackendButton(POINT clientPt) const;
-    void DrawPaintBackendButton(HDC dc);
+    Rect PaintBackendButtonRect() const;
+    bool HitTestPaintBackendButton(Point clientPt) const;
+    void DrawPaintBackendButton(DeviceContextHandle dc);
 
     struct PageSlot
     {
@@ -286,8 +286,8 @@ private:
         std::unique_ptr<IPage> page;
     };
 
-    HINSTANCE     m_hinst = nullptr;
-    HWND          m_hwnd  = nullptr;
+    InstanceHandle     m_hinst = nullptr;
+    WindowHandle          m_hwnd  = nullptr;
     ShellOptions  m_opt;
     std::string   m_paintBackend;   // resolved runtime choice ("" = auto)
     Fonts         m_fonts;
@@ -299,22 +299,22 @@ private:
     std::vector<Widget*>  m_widgets;
     int           m_pageId = -1;
 
-    RECT          m_content = {};
-    RECT          m_side    = {};
-    RECT          m_status  = {};
-    RECT          m_caption = {};
+    Rect          m_content = {};
+    Rect          m_side    = {};
+    Rect          m_status  = {};
+    Rect          m_caption = {};
 
-    // Repaint region of the WM_PAINT currently being assembled, client
+    // Repaint region of the msg-PAINT currently being assembled, client
     // coordinates. Full client for a whole-window invalidate / full-client
-    // compositing (Skia); narrower for partial GDI repaints. Pages may use
+    // compositing (the compositing backend); narrower for partial the backend repaints. Pages may use
     // PaintClip() to skip work that will only be clipped away.
-    RECT          m_paintClip = {};
+    Rect          m_paintClip = {};
 
-    // Window back buffer reused across WM_PAINTs (GDI path only).
-    PaintDC::BackBuffer m_backBuffer;
+    // Window back buffer reused across msg-PAINTs (the backend path only).
+    BackBuffer m_backBuffer;
 
     int           m_dpi     = 96;
-    // 96-DPI baseline metrics (the theme's raw values). WM_DPICHANGED
+    // 96-DPI baseline metrics (the theme's raw values). msg-DPICHANGED
     // rescales this baseline to the new DPI via ForDpi(); re-deriving
     // from Mx() (already scaled) would compound the scaling.
     Metrics       m_baseMetrics = Metrics();
@@ -322,26 +322,26 @@ private:
     int           m_capHover = 0;
     bool          m_paintBtnHover = false;
     bool          m_active  = true;
-    // Set while a page switch is being assembled. Lifting WM_SETREDRAW
+    // Set while a page switch is being assembled. Lifting msg-SETREDRAW
     // makes Windows repaint the whole client area WITH an erase first,
-    // which painted a full-window background frame a whole Skia frame
+    // which painted a full-window background frame a whole the compositing backend frame
     // (46-63 ms) before the real content arrived -- the visible "flash".
     bool          m_eraseSuppressed = false;
-    // Erasing the client is only useful for areas DWM exposes *before* the
+    // Erasing the client is only useful for areas the window manager exposes *before* the
     // next paint can land (size / show changes). For an ordinary
     // invalidation the erase just puts a flat background frame on screen
-    // while the frame is being built -- 31-47 ms with the Skia backend,
+    // while the frame is being built -- 31-47 ms with the the compositing backend backend,
     // which reads as the whole window blinking. Paint() always renders
     // every pixel from a back buffer, so the erase is dropped there.
     //
     // The erase is also limited to the strips that actually became new
     // (right edge + bottom edge of a grown client). Filling the whole
     // client instead threw a flat background over content that was still
-    // valid -- on maximize the WM_SIZE frame alone runs 140 ms, so the
+    // valid -- on maximize the msg-Size frame alone runs 140 ms, so the
     // window visibly blinked to a blank surface.
-    RECT          m_eraseRects[2] = {};
+    Rect          m_eraseRects[2] = {};
     int           m_eraseCount    = 0;
-    SIZE          m_lastClient    = { 0, 0 };
+    Size          m_lastClient    = { 0, 0 };
     // First paint of a window has nothing on screen yet; erasing then is
     // what keeps the exposed area from showing as uninitialised black.
     bool          m_paintedOnce = false;
@@ -355,8 +355,8 @@ private:
     std::wstring  m_infoTitle;
     std::vector<InfoRow> m_infoRows;
 
-    std::function<bool(HWND, UINT, WPARAM, LPARAM, LRESULT&)> m_hook;
-    std::function<bool(const MSG&)> m_accel;
+    std::function<bool(WindowHandle, MessageId, MessageWParam, MessageLParam, MessageResult&)> m_hook;
+    std::function<bool(const MessageInfo&)> m_accel;
     std::function<void(int)> m_navHandler;
     std::function<bool()>    m_closeGuard;
     bool         m_modalActive = false;

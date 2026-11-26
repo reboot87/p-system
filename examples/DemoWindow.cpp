@@ -4,7 +4,7 @@
 // 一个成品外观的应用窗口：无边框 + DWM 圆角阴影 + 自绘标题栏
 // （应用名/状态胶囊/三键）+ 侧栏导航 + 底部状态栏 + 页面框架。
 //
-// 页面代码全程不接触 HDC / HFONT / HWND / DRAWITEMSTRUCT：
+// 页面代码全程不接触原生绘制上下文 / 字体 / 窗口句柄：
 //   · 绘制   → Canvas
 //   · 控件   → CreateTextBox / CreateButton（回调驱动）
 //   · 弹窗   → ShowMessageBox
@@ -16,6 +16,17 @@
 
 using namespace air::ui;
 
+namespace {
+// Hit tests keep the native convention (the platform widgets use the same
+// one); only the boundary conversion lives here.
+inline bool HitRect(const Rect& r, const Point& p)
+{
+    RECT native = { r.left, r.top, r.right, r.bottom };
+    POINT pt = { p.x, p.y };
+    return PtInRect(&native, pt) != FALSE;
+}
+} // namespace
+
 // ------------------------------------------------------------
 // 页面一：只有绘制 —— Canvas 让页面只描述「画什么」
 // ------------------------------------------------------------
@@ -26,37 +37,37 @@ public:
     const wchar_t* NavGlyph() const override { return L"\xE896"; }  // LightningBolt
     const wchar_t* NavLabel() const override { return L"示例页"; }
 
-    void OnPaint(Canvas& g, const RECT& content) override
+    void OnPaint(Canvas& g, const Rect& content) override
     {
         const Palette& p = Pal();
         const Metrics& m = Mx();
 
         // 内容卡片
-        RECT card = { content.left, content.top,
+        Rect card = { content.left, content.top,
                       content.right, content.top + 220 };
         g.FillRound(card, p.surface, m.radiusLg);
         g.Stroke(card, p.split, m.radiusLg);
 
-        g.Text(RECT{ card.left, card.top + 40, card.right, card.top + 90 },
+        g.Text(Rect{ card.left, card.top + 40, card.right, card.top + 90 },
                L"Hello, AirUI!", FontRole::Display, p.primary,
-               DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
-        g.Text(RECT{ card.left, card.top + 100, card.right, card.top + 130 },
+               dt::SingleLine | dt::Center | dt::VCenter | dt::NoPrefix);
+        g.Text(Rect{ card.left, card.top + 100, card.right, card.top + 130 },
                L"这个窗口由 airui 静态库直接提供，页面只需继承 Page。",
                FontRole::Body, p.textSub,
-               DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
+               dt::SingleLine | dt::Center | dt::VCenter | dt::NoPrefix);
 
         // 主按钮外观（纯绘制示例；点击在 OnMouseDown 命中）
-        RECT btn = { card.left + 60, card.top + 150,
+        Rect btn = { card.left + 60, card.top + 150,
                      card.left + 180, card.top + 182 };
         g.Button(btn, L"主按钮", BtnStyle::Primary, m_btnHover);
     }
 
-    bool OnMouseDown(POINT pt) override
+    bool OnMouseDown(Point pt) override
     {
-        POINT abs = { pt.x + m_content.left, pt.y + m_content.top };
-        RECT btn = { m_content.left + 60, m_content.top + 150,
+        Point abs = { pt.x + m_content.left, pt.y + m_content.top };
+        Rect btn = { m_content.left + 60, m_content.top + 150,
                      m_content.left + 180, m_content.top + 182 };
-        if (PtInRect(&btn, abs)) {
+        if (HitRect(btn, abs)) {
             ShowMessageBox(L"页面代码里没有任何 Win32 句柄。",
                            L"AirUI Demo");
             return true;
@@ -64,12 +75,12 @@ public:
         return false;
     }
 
-    bool OnMouseMove(POINT pt) override
+    bool OnMouseMove(Point pt) override
     {
-        POINT abs = { pt.x + m_content.left, pt.y + m_content.top };
-        RECT btn = { m_content.left + 60, m_content.top + 150,
+        Point abs = { pt.x + m_content.left, pt.y + m_content.top };
+        Rect btn = { m_content.left + 60, m_content.top + 150,
                      m_content.left + 180, m_content.top + 182 };
-        bool hover = PtInRect(&btn, abs) != 0;
+        bool hover = HitRect(btn, abs);
         if (hover == m_btnHover) return false;
         m_btnHover = hover;
         return true;
@@ -83,7 +94,7 @@ public:
     }
 
 private:
-    RECT m_content = {};
+    Rect m_content = {};
     bool m_btnHover = false;
 };
 
@@ -102,15 +113,15 @@ public:
         (void)shell;
         m_edit = &CreateTextBox({ 2001, false, L"随便输入点什么…",
                                   FontRole::Body });
-        m_edit->OnKey([this](UINT vk, bool, bool) -> bool {
-            if (vk == VK_RETURN) { Greet(); return true; }
+        m_edit->OnKey([this](VirtualKey vk, bool, bool) -> bool {
+            if (vk == vkey::Return) { Greet(); return true; }
             return false;
         });
         m_btn = &CreateButton({ 2002, L"打招呼", BtnStyle::Primary });
         m_btn->OnClick([this] { Greet(); });
     }
 
-    void OnLayout(const RECT& content) override
+    void OnLayout(const Rect& content) override
     {
         m_content = content;
         m_box = { content.left, content.top, content.left + 320,
@@ -121,7 +132,7 @@ public:
         m_btn->Move(content.left + 340, content.top, 96, Mx().inputH);
     }
 
-    void OnPaint(Canvas& g, const RECT&) override
+    void OnPaint(Canvas& g, const Rect&) override
     {
         const Palette& p = Pal();
         if (m_box.right > m_box.left) {
@@ -130,10 +141,10 @@ public:
         }
     }
 
-    bool OnMouseDown(POINT pt) override
+    bool OnMouseDown(Point pt) override
     {
-        POINT abs = { pt.x + m_content.left, pt.y + m_content.top };
-        if (PtInRect(&m_box, abs)) {
+        Point abs = { pt.x + m_content.left, pt.y + m_content.top };
+        if (HitRect(m_box, abs)) {
             m_edit->ClickAt(abs);
             return true;
         }
@@ -157,7 +168,7 @@ public:
 private:
     TextBox* m_edit = nullptr;
     Button*  m_btn  = nullptr;
-    RECT m_box = {}, m_content = {};
+    Rect m_box = {}, m_content = {};
 };
 
 int APIENTRY wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)

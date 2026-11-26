@@ -9,6 +9,8 @@
 //   · 描边一律画在矩形内侧 1px（right/bottom 各 +1 补偿）
 // ============================================================
 #include <windows.h>
+#include "airui/types.h"
+#include "airui/types.h"
 #include <string>
 
 namespace air {
@@ -83,50 +85,50 @@ private:
 // ------------------------------------------------------------
 // 填充 / 描边
 // ------------------------------------------------------------
-void Fill(HDC dc, const RECT& rc, COLORREF color);
-void FillRound(HDC dc, const RECT& rc, COLORREF color, int radius);
+void Fill(DeviceContextHandle dc, const RECT& rc, COLORREF color);
+void FillRound(DeviceContextHandle dc, const RECT& rc, COLORREF color, int radius);
 // radius 为 0 时退化为直角矩形
-void FillShape(HDC dc, const RECT& rc, COLORREF color, int radius);
+void FillShape(DeviceContextHandle dc, const RECT& rc, COLORREF color, int radius);
 
 // 1px 实线描边（画在矩形内侧）
-void Stroke(HDC dc, const RECT& rc, COLORREF color, int radius, int width = 1);
+void Stroke(DeviceContextHandle dc, const RECT& rc, COLORREF color, int radius, int width = 1);
 // 1px 虚线描边（用于「可点击但未激活」的提示框）
-void StrokeDashed(HDC dc, const RECT& rc, COLORREF color, int radius);
+void StrokeDashed(DeviceContextHandle dc, const RECT& rc, COLORREF color, int radius);
 
-void HLine(HDC dc, int x1, int x2, int y, COLORREF color);
-void HLineDashed(HDC dc, int x1, int x2, int y, COLORREF color);
-void VLine(HDC dc, int x, int y1, int y2, COLORREF color);
-void Dot(HDC dc, int cx, int cy, int diameter, COLORREF color);
+void HLine(DeviceContextHandle dc, int x1, int x2, int y, COLORREF color);
+void HLineDashed(DeviceContextHandle dc, int x1, int x2, int y, COLORREF color);
+void VLine(DeviceContextHandle dc, int x, int y1, int y2, COLORREF color);
+void Dot(DeviceContextHandle dc, int cx, int cy, int diameter, COLORREF color);
 
 // 进度条（track 为底槽颜色，fill 由 pct 决定长度并按阈值变色）
-void ProgressBar(HDC dc, const RECT& rc, int pct, COLORREF track,
+void ProgressBar(DeviceContextHandle dc, const RECT& rc, int pct, COLORREF track,
                  COLORREF colorNormal, COLORREF colorWarn, COLORREF colorHot);
 
 // ------------------------------------------------------------
 // 文本
 // ------------------------------------------------------------
 // DrawText 的薄封装：明确设置透明背景 + 字体 + 颜色
-void Text(HDC dc, HFONT font, COLORREF color, const RECT& rc,
+void Text(DeviceContextHandle dc, FontHandle font, COLORREF color, const RECT& rc,
           const wchar_t* s, UINT format = DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-void Text(HDC dc, HFONT font, COLORREF color, const RECT& rc,
+void Text(DeviceContextHandle dc, FontHandle font, COLORREF color, const RECT& rc,
           const std::wstring& s, UINT format = DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
 // 单行左对齐 + 垂直居中 + 尾部省略（最高频组合）
-void TextRow(HDC dc, HFONT font, COLORREF color, const RECT& rc,
+void TextRow(DeviceContextHandle dc, FontHandle font, COLORREF color, const RECT& rc,
              const std::wstring& s, UINT extra = 0);
 // 单行右对齐
-void TextRowRight(HDC dc, HFONT font, COLORREF color, const RECT& rc,
+void TextRowRight(DeviceContextHandle dc, FontHandle font, COLORREF color, const RECT& rc,
                   const std::wstring& s, UINT extra = 0);
 // 单行居中
-void TextRowCenter(HDC dc, HFONT font, COLORREF color, const RECT& rc,
+void TextRowCenter(DeviceContextHandle dc, FontHandle font, COLORREF color, const RECT& rc,
                    const std::wstring& s, UINT extra = 0);
 // 多行折行 + 尾部省略
-void TextBlock(HDC dc, HFONT font, COLORREF color, const RECT& rc,
+void TextBlock(DeviceContextHandle dc, FontHandle font, COLORREF color, const RECT& rc,
                const std::wstring& s, UINT extra = 0);
 
-int  MeasureWidth(HDC dc, HFONT font, const wchar_t* s, int len = -1);
-int  MeasureWidth(HDC dc, HFONT font, const std::wstring& s);
-int  LineHeight(HDC dc, HFONT font);
+int  MeasureWidth(DeviceContextHandle dc, FontHandle font, const wchar_t* s, int len = -1);
+int  MeasureWidth(DeviceContextHandle dc, FontHandle font, const std::wstring& s);
+int  LineHeight(DeviceContextHandle dc, FontHandle font);
 
 // 把字符串里的换行替换为空格（列表单行展示用）
 std::wstring OneLine(const std::wstring& s);
@@ -135,25 +137,25 @@ std::wstring OneLine(const std::wstring& s);
 // 复合小部件（纯绘制，位置由调用方给出）
 // ------------------------------------------------------------
 // 行内标签：浅底 + 深字，圆角 2px，高 tagH。返回右边界 x。
-int Tag(HDC dc, int x, int y, const wchar_t* text, HFONT font,
+int Tag(DeviceContextHandle dc, int x, int y, const wchar_t* text, FontHandle font,
         COLORREF bg, COLORREF tx, int height = 20);
 
 // 右对齐胶囊（模块卡右上角状态）：圆角 = 高/2
-void PillRight(HDC dc, int rightX, int y, const wchar_t* text, HFONT font,
+void PillRight(DeviceContextHandle dc, int rightX, int y, const wchar_t* text, FontHandle font,
                COLORREF bg, COLORREF tx, int height = 20);
 
 // 状态胶囊：浅底 + 描边 + 同色圆点 + 深字（标题栏服务状态）
-void StatusTag(HDC dc, int rightX, int centerY, const wchar_t* text, HFONT font,
+void StatusTag(DeviceContextHandle dc, int rightX, int centerY, const wchar_t* text, FontHandle font,
                COLORREF bg, COLORREF border, COLORREF tx, COLORREF dot,
                int height = 24);
 
 // 键位提示 chip（底 + 描边 + 按键文字 + 说明文字），右对齐到 rightX
-void KbdChip(HDC dc, int rightX, int centerY, const wchar_t* key,
-             const wchar_t* label, HFONT font);
-int  KbdChipWidth(HDC dc, const wchar_t* key, const wchar_t* label, HFONT font);
+void KbdChip(DeviceContextHandle dc, int rightX, int centerY, const wchar_t* key,
+             const wchar_t* label, FontHandle font);
+int  KbdChipWidth(DeviceContextHandle dc, const wchar_t* key, const wchar_t* label, FontHandle font);
 
 // 图标块：圆角方块 + 居中字形（Segoe MDL2）
-void IconTile(HDC dc, const RECT& rc, const wchar_t* glyph, HFONT iconFont,
+void IconTile(DeviceContextHandle dc, const RECT& rc, const wchar_t* glyph, FontHandle iconFont,
               COLORREF bg, COLORREF tx, int radius = 8);
 
 } // namespace gfx

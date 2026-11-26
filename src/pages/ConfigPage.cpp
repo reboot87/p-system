@@ -1,4 +1,5 @@
 #include "ConfigPage.h"
+#include "NeutralWin32.h"
 #include "core/App.h"
 #include "core/Format.h"
 #include "../ipc/Ipc.h"
@@ -19,12 +20,12 @@ void ConfigPage::OnShow(bool shown)
     StartTimer(TIMER_SYSINFO, 2000);
 }
 
-void ConfigPage::OnLayout(const RECT& content)
+void ConfigPage::OnLayout(const air::ui::Rect& content)
 {
     m_content = content;   // 输入坐标换算基准（客户区绝对几何 ↔ 内容区相对输入）
 }
 
-bool ConfigPage::OnTimer(UINT_PTR id)
+bool ConfigPage::OnTimer(uintptr_t id)
 {
     if (id != TIMER_SYSINFO) return false;
     m_sys = sysinfo::Collect();
@@ -35,21 +36,21 @@ bool ConfigPage::OnTimer(UINT_PTR id)
 // ============================================================
 // 暗色模式开关（自绘热区）
 // ============================================================
-bool ConfigPage::HitDarkToggle(POINT clientPt) const
+bool ConfigPage::HitDarkToggle(air::ui::Point clientPt) const
 {
     return m_rcDarkToggle.right > m_rcDarkToggle.left &&
-           PtInRect(&m_rcDarkToggle, clientPt);
+           arecord::detail::Hit(m_rcDarkToggle, clientPt);
 }
 
 // 内容区相对输入坐标 → 客户区绝对坐标（热区几何是绝对坐标）
-static POINT AbsPoint(const RECT& content, POINT rel)
+static air::ui::Point AbsPoint(const air::ui::Rect& content, air::ui::Point rel)
 {
     return { rel.x + content.left, rel.y + content.top };
 }
 
-bool ConfigPage::OnMouseDown(POINT pt)
+bool ConfigPage::OnMouseDown(air::ui::Point pt)
 {
-    const POINT abs = AbsPoint(m_content, pt);
+    const air::ui::Point abs = AbsPoint(m_content, pt);
     if (HitDarkToggle(abs)) {
         SetCapture(true);   // 拖出再松手 = 取消
         m_darkHot.Down(kHotDarkToggle);
@@ -59,10 +60,10 @@ bool ConfigPage::OnMouseDown(POINT pt)
     return false;
 }
 
-bool ConfigPage::OnMouseUp(POINT pt)
+bool ConfigPage::OnMouseUp(air::ui::Point pt)
 {
     if (!m_darkHot.Pressing()) return false;
-    const POINT abs = AbsPoint(m_content, pt);
+    const air::ui::Point abs = AbsPoint(m_content, pt);
     const bool clicked = HitDarkToggle(abs) && m_darkHot.Release(kHotDarkToggle);
     SetCapture(false);
     if (clicked)
@@ -71,9 +72,9 @@ bool ConfigPage::OnMouseUp(POINT pt)
     return true;
 }
 
-bool ConfigPage::OnMouseMove(POINT pt)
+bool ConfigPage::OnMouseMove(air::ui::Point pt)
 {
-    const POINT abs = AbsPoint(m_content, pt);
+    const air::ui::Point abs = AbsPoint(m_content, pt);
     const bool dirty = m_darkHot.Move(HitDarkToggle(abs) ? kHotDarkToggle : 0);
     if (dirty) InvalidateRegion(m_rcDarkToggle);
     return dirty;
@@ -86,13 +87,13 @@ bool ConfigPage::OnMouseLeave()
     return dirty;
 }
 
-bool ConfigPage::HandCursorAt(POINT pt)
+bool ConfigPage::HandCursorAt(air::ui::Point pt)
 {
-    const POINT abs = AbsPoint(m_content, pt);
+    const air::ui::Point abs = AbsPoint(m_content, pt);
     return HitDarkToggle(abs);
 }
 
-void ConfigPage::DrawInfoCard(Canvas& g, RECT rc, const CardData& c)
+void ConfigPage::DrawInfoCard(Canvas& g, air::ui::Rect rc, const CardData& c)
 {
     const Palette& p = Pal();
     const Metrics& m = Mx();
@@ -101,10 +102,10 @@ void ConfigPage::DrawInfoCard(Canvas& g, RECT rc, const CardData& c)
     g.Stroke(rc, p.split, m.radiusLg);
 
     // 头部：图标块 + 标题 + 右上角状态
-    RECT ic = { rc.left + 14, rc.top + 10, rc.left + 40, rc.top + 36 };
+    air::ui::Rect ic = { rc.left + 14, rc.top + 10, rc.left + 40, rc.top + 36 };
     g.IconTile(ic, c.glyph, FontRole::Icon, p.primarySoft, p.primary, 6);
 
-    RECT rcT = { ic.right + 8, rc.top + 10, rc.right - 90, rc.top + 36 };
+    air::ui::Rect rcT = { ic.right + 8, rc.top + 10, rc.right - 90, rc.top + 36 };
     g.Text(rcT, c.title, FontRole::Title, p.text,
            DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
 
@@ -122,26 +123,26 @@ void ConfigPage::DrawInfoCard(Canvas& g, RECT rc, const CardData& c)
         const std::wstring v = f.size() > 1 ? f[1] : L"";
         int bar = f.size() > 2 ? _wtoi(f[2].c_str()) : -1;
 
-        RECT rcK = { rc.left + 16, y, rc.left + 112, y + 22 };
+        air::ui::Rect rcK = { rc.left + 16, y, rc.left + 112, y + 22 };
         g.Text(rcK, k, FontRole::Meta, p.textFaint,
                DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
 
         bool hasBar = (bar >= 0 && bar <= 100);
         int vRight = hasBar ? rc.right - 16 - 158 : rc.right - 16;
-        RECT rcV = { rc.left + 118, y, vRight, y + 22 };
+        air::ui::Rect rcV = { rc.left + 118, y, vRight, y + 22 };
         g.Text(rcV, v, FontRole::Body, p.text,
                DT_SINGLELINE | DT_LEFT | DT_VCENTER |
                DT_END_ELLIPSIS | DT_NOPREFIX);
 
         if (hasBar) {
-            RECT rcBar = { rc.right - 16 - 160, y + 7, rc.right - 16 - 46,
+            air::ui::Rect rcBar = { rc.right - 16 - 160, y + 7, rc.right - 16 - 46,
                            y + 14 };
             g.ProgressBar(rcBar, bar, RGB(239, 241, 244),
                           p.primary, RGB(250, 173, 20), RGB(229, 72, 77));
 
             wchar_t pct[16];
             swprintf_s(pct, 16, L"%d%%", bar);
-            RECT rcPct = { rc.right - 16 - 42, y, rc.right - 16, y + 22 };
+            air::ui::Rect rcPct = { rc.right - 16 - 42, y, rc.right - 16, y + 22 };
             g.Text(rcPct, pct, FontRole::Meta, p.textFaint,
                    DT_SINGLELINE | DT_RIGHT | DT_VCENTER | DT_NOPREFIX);
         }
@@ -149,7 +150,7 @@ void ConfigPage::DrawInfoCard(Canvas& g, RECT rc, const CardData& c)
     }
 }
 
-void ConfigPage::OnPaint(Canvas& g, const RECT& content)
+void ConfigPage::OnPaint(Canvas& g, const air::ui::Rect& content)
 {
     if (!m_sysLoaded) {
         m_sys = sysinfo::Collect();
@@ -288,7 +289,7 @@ void ConfigPage::OnPaint(Canvas& g, const RECT& content)
     m_rcThemeCard = {};
     for (auto& c : cards) {
         int h = CardHeight((int)c.rows.size());
-        RECT rc;
+        air::ui::Rect rc;
         if (col == 0) { rc = { x0, yL, x0 + colW, yL + h }; yL += h + 14; }
         else          { rc = { x0 + colW + 14, yR, x1, yR + h }; yR += h + 14; }
         if (wcscmp(c.title, L"显示与外观") == 0) m_rcThemeCard = rc;
@@ -315,7 +316,7 @@ void ConfigPage::DrawDarkToggle(Canvas& g)
     const bool hov   = m_darkHot.Hovered(kHotDarkToggle);
     const bool press = m_darkHot.Pressed(kHotDarkToggle);
 
-    RECT track = { cx, cy, cx + trackW, cy + trackH };
+    air::ui::Rect track = { cx, cy, cx + trackW, cy + trackH };
     g.FillRound(track, dark ? p.primary : p.chipBg, trackH / 2);
     if (hov || press)
         g.Stroke(track, press ? p.primaryDown : p.primary, trackH / 2);
@@ -323,7 +324,7 @@ void ConfigPage::DrawDarkToggle(Canvas& g)
     // 滑块：暗色在右、浅色在左
     const int knobD = trackH - 6;
     int kx = dark ? cx + trackW - knobD - 3 : cx + 3;
-    RECT knob = { kx, cy + 3, kx + knobD, cy + 3 + knobD };
+    air::ui::Rect knob = { kx, cy + 3, kx + knobD, cy + 3 + knobD };
     g.FillRound(knob, dark ? p.primaryText : RGB(255, 255, 255), knobD / 2);
     // 微阴影感：滑块下缘一层深描边（浅色模式）
     if (!dark)

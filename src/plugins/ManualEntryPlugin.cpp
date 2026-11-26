@@ -5,6 +5,12 @@
 
 using namespace arecord;
 
+namespace {
+// The App facade hands out neutral handles; the Win32 calls below are the
+// only place that needs the native ones.
+inline HWND NativeHwnd(air::ui::WindowHandle h) { return reinterpret_cast<HWND>(h); }
+} // namespace
+
 // ---------- EDIT 子类化：捕获 Ctrl+Enter ----------
 static LRESULT CALLBACK ManualEditProc(HWND hwnd, UINT msg, WPARAM wParam,
                                        LPARAM lParam,
@@ -24,7 +30,8 @@ static LRESULT CALLBACK ManualEditProc(HWND hwnd, UINT msg, WPARAM wParam,
 // ---------- 插件挂载：子类化录入框以捕获 Ctrl+Enter ----------
 bool ManualEntryPlugin::OnAttach(App& app)
 {
-    SetWindowSubclass(app.ManualEdit(), &ManualEditProc, 1, (DWORD_PTR)&app);
+    SetWindowSubclass(NativeHwnd(app.ManualEdit()), &ManualEditProc, 1,
+                      (DWORD_PTR)&app);
     return true;
 }
 
@@ -43,7 +50,7 @@ bool ManualEntryPlugin::SaveFromManual(App& app)
     for (wchar_t c : text)
         if (!iswspace(c)) { hasContent = true; break; }
     if (!hasContent) {
-        SetFocus(app.ManualEdit());
+        SetFocus(NativeHwnd(app.ManualEdit()));
         app.Toast(L"内容不能为空", L"请输入要保存的内容后再试", false);
         return false;
     }
@@ -53,8 +60,8 @@ bool ManualEntryPlugin::SaveFromManual(App& app)
         L"SAVE\tManual\t" + ipc::EscapeField(note) +
         L"\t" + ipc::EscapeField(text));
     if (resp.rfind(L"OK", 0) == 0) {
-        SetWindowTextW(app.ManualEdit(), L""); // 清空录入框和备注框
-        SetWindowTextW(app.NoteEdit(), L"");
+        SetWindowTextW(NativeHwnd(app.ManualEdit()), L""); // 清空录入框和备注框
+        SetWindowTextW(NativeHwnd(app.NoteEdit()), L"");
         app.ToggleForm(false);                 // 保存成功 → 收起表单卡
         // 新增记录会改变总数 / 侧栏角标 / 总览页数字，不能只刷列表
         app.RefreshData();
@@ -73,5 +80,5 @@ void ManualEntryPlugin::OnCommand(App& app, int ctrlId, int notifyCode)
 
 void ManualEntryPlugin::OnDetach(App& app)
 {
-    RemoveWindowSubclass(app.ManualEdit(), &ManualEditProc, 1);
+    RemoveWindowSubclass(NativeHwnd(app.ManualEdit()), &ManualEditProc, 1);
 }

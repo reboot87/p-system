@@ -18,26 +18,26 @@ public:
     const wchar_t* NavLabel() const override { return L"工作台总览"; }
 
     void OnShow(bool shown) override;
-    void OnLayout(const RECT& content) override;
-    void OnPaint(air::ui::Canvas& g, const RECT& content) override;
-    bool OnMouseDown(POINT pt) override;
-    bool OnMouseMove(POINT pt) override;
+    void OnLayout(const air::ui::Rect& content) override;
+    void OnPaint(air::ui::Canvas& g, const air::ui::Rect& content) override;
+    bool OnMouseDown(air::ui::Point pt) override;
+    bool OnMouseMove(air::ui::Point pt) override;
     bool OnMouseLeave() override;
-    bool HandCursorAt(POINT pt) override;
+    bool HandCursorAt(air::ui::Point pt) override;
 
 private:
-    void DrawModuleCard(air::ui::Canvas& g, RECT r, int idx,
+    void DrawModuleCard(air::ui::Canvas& g, air::ui::Rect r, int idx,
                         const wchar_t* glyph,
-                        COLORREF icBg, COLORREF icTx,
+                        air::ui::Color icBg, air::ui::Color icTx,
                         const wchar_t* name, const wchar_t* desc,
                         const std::wstring& number, const wchar_t* unit,
                         const wchar_t* badge, bool off, bool badgeOk,
                         bool hover);
-    void DrawOfflineBanner(air::ui::Canvas& g, const RECT& banner);
+    void DrawOfflineBanner(air::ui::Canvas& g, const air::ui::Rect& banner);
 
     App&  m_app;
-    RECT  m_content = {};
-    RECT  m_rcModCard[3] = {};
+    air::ui::Rect  m_content = {};
+    air::ui::Rect  m_rcModCard[3] = {};
     int   m_hoverCard = -1;
     int   m_bannerH = 0;      // 服务离线横幅高度（离线 ~28px，在线 0）
 };

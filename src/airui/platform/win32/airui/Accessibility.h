@@ -8,7 +8,7 @@
 //   · 渐进增强：开启后自动为标准控件添加无障碍属性
 //   · 运行时切换：语言/高对比度模式即时生效
 // ============================================================
-#include <windows.h>
+#include "airui/types.h"
 #include <string>
 #include <map>
 #include <functional>
@@ -69,29 +69,29 @@ enum State {
 };
 
 // 为控件设置无障碍属性（在 CreateNative 后调用）
-void SetAccessibleRole(HWND hwnd, Role role);
-void SetAccessibleName(HWND hwnd, const std::wstring& name);
-void SetAccessibleDescription(HWND hwnd, const std::wstring& desc);
-void SetAccessibleState(HWND hwnd, State state, bool on);
-void SetAccessibleValue(HWND hwnd, const std::wstring& value, 
+void SetAccessibleRole(WindowHandle hwnd, Role role);
+void SetAccessibleName(WindowHandle hwnd, const std::wstring& name);
+void SetAccessibleDescription(WindowHandle hwnd, const std::wstring& desc);
+void SetAccessibleState(WindowHandle hwnd, State state, bool on);
+void SetAccessibleValue(WindowHandle hwnd, const std::wstring& value,
                         const std::wstring& min = L"", const std::wstring& max = L"");
 
 // ------------------------------------------------------------
-// WM_GETOBJECT 管线（宿主 WndProc / 子类过程转发）：
+// 无障碍对象查询消息管线（宿主窗口过程 / 子类过程转发）：
 //   HandleGetObject            总是返回 AirUI 的 IAccessible 对象；
 //   HandleGetObjectIfAnnotated 仅当该窗口被 SetAccessible* 标注过才
 //                              接管，否则返回 0（未处理），让 EDIT /
 //                              LISTBOX 等标准控件继续使用原生 provider
 //                              （其 UIA Text/Value/Selection 支持比薄
 //                              包装更完整）。
-//   返回 0 表示未处理，调用方应继续 DefWindowProc / DefSubclassProc。
+//   返回 0 表示未处理，调用方应继续默认窗口过程 / 默认子类过程。
 // ------------------------------------------------------------
-LRESULT HandleGetObject(HWND hwnd, WPARAM wParam, LPARAM lParam);
-LRESULT HandleGetObjectIfAnnotated(HWND hwnd, WPARAM wParam, LPARAM lParam);
+MessageResult HandleGetObject(WindowHandle hwnd, MessageWParam wParam, MessageLParam lParam);
+MessageResult HandleGetObjectIfAnnotated(WindowHandle hwnd, MessageWParam wParam, MessageLParam lParam);
 
-// 窗口销毁时清理该窗口的无障碍属性表（WM_NCDESTROY 时调用一次即可；
+// 窗口销毁时清理该窗口的无障碍属性表（非客户区销毁消息时调用一次即可；
 // 幂等，在多个销毁路径重复调用是安全的）。
-void ForgetWindow(HWND hwnd);
+void ForgetWindow(WindowHandle hwnd);
 
 // 批量为标准控件启用无障碍
 void EnableForWidget(Widget* w, const std::wstring& name = L"", Role role = ROLE_UNKNOWN);
@@ -104,7 +104,7 @@ public:
     void Announce(const std::wstring& text, bool polite = true); // polite=true=礼貌模式
     void SetAssertive(bool assertive);
 private:
-    HWND m_hwnd = nullptr;
+    WindowHandle m_hwnd = nullptr;
 };
 
 // 高对比度模式检测与跟随
@@ -112,7 +112,7 @@ bool IsHighContrastMode();
 void SetHighContrastCallback(std::function<void(bool)> cb);
 
 // 键盘导航增强
-void EnableKeyboardNavigation(HWND hwnd); // Tab/Arrow/Enter/Esc 标准键盘交互
+void EnableKeyboardNavigation(WindowHandle hwnd); // Tab/Arrow/Enter/Esc 标准键盘交互
 
 } // namespace a11y
 
@@ -158,8 +158,8 @@ public:
                     const std::wstring& arg2, const std::wstring& val2) const;
 
     // 日期/时间/数字格式化
-    std::wstring FormatDate(const SYSTEMTIME& st) const;
-    std::wstring FormatTime(const SYSTEMTIME& st) const;
+    std::wstring FormatDate(const DateTime& st) const;
+    std::wstring FormatTime(const DateTime& st) const;
     std::wstring FormatNumber(double val, int decimals = 2) const;
     std::wstring FormatCurrency(double val) const;
 
