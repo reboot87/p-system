@@ -1298,7 +1298,7 @@ bool Button::HandleDrawItem(const DrawItemInfo* dis)
 {
     if (!m_shell) return false;
     DrawButton(DcOfWidget(dis->hDC), ToWinRect(dis->rcItem), Text().c_str(),
-               m_shell->UiFonts().Get(FontRole::Button),
+               m_shell->UiFonts(), FontRole::Button,
                m_style,
                IsButtonHover(HwndOfWidget(dis->hwndItem)),
                (dis->itemState & ODS_SELECTED) != 0);

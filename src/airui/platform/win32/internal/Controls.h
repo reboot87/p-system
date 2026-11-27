@@ -37,7 +37,8 @@ void MoveCaretToEnd(HWND edit);
 // 按钮
 // ============================================================
 
-void DrawButton(HDC dc, const RECT& rc, const wchar_t* text, FontHandle font,
+void DrawButton(HDC dc, const RECT& rc, const wchar_t* text,
+                const Fonts& fonts, FontRole role,
                 BtnStyle style, bool hover, bool pressed, bool disabled = false);
 
 // OWNERDRAW 按钮的 hover / pressed 跟踪。

@@ -1,4 +1,5 @@
 #include "internal/Controls.h"
+#include "internal/Canvas.h"
 #include "internal/Gfx.h"
 #include "airui/Theme.h"
 #include <commctrl.h>
@@ -12,6 +13,7 @@ namespace ui {
 namespace {
 // Convert the platform-neutral Rect to the native rectangle at the boundary.
 inline RECT ToRect(const Rect& r) { return RECT{ r.left, r.top, r.right, r.bottom }; }
+inline Rect FromWinRect(const RECT& r) { return Rect{ r.left, r.top, r.right, r.bottom }; }
 } // namespace
 } // namespace ui
 } // namespace air
@@ -165,11 +167,13 @@ BtnStyle ButtonStyleOf(HWND button)
     return s ? s->style : BtnStyle::Primary;
 }
 
-void DrawButton(HDC dc, const RECT& rc, const wchar_t* text, FontHandle font,
+void DrawButton(HDC dc, const RECT& rc, const wchar_t* text,
+                const Fonts& fonts, FontRole role,
                 BtnStyle style, bool hover, bool pressed, bool disabled)
 {
     const Palette& p = Pal();
-    RECT r = rc;
+    const Rect r = FromWinRect(rc);
+    Canvas g(dc, fonts);
 
     switch (style) {
     case BtnStyle::Primary: {
@@ -177,9 +181,9 @@ void DrawButton(HDC dc, const RECT& rc, const wchar_t* text, FontHandle font,
         if (disabled)      fill = p.border;
         else if (pressed)  fill = p.primaryDown;
         else if (hover)    fill = p.primaryHover;
-        gfx::FillRound(dc, r, fill, Mx().radiusMd);
-        gfx::Text(dc, font, p.textInverse, r, text,
-                  DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
+        g.FillRound(r, fill, Mx().radiusMd);
+        g.Text(r, text, role, p.textInverse,
+               dt::SingleLine | dt::Center | dt::VCenter | dt::NoPrefix);
         break;
     }
     case BtnStyle::Secondary: {
@@ -188,28 +192,27 @@ void DrawButton(HDC dc, const RECT& rc, const wchar_t* text, FontHandle font,
         COLORREF fill = pressed ? p.selectFill : (hover ? p.active : p.surface);
         COLORREF line = pressed ? p.primaryDown
                                 : (hover ? p.primary : p.border);
-        gfx::FillRound(dc, r, fill, Mx().radiusMd);
-        gfx::Stroke(dc, r, disabled ? p.border : line, Mx().radiusMd);
-        gfx::Text(dc, font,
-                  disabled ? p.textDisabled
-                           : ((hover || pressed) ? p.primaryText : p.textSub),
-                  r, text,
-                  DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
+        g.FillRound(r, fill, Mx().radiusMd);
+        g.Stroke(r, disabled ? p.border : line, Mx().radiusMd);
+        g.Text(r, text, role,
+               disabled ? p.textDisabled
+                        : ((hover || pressed) ? p.primaryText : p.textSub),
+               dt::SingleLine | dt::Center | dt::VCenter | dt::NoPrefix);
         break;
     }
     case BtnStyle::Danger: {
         COLORREF fill = pressed ? p.errorSoft : (hover ? p.errorSoft : p.surface);
         COLORREF line = (hover || pressed) ? p.error : p.errorBorder;
-        gfx::FillRound(dc, r, fill, Mx().radiusMd);
-        gfx::Stroke(dc, r, disabled ? p.border : line, Mx().radiusMd);
-        gfx::Text(dc, font, disabled ? p.textDisabled : p.errorText, r, text,
-                  DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
+        g.FillRound(r, fill, Mx().radiusMd);
+        g.Stroke(r, disabled ? p.border : line, Mx().radiusMd);
+        g.Text(r, text, role, disabled ? p.textDisabled : p.errorText,
+               dt::SingleLine | dt::Center | dt::VCenter | dt::NoPrefix);
         break;
     }
     case BtnStyle::Ghost: {
-        if (hover) gfx::FillRound(dc, r, p.primarySoft, Mx().radiusMd);
-        gfx::Text(dc, font, disabled ? p.textDisabled : p.primaryText, r, text,
-                  DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
+        if (hover) g.FillRound(r, p.primarySoft, Mx().radiusMd);
+        g.Text(r, text, role, disabled ? p.textDisabled : p.primaryText,
+               dt::SingleLine | dt::Center | dt::VCenter | dt::NoPrefix);
         break;
     }
     }
@@ -289,56 +292,55 @@ void NavBar::Paint(DeviceContextHandle dc, const Fonts& fonts)
 
     const Palette& p = Pal();
     const Metrics& m = Mx();
+    Canvas g(dc, fonts);
 
     // 侧栏底色 + 右侧分隔线
-    gfx::Fill(dc, ToRect(m_side), p.sidebar);
-    gfx::VLine(dc, m_side.right - 1, m_side.top, m_side.bottom, p.sidebarLine);
+    g.Fill(m_side, p.sidebar);
+    g.VLine(m_side.right - 1, m_side.top, m_side.bottom, p.sidebarLine);
 
     // 分组标题
     for (auto& gr : m_groupsRect) {
-        gfx::Text(dc, fonts.Get(FontRole::Meta), RGB(143, 149, 158), ToRect(gr.rc),
-                  gr.title, DT_SINGLELINE | DT_LEFT | DT_VCENTER);
+        g.Text(gr.rc, gr.title, FontRole::Meta, RGB(143, 149, 158),
+               dt::SingleLine | dt::Left | dt::VCenter);
     }
 
     // 条目
     int idx = 0;
-    for (auto& g : m_groups) {
-        for (auto& it : g.items) {
+    for (auto& grp : m_groups) {
+        for (auto& it : grp.items) {
             if (idx >= (int)m_items.size()) break;
             const ItemRect& ir = m_items[idx++];
 
             bool active = (it.id == m_active) && !it.disabled;
             bool hot    = (it.id == m_hoverId) && !it.disabled;
 
-            if (active)      gfx::FillRound(dc, ToRect(ir.rc), p.selectFill, 6);
-            else if (hot)    gfx::FillRound(dc, ToRect(ir.rc), p.active, 6);
+            if (active)      g.FillRound(ir.rc, p.selectFill, 6);
+            else if (hot)    g.FillRound(ir.rc, p.active, 6);
 
             // 图标
-            RECT rcIc = { ir.rc.left + 12, ir.rc.top,
+            Rect rcIc = { ir.rc.left + 12, ir.rc.top,
                           ir.rc.left + 34, ir.rc.bottom };
             COLORREF icTx = it.disabled ? p.textDisabled
                                       : (active ? p.primary : RGB(90, 98, 112));
-            gfx::Text(dc, fonts.Get(FontRole::Icon), icTx, rcIc,
-                      it.glyph, DT_SINGLELINE | DT_CENTER | DT_VCENTER |
-                                DT_NOPREFIX);
+            g.Text(rcIc, it.glyph, FontRole::Icon, icTx,
+                   dt::SingleLine | dt::Center | dt::VCenter | dt::NoPrefix);
 
             // 文本（右侧留出角标空间）
             int textRight = ir.rc.right - 10;
             if (!it.badge.empty()) textRight -= 52;
-            RECT rcTx = { ir.rc.left + 40, ir.rc.top, textRight, ir.rc.bottom };
+            Rect rcTx = { ir.rc.left + 40, ir.rc.top, textRight, ir.rc.bottom };
             COLORREF txCol = it.disabled ? p.textDisabled
                                         : (active ? p.primaryText : p.text);
-            gfx::Text(dc, active ? fonts.Get(FontRole::Title)
-                                 : fonts.Get(FontRole::Body),
-                      txCol, rcTx, it.label,
-                      DT_SINGLELINE | DT_LEFT | DT_VCENTER |
-                      DT_END_ELLIPSIS | DT_NOPREFIX);
+            g.Text(rcTx, it.label,
+                   active ? FontRole::Title : FontRole::Body,
+                   txCol,
+                   dt::SingleLine | dt::Left | dt::VCenter |
+                   dt::EndEllipsis | dt::NoPrefix);
 
             // 角标
             if (!it.badge.empty()) {
-                int bw = gfx::MeasureWidth(dc, fonts.Get(FontRole::Meta),
-                                           it.badge) + 14;
-                RECT rcB = { ir.rc.right - 8 - bw, ir.rc.top + 8,
+                int bw = g.MeasureWidth(it.badge, FontRole::Meta) + 14;
+                Rect rcB = { ir.rc.right - 8 - bw, ir.rc.top + 8,
                              ir.rc.right - 8, ir.rc.top + 24 };
                 COLORREF bg, tx;
                 if (it.disabled) {
@@ -350,10 +352,10 @@ void NavBar::Paint(DeviceContextHandle dc, const Fonts& fonts)
                 } else {
                     bg = RGB(239, 241, 244); tx = RGB(143, 149, 158);
                 }
-                gfx::FillRound(dc, rcB, bg, 8);
-                gfx::Text(dc, fonts.Get(FontRole::Meta), tx, rcB, it.badge,
-                          DT_SINGLELINE | DT_CENTER | DT_VCENTER |
-                          DT_NOPREFIX);
+                g.FillRound(rcB, bg, 8);
+                g.Text(rcB, it.badge, FontRole::Meta, tx,
+                       dt::SingleLine | dt::Center | dt::VCenter |
+                       dt::NoPrefix);
             }
         }
     }
@@ -543,22 +545,24 @@ void DrawEmptyState(HDC dc, const RECT& rc, const Fonts& fonts,
 {
     const Palette& p = Pal();
     int midY = rc.top + (rc.bottom - rc.top) / 2;
+    Canvas g(dc, fonts);
 
-    RECT rcT = { rc.left, midY - 72, rc.right, midY - 40 };
-    gfx::Text(dc, fonts.Get(FontRole::Section), p.text, rcT, state.title,
-              DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
+    Rect rcT = { rc.left, midY - 72, rc.right, midY - 40 };
+    g.Text(rcT, state.title, FontRole::Section, p.text,
+           dt::SingleLine | dt::Center | dt::VCenter | dt::NoPrefix);
 
     if (!state.steps.empty()) {
-        RECT rcS = { rc.left + 24, rcT.bottom + 4, rc.right - 24,
+        Rect rcS = { rc.left + 24, rcT.bottom + 4, rc.right - 24,
                      rcT.bottom + 94 };
-        gfx::Text(dc, fonts.Get(FontRole::Body), p.textSub, rcS, state.steps,
-                  DT_CENTER | DT_VCENTER | DT_EXTERNALLEADING | DT_NOPREFIX);
+        g.Text(rcS, state.steps, FontRole::Body, p.textSub,
+               dt::Center | dt::VCenter | dt::ExternalLeading |
+               dt::NoPrefix);
     }
 
     if (!state.foot.empty()) {
-        RECT rcF = { rc.left, midY + 40, rc.right, midY + 60 };
-        gfx::Text(dc, fonts.Get(FontRole::Meta), p.textFaint, rcF, state.foot,
-                  DT_SINGLELINE | DT_CENTER | DT_NOPREFIX);
+        Rect rcF = { rc.left, midY + 40, rc.right, midY + 60 };
+        g.Text(rcF, state.foot, FontRole::Meta, p.textFaint,
+               dt::SingleLine | dt::Center | dt::NoPrefix);
     }
 }
 
