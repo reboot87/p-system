@@ -238,8 +238,10 @@ core 26 + `win32/airui` 13 + `skia/airui` 5）。`scripts/public-headers-exempt.
   （只剩说明性注释）。帧激活时 `Canvas::Painter()` 返回 `PaintFrame`，无帧时
   返回一个惰性创建的 `internal/GfxPainter`（`IPainter` → `gfx::*` 的薄适配器，
   保留 PS_DASH / `Ellipse` / `RoundRect` 的既有 GDI 语义，所以原生像素不变）。
-  圆角虚线单独走 `GfxPainter::StrokeDashedRounded`：`IPainter::StrokeDashed`
-  没有 radius 参数，无帧路径不能因此把角画成方角。
+  圆角虚线走 `IPainter::StrokeDashedRound`（批次 16）：该原语带半径，默认实现
+  回落到方角 `StrokeDashed`；无帧 `GfxPainter` 仍调 `gfx::StrokeDashed(..., radius)`
+  保持原生像素不变，`SkiaPainter` / `GdiPainter` / `PaintFrame` 各自覆盖，radius 0
+  统一下回方角调用。
   `StatusTag` / `KbdChip` / `EmptyState` / `Pagination` / `Button` / `Checkbox` /
   `Radio` 仍走 core `Paint*` + `CanvasPainter`，而 `CanvasPainter` 反过来调
   `Canvas::*` → `Painter()`，不会递归回 `CanvasPainter`。
@@ -476,6 +478,12 @@ shim 保留，因为 `test_paint_frame` 仍直接验证 `gfx::*` 在帧激活时
   按旧几何重放，`test_paint_frame` 与 `gfx::StatusTag` / `gfx::KbdChip`
   逐像素一致（含 chip 宽度）。`Controls.cpp` 的 2 处 `gfx::Brush` 保留：
   它们是 `PaintDC` 清后备缓冲的 GDI 画刷对象，不是绘制调用。
+- 批次 13（2026-11-28，跟进十六）：跨后端圆角虚线。`IPainter` 末尾追加
+  `StrokeDashedRound`（默认回落到方角 `StrokeDashed`），
+  `AIRUI_PAINTER_IFACE_REV` 3→4；`Canvas::StrokeDashed` 统一走它，
+  `GfxPainter` / `GdiPainter` / `SkiaPainter` / `PaintFrame` / `SkiaFrame` /
+  插件转发 / `CanvasPainter` 各自覆盖，radius 0 保持原方角像素。
+  `test_paint_frame` 新增 `RadiusProbe` 三条断言，原有原生逐像素断言保留。
 - 平台层剥离（§ 5）**公开头阶段已全部完成**：批次 1~6 落地——`types.h` 的
   static_assert + 平台中立别名（含 `vkey::*` / `mb::*` / `dt::*`）、4 个头
   清零签名（Responsive/ThemeJson/DrawCall/Accessibility/Fonts）、15 个 Win32

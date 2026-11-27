@@ -43,3 +43,12 @@
   C ABI 号（`AIRUI_PLUGIN_ABI 2`）未变；按本 ADR 的约定，vtable 布局变化
   只 bump `painterIfaceRev`，因此 rev 2 的 DLL 会被宿主拒绝。当前取值以
   `src/pluginapi/airui_plugin_abi.h` 为准。
+- **2026-11-28 · `AIRUI_PAINTER_IFACE_REV` 3 → 4**：`IPainter` 末尾追加
+  `StrokeDashedRound(const Rect&, int radius, Color, int width, int dash)`
+  （带默认实现，忽略半径并回落到方角 `StrokeDashed`）。页面入口
+  `Canvas::StrokeDashed` 一直带圆角半径，但 4 参数的 `StrokeDashed`
+  表达不了，此前只有无帧的原生回落路径保留圆角（`GfxPainter` 走
+  `RoundRect`），Skia 帧路径画成方角。新原语让帧路径也拿到半径：
+  `PaintFrame` / `SkiaPainter` / `SkiaFrame` / 插件转发与 `GdiPainter`
+  各自覆盖，radius 0 仍走原来的方角调用以保持像素不变。C ABI 号未变，
+  rev 3 的 DLL 会被宿主拒绝；宿主与 `airui-skia.dll` 必须一起重建。

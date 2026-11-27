@@ -749,3 +749,11 @@
   - **测试**：`test_paint_frame` 把 `gfx::StatusTag` / `gfx::KbdChip` 与新助手分别画到两块 DIB 上逐像素比较，并比对 `KbdChipWidth`；5 条新断言全部通过。
   - **残留**：生产绘制路径只剩 `internal/GfxPainter.h` 的 15 处 `gfx::*`（无帧 GDI 适配器，刻意保留）；页面里的 `gfx::OneLine` 是 `DrawCall.h` 公开声明的中立字符串工具，不是绘制原语。`PaintFrame::Gfx*` shim 保留，因为 `test_paint_frame` 仍直接验证 `gfx::*` 在帧激活时被路由。
   - **实测**：全量 Release `BUILD=0`；x86 `airecord` 退出 0；`ctest -C Release` **28/28**；`test_paint_frame` `PASSED (0 failure(s))`；`check-core-clean` PASSED（55 文件 / 0 引用）；`check-public-headers-clean` `.ps1` 与 `.sh` 均 PASSED（44 受检 / 0 豁免 / 闭包 225 文件 / 0 平台引用）。
+
+- **2026-11-28（跟进十六）：跨后端圆角虚线，`IPainter::StrokeDashedRound`**
+  - **起因**：跟进十四的修正让无帧 GDI 路径保住了 `Canvas::StrokeDashed` 的圆角，但帧路径（Skia）仍忽略半径画方角——4 参数的 `StrokeDashed` 没有半径参数。跟进十五收口后，`Shell` / 页面 / gallery 的虚线边框在 GDI 与 Skia 下形状不一致。
+  - **HAL**：`core/include/airui/hal.h` 在 `IPainter` **末尾**（`LineHeight` 之后）追加 `StrokeDashedRound(const Rect&, int radius, Color, int width, int dash)`，默认实现忽略半径并回落到 `StrokeDashed`。既有实现者与测试替身无需改动；只覆盖关心的后端。
+  - **ABI**：`AIRUI_PAINTER_IFACE_REV` **3 → 4**（`src/pluginapi/airui_plugin_abi.h`）。vtable 末尾新增槽位，C ABI 号未变；rev 3 的 `airui-skia.dll` 会被宿主拒绝，宿主与插件必须一起重建。
+  - **实现**：`GfxPainter` 保持原样走 `gfx::StrokeDashed(..., radius)`（无帧像素不变）；`SkiaPainter` 用 `StrokeRound` 同一份 `StrokePath(r, width, true)` + `SkRRect`，并复用 `DashEffectFor` 的虚线缓存；`GdiPainter` 用 `RoundRect` + 同款 user-style 虚线笔；`PaintFrame` / `SkiaFrame` / 插件转发 / `CanvasPainter` 逐层转发。radius 0 统一回到 `StrokeDashed`，保持方角像素不变。
+  - **测试**：`test_paint_frame` 新增 `RadiusProbe`，验证 `gfx::StrokeDashed` 与 `Canvas::StrokeDashed` 在帧激活时都把 radius 送到后端、且不落回方角；radius 0 仍走方角。原有「无帧 `Canvas::StrokeDashed` 与 `gfx::StrokeDashed` 逐像素一致」断言保留并通过。
+  - **实测**：全量 Release `BUILD=0`；x86 `airecord` + `test_paint_frame` 退出 0；`airui_skia_mock_syntax` 与 `airui_skia_winport_syntax` 退出 0；`ctest -C Release` **28/28**；`test_paint_frame` `PASSED (0 failure(s))`；`check-core-clean` PASSED（55 文件 / 0 引用）；`check-public-headers-clean` `.ps1` 与 `.sh` 均 PASSED（44 受检 / 0 豁免 / 闭包 225 文件 / 0 平台引用）。
