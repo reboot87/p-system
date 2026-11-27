@@ -163,7 +163,7 @@ void ClipsPage::CreateControls()
     // 字号与显示态一致（12px），进入编辑时换行位置不跳动。
     m_noteMulti = &CreateTextBox({ IDC_NOTE_MULTI, true,
                                    L"输入备注…", FontRole::Meta });
-    m_noteMulti->OnKey([this](UINT vk, bool ctrl, bool) -> bool {
+    m_noteMulti->OnKey([this](VirtualKey vk, bool ctrl, bool) -> bool {
         if (vk == vkey::Escape && m_editingId) { CancelNoteEdit(); return true; }
         if (vk == vkey::Return && ctrl && m_editingId) {
             SaveNoteEdit(); return true;
@@ -174,7 +174,7 @@ void ClipsPage::CreateControls()
     // ---- 手动录入（多行） ----
     m_manualEdit = &CreateTextBox({ IDC_MANUAL_EDIT, true,
                                     L"输入要保存的内容…", FontRole::Body });
-    m_manualEdit->OnKey([this](UINT vk, bool ctrl, bool) -> bool {
+    m_manualEdit->OnKey([this](VirtualKey vk, bool ctrl, bool) -> bool {
         // Ctrl+Enter 由 ManualEntryPlugin 的子类化处理（它后装、先收到消息）
         if (vk == vkey::Escape && m_formOpen) { ToggleForm(false); return true; }
         (void)ctrl;
