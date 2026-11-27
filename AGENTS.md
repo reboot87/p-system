@@ -287,9 +287,16 @@ gallery 能编译它们；一条只带两个 PUBLIC 目录的探针里
 零平台 token，**且必须让 `AirUi.h` 的闭包仍然零平台 token**。
 
 批次 11 之后，页面绘制入口 `Canvas` 只依赖 `IPainter`（core 的 `hal.h`），
-不再直接调用 `gfx::*`；`gfx` 只剩平台实现侧（`Shell` / `Controls` /
-`Widgets` / `OverlayWindow` 与 `GfxPainter` 适配器）使用，后续批次可继续
-收缩而不影响页面 API。
+不再直接调用 `gfx::*`。批次 12 把平台实现侧也收口：`Shell.cpp` /
+`Controls.cpp` / `Widgets.cpp` / `OverlayWindow.cpp` 的 `gfx::*` 调用
+全部改为 `Canvas` / `GfxPainter`，这 4 个文件加上 `Canvas.cpp` 现在都是
+0 处 `gfx::` 绘制调用（只剩说明性注释）。生产代码里 `gfx::` 只出现在
+`internal/GfxPainter.h`（`IPainter` → `gfx::*` 适配器，15 处）与页面用的
+中立字符串工具 `gfx::OneLine`（`DrawCall.h` 公开声明）；`PaintFrame::Gfx*`
+shim 保留，因为 `test_paint_frame` 仍直接验证 `gfx::*` 在帧激活时的路由。
+外层复合件 `StatusTag` / `KbdChip` 没有改调 core 的 `Paint*` 版本（圆点
+位置 / chip 宽度不同），而是由 `internal/ShellChrome.h` 用 `IPainter`
+原语按旧几何重放，`test_paint_frame` 与 `gfx::*` 逐像素比对。
 
 ### 5.5 门禁升级（已实现，2026-11-27，批次 7 扩词表 + 三个入口）
 - `scripts/check-public-headers-clean.sh` / `.ps1` **已存在并接入 CI**，
@@ -461,6 +468,14 @@ gallery 能编译它们；一条只带两个 PUBLIC 目录的探针里
   `LineHeight`。`Canvas` 的 `Tag` / `PillRight` / `IconTile` / `KbdChipWidth`
   用 `MeasureText + FillRound + Text` 复刻原几何，`TextRow*` / `TextBlock` 显式
   传与原 `gfx` 相同的 `dt::*` 组合。`test_paint_frame.cpp` 新增第 6 节断言。
+- 批次 12（2026-11-28，跟进十五）：`gfx::*` 收口完成。
+  `Widgets.cpp` / `OverlayWindow.cpp` 各 1 处、`Controls.cpp` 23 处、
+  `Shell.cpp` 34 处全部改为 `Canvas` / `GfxPainter`。`DrawButton` 改收
+  `Fonts` + `FontRole`（调用方本来就传 `UiFonts().Get(FontRole::Button)`），
+  外壳的状态胶囊 / 键位提示由 `internal/ShellChrome.h` 用 `IPainter` 原语
+  按旧几何重放，`test_paint_frame` 与 `gfx::StatusTag` / `gfx::KbdChip`
+  逐像素一致（含 chip 宽度）。`Controls.cpp` 的 2 处 `gfx::Brush` 保留：
+  它们是 `PaintDC` 清后备缓冲的 GDI 画刷对象，不是绘制调用。
 - 平台层剥离（§ 5）**公开头阶段已全部完成**：批次 1~6 落地——`types.h` 的
   static_assert + 平台中立别名（含 `vkey::*` / `mb::*` / `dt::*`）、4 个头
   清零签名（Responsive/ThemeJson/DrawCall/Accessibility/Fonts）、15 个 Win32
@@ -469,7 +484,8 @@ gallery 能编译它们；一条只带两个 PUBLIC 目录的探针里
   并提升回 `win32/airui`**，门禁升级为 include 闭包检查，消费层全部改中立类型。
   `AirUi.h` 现在的 include 闭包**零平台 token**，不再传递引入 internal 头。
   `Geometry.h` 从未创建；`Canvas.cpp` 已在批次 11 收口到 `IPainter`（帧 →
-  `PaintFrame`，无帧 → `GfxPainter`），文件内零 `gfx::` 调用，`Gfx.cpp` 的
-  调用方只剩 `Shell` / `Controls` / `Widgets` / `OverlayWindow` 一侧。
+  `PaintFrame`，无帧 → `GfxPainter`）。批次 12 再把 `Shell` / `Controls` /
+  `Widgets` / `OverlayWindow` 收口，生产绘制路径只剩 `GfxPainter` 适配器
+  仍调 `gfx::*`。
   本轮平台无关化改动**已提交**（`git log --oneline -3` 查最近提交）；
   工作区当前只剩未跟踪的 `query`（按 § 4.2 不得提交）。
