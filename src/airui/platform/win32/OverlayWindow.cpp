@@ -7,6 +7,7 @@
 #include "airui/Interaction.h"
 #include "airui/Theme.h"
 #include "internal/Gfx.h"
+#include "internal/GfxPainter.h"
 #include "internal/RaII.h"
 
 #include <algorithm>
@@ -95,11 +96,12 @@ void ClampInside(RECT& r, const RECT& area, int pad)
     }
 }
 
-// PaintMenu 用 IPainter::MeasureText(FontRole::Body)，底层就是
-// gfx::MeasureWidth。这里用同一套度量算菜单宽度，避免文字被截断。
+// PaintMenu 用 IPainter::MeasureText(FontRole::Body)，底层就是同一个
+// gfx::* 度量。这里走适配器，让菜单宽度与绘制路径共用一份实现。
 int MeasureMenuLabel(HDC dc, const Fonts& fonts, const std::wstring& s)
 {
-    return gfx::MeasureWidth(dc, fonts.Get(FontRole::Body), s);
+    GfxPainter p(dc, fonts);
+    return p.MeasureText(s.c_str(), s.size(), FontRole::Body);
 }
 
 // Toast 卡片几何：固定宽、两行高、右下角堆叠。绘制与命中共用这份

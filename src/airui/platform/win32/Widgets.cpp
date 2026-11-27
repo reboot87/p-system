@@ -1920,8 +1920,8 @@ void ListBox::PaintSelf(DeviceContextHandle dc)
     GetClientRect(HwndOfWidget(m_hwnd), &rc);
     if (rc.right <= rc.left || rc.bottom <= rc.top) return;
 
-    gfx::Fill(dc, rc, Pal().bg);
     Canvas g(dc, m_shell->UiFonts());
+    g.Fill(FromWinRect(rc), Pal().bg);
 
     if (m_items.empty()) {
         if (onPaintEmpty) onPaintEmpty(g, FromWinRect(rc));
