@@ -248,7 +248,7 @@ int main()
     frame.End();
     frame.Clear();
 
-    // An unbalanced push must not leak the clip into the rest of the frame.
+    // Unbalanced push must not leak the clip into the rest of the frame.
     s.ClearWhite();
     {
         Canvas canvas(s.dc, Fonts::Default());
@@ -258,6 +258,79 @@ int main()
     gfx::Fill(s.dc, RECT{ 0, 0, 64, 32 }, RGB(0, 255, 0));
     Check(s.At(40, 8) == RGB(0, 255, 0),
           "unbalanced Canvas clip is cleaned up when the Canvas dies");
+
+    // ---------- 6. Canvas primitives are pure IPainter calls ----------
+    // Canvas no longer calls gfx::*; the HAL primitives must reach the
+    // backend when a frame is open, and still draw on the DC when not.
+    s.ClearWhite();
+    mock.ops.clear();
+    frame.Begin(&mock, s.dc, nullptr, true);
+    {
+        Canvas canvas(s.dc, Fonts::Default());
+        const int fill0  = mock.Count("fill");
+        const int round0 = mock.Count("fillRound");
+
+        canvas.HLine(0, 40, 10, RGB(1, 2, 3));
+        Check(mock.Count("fill") == fill0 + 1,
+              "Canvas::HLine reaches the backend as one fill");
+
+        canvas.VLine(20, 0, 30, RGB(1, 2, 3));
+        Check(mock.Count("fill") == fill0 + 2,
+              "Canvas::VLine reaches the backend as one fill");
+
+        canvas.HLineDashed(0, 40, 12, RGB(1, 2, 3));
+        Check(mock.Count("fill") > fill0 + 2,
+              "Canvas::HLineDashed reaches the backend as fill segments");
+
+        canvas.Dot(30, 15, 8, RGB(1, 2, 3));
+        Check(mock.Count("fillRound") == round0 + 1,
+              "Canvas::Dot reaches the backend as a round fill");
+
+        canvas.ProgressBar(Rect(0, 0, 40, 8), 50, RGB(1, 1, 1),
+                           RGB(2, 2, 2), RGB(3, 3, 3), RGB(4, 4, 4));
+        Check(mock.Count("fill") >= fill0 + 4,
+              "Canvas::ProgressBar reaches the backend as track + fill");
+
+        canvas.Text(Rect(0, 0, 40, 12), L"ab", FontRole::Body,
+                    RGB(1, 2, 3), dt::Left | dt::Top | dt::SingleLine);
+        Check(mock.Count("text") == 1,
+              "Canvas::Text reaches a text-capable backend");
+
+        Check(s.At(8, 10) == RGB(255, 255, 255),
+              "frame path: Canvas primitives do not paint the DC");
+    }
+    frame.End();
+    frame.ReplayText();
+    frame.Clear();
+
+    s.ClearWhite();
+    {
+        Canvas canvas(s.dc, Fonts::Default());
+        canvas.HLine(0, 48, 10, RGB(0, 0, 255));
+        canvas.VLine(20, 0, 24, RGB(0, 0, 255));
+        canvas.Dot(32, 16, 10, RGB(255, 0, 0));
+        canvas.ProgressBar(Rect(0, 24, 40, 30), 50, RGB(0, 0, 0),
+                           RGB(0, 0, 255), RGB(0, 255, 0), RGB(255, 0, 0));
+    }
+    Check(s.At(8, 10) == RGB(0, 0, 255),
+          "GDI path: Canvas::HLine keeps drawing a native rule");
+    Check(s.At(20, 4) == RGB(0, 0, 255),
+          "GDI path: Canvas::VLine keeps drawing a native rule");
+    Check(s.At(32, 16) == RGB(255, 0, 0),
+          "GDI path: Canvas::Dot keeps drawing a native ellipse");
+    Check(s.At(4, 25) == RGB(0, 255, 0),
+          "GDI path: Canvas::ProgressBar keeps drawing track + warn fill");
+    Check(s.At(30, 25) == RGB(0, 0, 0),
+          "GDI path: Canvas::ProgressBar keeps the unfilled track");
+
+    {
+        Canvas canvas(s.dc, Fonts::Default());
+        Check(canvas.LineHeight(FontRole::Body) > 0,
+              "Canvas::LineHeight reports real metrics");
+        const int right = canvas.Tag(2, 2, L"tag", FontRole::Meta,
+                                     RGB(0, 0, 0), RGB(255, 255, 255));
+        Check(right > 2, "Canvas::Tag keeps the measured width contract");
+    }
 
     std::printf("\n%s (%d failure(s))\n",
                 g_failures ? "FAILED" : "PASSED", g_failures);

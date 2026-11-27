@@ -132,6 +132,31 @@ public:
         DeleteObject(pen);
     }
 
+    // Native 1px dashed rule. The dashed stroke above exists for widget
+    // borders; this one matches the legacy PS_DASH line exactly.
+    void HLineDashed(int x1, int x2, int y, Color c) override {
+        if (!m_dc) return;
+        HPEN pen = CreatePen(PS_DASH, 1, c);
+        HGDIOBJ old = SelectObject(m_dc, pen);
+        MoveToEx(m_dc, x1, y, nullptr);
+        LineTo(m_dc, x2, y);
+        SelectObject(m_dc, old);
+        DeleteObject(pen);
+    }
+
+    // Native round dot (Ellipse), not a rounded rect: at 6-10px the two
+    // shapes cover different pixels, and the legacy Canvas used Ellipse.
+    void Dot(int cx, int cy, int diameter, Color c) override {
+        if (!m_dc) return;
+        HBRUSH br = CreateSolidBrush(c);
+        HGDIOBJ oldBrush = SelectObject(m_dc, br);
+        HGDIOBJ oldPen = SelectObject(m_dc, GetStockObject(NULL_PEN));
+        const int r = diameter / 2;
+        Ellipse(m_dc, cx - r, cy - r, cx - r + diameter, cy - r + diameter);
+        SelectObject(m_dc, oldBrush); SelectObject(m_dc, oldPen);
+        DeleteObject(br);
+    }
+
     // Font selected per FontRole so text matches the design system.
     void Text(const Rect& r, const wchar_t* s, size_t len, FontRole role, Color c, TextFormat fmt) override {
         if (!m_dc || !s || len == 0) return;
@@ -167,6 +192,16 @@ public:
         GetTextExtentPoint32W(m_dc, w.c_str(), (int)w.size(), &sz);
         if (f) SelectObject(m_dc, old);
         return sz.cx;
+    }
+
+    int LineHeight(FontRole role) override {
+        if (!m_dc) return 0;
+        HFONT f = FontFor(role);
+        HGDIOBJ old = f ? SelectObject(m_dc, f) : nullptr;
+        TEXTMETRICW tm{};
+        GetTextMetricsW(m_dc, &tm);
+        if (f) SelectObject(m_dc, old);
+        return tm.tmHeight + tm.tmExternalLeading;
     }
 
     // Save/Restore so nested clips compose correctly (unlike a bare

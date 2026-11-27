@@ -86,6 +86,15 @@ public:
     void PopClip() override;
     void Translate(Point offset) override;
 
+    // ---- line / dot / track shorthands ----
+    // HLine / HLineDashed / VLine / Dot / ProgressBar inherit the
+    // IPainter defaults on purpose: those defaults decompose into
+    // exactly the same m_backend calls the Gfx* shims below make
+    // (FillRect / FillRound with the frame offset applied), so the
+    // rendered result is identical. Only LineHeight needs real font
+    // metrics, hence the override.
+    int  LineHeight(FontRole role) override;
+
     PaintFrame(const PaintFrame&) = delete;
     PaintFrame& operator=(const PaintFrame&) = delete;
 

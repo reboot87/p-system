@@ -105,6 +105,63 @@ public:
     virtual void PopClip() = 0;
 
     virtual void Translate(Point offset) = 0;
+
+    // ---- line / dot / track shorthands -------------------------
+    // Appended after Translate on purpose: an existing backend (and the
+    // cross-module vtable, see AIRUI_PAINTER_IFACE_REV) keeps its slot
+    // order. Every one of them has a default that decomposes into the
+    // rect primitives, which is what the frame router emits today, so a
+    // backend that does not override them still renders the same pixels.
+    virtual void HLine(int x1, int x2, int y, Color c)
+    {
+        FillRect(Rect(x1, y, x2, y + 1), c);
+    }
+
+    // A 1px dashed rule: 4px ink, 3px gap (the native dash rhythm).
+    virtual void HLineDashed(int x1, int x2, int y, Color c)
+    {
+        for (int x = x1; x < x2; x += 7) {
+            const int right = (x + 4 < x2) ? x + 4 : x2;
+            FillRect(Rect(x, y, right, y + 1), c);
+        }
+    }
+
+    virtual void VLine(int x, int y1, int y2, Color c)
+    {
+        FillRect(Rect(x, y1, x + 1, y2), c);
+    }
+
+    virtual void Dot(int cx, int cy, int diameter, Color c)
+    {
+        const int r = diameter / 2;
+        FillRound(Rect(cx - r, cy - r, cx - r + diameter, cy - r + diameter),
+                  r > 0 ? r : 1, c);
+    }
+
+    // Track + proportional fill. The warn/hot thresholds are part of the
+    // shared visual language, so they live here instead of being copied
+    // into every backend.
+    virtual void ProgressBar(const Rect& r, int pct, Color track,
+                             Color normal, Color warn, Color hot)
+    {
+        if (r.right <= r.left || r.bottom <= r.top) return;
+        FillRect(r, track);
+        if (pct <= 0) return;
+        if (pct > 100) pct = 100;
+        const Color c = (pct > 70) ? hot : (pct > 45) ? warn : normal;
+        Rect fill = r;
+        fill.right = r.left + (int)((r.right - r.left) * pct / 100.0);
+        if (fill.right > r.right) fill.right = r.right;
+        FillRect(fill, c);
+    }
+
+    // Line height in device pixels for a role. The default is the ink
+    // height of a representative string; backends with real font metrics
+    // override it.
+    virtual int LineHeight(FontRole role)
+    {
+        return MeasureText(L"Ag", 2, role);
+    }
 };
 
 // ------------------------------------------------------------

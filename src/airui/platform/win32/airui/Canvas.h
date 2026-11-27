@@ -12,10 +12,12 @@
 // 字体通过 FontRole 语义化选取（由 Shell 按当前 DPI 创建），
 // 颜色来自 Theme 调色板（Color 是纯值类型，不是原生句柄）。
 // ============================================================
+#include <memory>
 #include <string>
 #include <vector>
 #include "Controls.h"
 #include "airui/types.h"
+#include "airui/hal.h"
 #include "Fonts.h"
 #include "airui/Theme.h"
 #include "DrawCall.h"
@@ -124,13 +126,25 @@ public:
                bool hover = false, bool disabled = false);
 
 private:
+    // Every drawing call below lands on one of these two:
+    //   * the active PaintFrame when a compositing backend owns the
+    //     frame (backend-neutral primitives only), or
+    //   * the native fallback painter, which forwards to the legacy
+    //     gfx helpers so the native pixels stay identical.
+    IPainter& Painter();
+    IPainter& Gdi();
+
     DeviceContextHandle          m_dc;
     const Fonts& m_fonts;
+    // Owned native fallback, created on first use (only when no frame is
+    // active). IPainter is platform-neutral, so this stays a public type.
+    std::unique_ptr<IPainter>    m_gdi;
     // Legacy path: saved-context handles of the pushed clips. Backend path: the
     // sentinel kFrameClip marks a clip owned by the active PaintFrame.
     std::vector<int> m_clipStack;
     static std::vector<DrawCall>* s_recorder;
     static constexpr int kFrameClip = -1;
+    static constexpr int kGdiClip   = -2;
 };
 
 } // namespace ui

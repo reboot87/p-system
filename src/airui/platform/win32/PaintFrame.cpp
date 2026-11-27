@@ -494,5 +494,17 @@ void PaintFrame::Translate(Point offset)
     m_offset.y += offset.y;
 }
 
+int PaintFrame::LineHeight(FontRole role)
+{
+    // Same metrics the legacy gfx::LineHeight produced: the Shell's own
+    // HFONT plus GDI's text metrics, even when the backend owns text.
+    if (!m_dc) return 0;
+    HGDIOBJ old = SelectObject(m_dc, RoleFont(role));
+    TEXTMETRICW tm{};
+    GetTextMetricsW(m_dc, &tm);
+    if (old) SelectObject(m_dc, old);
+    return tm.tmHeight + tm.tmExternalLeading;
+}
+
 } // namespace ui
 } // namespace air

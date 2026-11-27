@@ -44,7 +44,10 @@ enum
 // This is independent of the C ABI number: it lets the host reject a
 // plugin whose C++ virtual layout differs without waiting for the C ABI
 // number to move.
-#define AIRUI_PAINTER_IFACE_REV 2
+// Rev 3 appended HLine / HLineDashed / VLine / Dot / ProgressBar /
+// LineHeight to IPainter (the page-facing Canvas no longer goes through
+// the native gfx helpers).
+#define AIRUI_PAINTER_IFACE_REV 3
 
 #ifdef __cplusplus
 extern "C" {
