@@ -5,6 +5,9 @@
 #include "PaintProviders.h"
 #include "internal/PaintFrame.h"
 #include "internal/Gfx.h"
+#include "internal/Canvas.h"
+#include "internal/GfxPainter.h"
+#include "internal/ShellChrome.h"
 #include "Responsive.h"
 #include "internal/RaII.h"
 #include "Accessibility.h"
@@ -95,7 +98,7 @@ struct FrameCost
     long long n = 0;
     long long dcBuild = 0;    // PaintDC: 32-bit DDB + background fill
     long long frameBegin = 0; // PainterRegistry::Begin (SkiaFrame construct)
-    long long draw = 0;       // every gfx::*/IPainter call of the frame
+    long long draw = 0;       // every IPainter call of the frame
     long long present = 0;    // SkiaFrame::Impl::Present (copy + composite)
     long long flush = 0;      // BitBlt of the back buffer to the screen
 
@@ -652,7 +655,8 @@ int Shell::ShowPopupMenu(Point screenPt, const std::vector<MenuItem>& items)
 int Shell::MeasureTextWidth(const std::wstring& s, FontRole role)
 {
     HDC dc = GetDC(nullptr);
-    int w = gfx::MeasureWidth(dc, m_fonts.Get(role), s);
+    GfxPainter painter(dc, m_fonts);
+    int w = painter.MeasureText(s.c_str(), s.size(), role);
     ReleaseDC(nullptr, dc);
     return w;
 }
@@ -660,7 +664,8 @@ int Shell::MeasureTextWidth(const std::wstring& s, FontRole role)
 int Shell::TextLineHeight(FontRole role)
 {
     HDC dc = GetDC(nullptr);
-    int h = gfx::LineHeight(dc, m_fonts.Get(role));
+    GfxPainter painter(dc, m_fonts);
+    int h = painter.LineHeight(role);
     ReleaseDC(nullptr, dc);
     return h;
 }
@@ -869,12 +874,13 @@ void Shell::DrawPaintBackendButton(DeviceContextHandle dc)
         }
     }
 
-    gfx::FillRound(dc, ToWinRect(r), bg, 6);
-    gfx::Stroke(dc, ToWinRect(r), border, 6);
-    RECT tr = { r.left + 8, r.top, r.right - 8, r.bottom };
-    gfx::Text(dc, m_fonts.Get(FontRole::Meta), fg, tr, label,
-              DT_SINGLELINE | DT_CENTER | DT_VCENTER |
-              DT_NOPREFIX | DT_END_ELLIPSIS);
+    Canvas g(dc, m_fonts);
+    g.FillRound(r, bg, 6);
+    g.Stroke(r, border, 6);
+    Rect tr = { r.left + 8, r.top, r.right - 8, r.bottom };
+    g.Text(tr, label, FontRole::Meta, fg,
+           dt::SingleLine | dt::Center | dt::VCenter |
+           dt::NoPrefix | dt::EndEllipsis);
 }
 
 void Shell::TogglePaintBackend()
@@ -909,7 +915,7 @@ void Shell::Paint(DeviceContextHandle dc)
     GetClientRect(HwndOf(m_hwnd), &rc);
 
     // ---- Open ONE frame for the entire client area -----------------
-    // gfx::* and CanvasPainter both route through PaintFrame, so the
+    // Canvas and CanvasPainter both route through PaintFrame, so the
     // selected backend draws chrome, pages and core widgets alike --
     // not just a separate HAL chrome path. A plain GDI frame leaves
     // the routing inactive and runs the original code untouched.
@@ -937,7 +943,10 @@ void Shell::Paint(DeviceContextHandle dc)
     }
 
     const long long tBegan = QpcUs();
-    gfx::Fill(dc, rc, Pal().bg);
+    {
+        Canvas g(dc, m_fonts);
+        g.Fill(FromWinRect(rc), Pal().bg);
+    }
 
     // A partial repaint (one hovered control, one nav row) still used to
     // run every chrome text measurement and every page-level loop, with
@@ -1044,28 +1053,28 @@ void Shell::DrawCaption(DeviceContextHandle dc, const Rect& rc)
     const Palette& p = Pal();
     const Metrics& m = Mx();
     const CaptionState& cs = m_shellCore.Caption();   // core is the state source
+    Canvas g(dc, m_fonts);
 
-    gfx::Fill(dc, ToWinRect(m_caption), p.surface);
-    gfx::HLine(dc, 0, rc.right, m.titleH - 1, p.split);
+    g.Fill(m_caption, p.surface);
+    g.HLine(0, rc.right, m.titleH - 1, p.split);
 
     // Logo 26x26
-    RECT rcLogo = { 14, 9, 40, 35 };
-    gfx::FillRound(dc, rcLogo, p.primary, 7);
+    Rect rcLogo = { 14, 9, 40, 35 };
+    g.FillRound(rcLogo, p.primary, 7);
     if (!m_opt.logoLetter.empty()) {
-        gfx::Text(dc, m_fonts.Get(FontRole::Button), p.textInverse, rcLogo,
-                  m_opt.logoLetter,
-                  DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
+        g.Text(rcLogo, m_opt.logoLetter, FontRole::Button, p.textInverse,
+               dt::SingleLine | dt::Center | dt::VCenter | dt::NoPrefix);
     } else {
         // 默认图形：白色圆角板 + 两条主色横条（通用文档意象）
-        RECT board = { rcLogo.left + 7, rcLogo.top + 6,
+        Rect board = { rcLogo.left + 7, rcLogo.top + 6,
                        rcLogo.right - 7, rcLogo.bottom - 6 };
-        gfx::FillRound(dc, board, p.textInverse, 2);
-        RECT l1 = { board.left + 3, board.top + 4,
+        g.FillRound(board, p.textInverse, 2);
+        Rect l1 = { board.left + 3, board.top + 4,
                     board.right - 8, board.top + 7 };
-        RECT l2 = { board.left + 3, board.top + 10,
+        Rect l2 = { board.left + 3, board.top + 10,
                     board.right - 3, board.top + 13 };
-        gfx::Fill(dc, l1, p.primary);
-        gfx::Fill(dc, l2, p.primary);
+        g.Fill(l1, p.primary);
+        g.Fill(l2, p.primary);
     }
 
     // 应用名。右侧要让出「渲染后端切换按钮 + 状态胶囊」的保留区，
@@ -1073,37 +1082,35 @@ void Shell::DrawCaption(DeviceContextHandle dc, const Rect& rc)
     int rightLimit = rc.right - CaptionActionWidth() - 12;
     int nameRight  = rightLimit - 132;
     if (nameRight < 60) nameRight = 60;
-    RECT rcName = { 52, 0, nameRight, m.titleH };
-    gfx::Text(dc, m_fonts.Get(FontRole::Title), p.text, rcName, m_opt.appName,
-              DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
-    int nameW = gfx::MeasureWidth(dc, m_fonts.Get(FontRole::Title), m_opt.appName);
+    Rect rcName = { 52, 0, nameRight, m.titleH };
+    g.Text(rcName, m_opt.appName, FontRole::Title, p.text,
+           dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix);
+    int nameW = g.MeasureWidth(m_opt.appName, FontRole::Title);
     int dx = 52 + nameW + 10;
 
-    gfx::VLine(dc, dx, m.titleH / 2 - 8, m.titleH / 2 + 8, p.split);
+    g.VLine(dx, m.titleH / 2 - 8, m.titleH / 2 + 8, p.split);
 
     // 副标题
     std::wstring sub = cs.subtitle;
     if (sub.empty()) {
         if (IPage* pg = CurrentPage()) sub = pg->Title();
     }
-    RECT rcSub = { dx + 10, 0, nameRight, m.titleH };
-    gfx::Text(dc, m_fonts.Get(FontRole::Meta), RGB(143, 149, 158), rcSub, sub,
-              DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
+    Rect rcSub = { dx + 10, 0, nameRight, m.titleH };
+    g.Text(rcSub, sub, FontRole::Meta, RGB(143, 149, 158),
+           dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix);
 
     // 自定义区（派生类）
-    RECT rcExtra = { dx + 10, 0, nameRight, m.titleH };
-    OnPaintCaptionExtra(dc, FromWinRect(rcExtra));
+    Rect rcExtra = { dx + 10, 0, nameRight, m.titleH };
+    OnPaintCaptionExtra(dc, rcExtra);
 
     // 状态胶囊
     if (!cs.badge.empty()) {
-        gfx::StatusTag(dc, rightLimit, m.titleH / 2,
-                       cs.badge.c_str(),
-                       m_fonts.Get(FontRole::Meta),
-                       cs.badgeOk ? p.okSoft : p.errorSoft,
-                       cs.badgeOk ? p.okBorder : p.errorBorder,
-                       cs.badgeOk ? p.okText : p.errorText,
-                       cs.badgeOk ? p.ok : p.error,
-                       24);
+        PaintStatusTagLegacy(g, rightLimit, m.titleH / 2, cs.badge,
+                             FontRole::Meta,
+                             cs.badgeOk ? p.okSoft : p.errorSoft,
+                             cs.badgeOk ? p.okBorder : p.errorBorder,
+                             cs.badgeOk ? p.okText : p.errorText,
+                             cs.badgeOk ? p.ok : p.error, 24);
     }
 
     // 三键（与 HAL 外壳共用同一份绘制，见 DrawCaptionButtons）
@@ -1124,16 +1131,17 @@ void Shell::DrawCaptionButtons(DeviceContextHandle dc, const Rect& rc)
         IsZoomed(HwndOf(m_hwnd)) ? L"\xE923" : L"\xE922",      // 还原 / 最大化
         L"\xE8BB"                                      // 关闭
     };
+    Canvas g(dc, m_fonts);
     for (int i = 0; i < 3; ++i) {
-        RECT rcBtn = { rc.right - m.capBtnW * (3 - i), 0,
+        Rect rcBtn = { rc.right - m.capBtnW * (3 - i), 0,
                        rc.right - m.capBtnW * (2 - i), m.titleH };
         if (m_capHover == i + 1) {
-            gfx::Fill(dc, rcBtn,
-                      (i == 2) ? p.captionCloseHover : p.captionBtnHover);
+            g.Fill(rcBtn,
+                   (i == 2) ? p.captionCloseHover : p.captionBtnHover);
         }
         COLORREF tx = (i == 2 && m_capHover == 3) ? p.textInverse : p.text;
-        gfx::Text(dc, m_fonts.Get(FontRole::Icon), tx, rcBtn, glyphs[i],
-                  DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
+        g.Text(rcBtn, glyphs[i], FontRole::Icon, tx,
+               dt::SingleLine | dt::Center | dt::VCenter | dt::NoPrefix);
     }
 }
 
@@ -1150,39 +1158,37 @@ void Shell::DrawStatusBar(DeviceContextHandle dc, const Rect& rc)
     const StatusState& ss = m_shellCore.Status();   // core is the state source
     (void)rc;
 
-    gfx::Fill(dc, ToWinRect(m_status), p.surface);
-    gfx::HLine(dc, 0, m_status.right, m_status.top, p.split);
+    Canvas g(dc, m_fonts);
+    g.Fill(m_status, p.surface);
+    g.HLine(0, m_status.right, m_status.top, p.split);
 
     int cy = m_status.top + m.statusH / 2;
 
     // 状态点
-    gfx::Dot(dc, 17, cy, 6, ss.ok ? p.ok : p.error);
+    g.Dot(17, cy, 6, ss.ok ? p.ok : p.error);
 
     // 状态文本
     std::wstring svc = ss.text;
-    gfx::Text(dc, m_fonts.Get(FontRole::Meta),
-              ss.ok ? p.okText : p.errorText,
-              RECT{ 26, m_status.top, m_status.right - 400, m_status.bottom },
-              svc, DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
+    g.Text(Rect{ 26, m_status.top, m_status.right - 400, m_status.bottom },
+           svc, FontRole::Meta, ss.ok ? p.okText : p.errorText,
+           dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix);
 
     // 副信息
     if (!ss.extra.empty()) {
-        int w = gfx::MeasureWidth(dc, m_fonts.Get(FontRole::Meta), svc);
+        int w = g.MeasureWidth(svc, FontRole::Meta);
         int x2 = 26 + w + 18;
-        gfx::Text(dc, m_fonts.Get(FontRole::Meta), RGB(143, 149, 158),
-                  RECT{ x2, m_status.top, m_status.right - 300, m_status.bottom },
-                  ss.extra,
-                  DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
+        g.Text(Rect{ x2, m_status.top, m_status.right - 300, m_status.bottom },
+               ss.extra, FontRole::Meta, RGB(143, 149, 158),
+               dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix);
     }
 
     // 键位提示（从右往左）
     int right = m_status.right - 14;
     for (auto it = m_statusKeys.rbegin(); it != m_statusKeys.rend(); ++it) {
-        gfx::KbdChip(dc, right, cy, it->first.c_str(), it->second.c_str(),
-                     m_fonts.Get(FontRole::Meta));
-        right -= gfx::KbdChipWidth(dc, it->first.c_str(),
-                                   it->second.c_str(),
-                                   m_fonts.Get(FontRole::Meta)) + 20;
+        PaintKbdChipLegacy(g, right, cy, it->first, it->second,
+                           FontRole::Meta);
+        right -= KbdChipWidthLegacy(g, it->first, it->second,
+                                    FontRole::Meta) + 20;
     }
 }
 
@@ -1195,6 +1201,7 @@ void Shell::DrawSidebarFooter(DeviceContextHandle dc)
 
     const Palette& p = Pal();
     const Metrics& m = Mx();
+    Canvas g(dc, m_fonts);
 
     int cardBottom = m_side.bottom - 26;
     int cardH = 30 + (int)m_infoRows.size() * 24 + 12;
@@ -1204,38 +1211,35 @@ void Shell::DrawSidebarFooter(DeviceContextHandle dc)
     if (cardTop < m_side.top + m_nav.ContentHeight() + 16) return;
 
     if (!m_infoRows.empty()) {
-        RECT rcCard = { 10, cardTop, m_side.right - 10, cardBottom };
-        gfx::FillRound(dc, rcCard, p.surface, 8);
-        gfx::Stroke(dc, rcCard, p.sidebarLine, 8);
+        Rect rcCard = { 10, cardTop, m_side.right - 10, cardBottom };
+        g.FillRound(rcCard, p.surface, 8);
+        g.Stroke(rcCard, p.sidebarLine, 8);
 
         if (!m_infoTitle.empty()) {
-            RECT rcCap = { rcCard.left + 12, rcCard.top + 8,
+            Rect rcCap = { rcCard.left + 12, rcCard.top + 8,
                            rcCard.right - 12, rcCard.top + 26 };
-            gfx::Text(dc, m_fonts.Get(FontRole::Meta), RGB(143, 149, 158),
-                      rcCap, m_infoTitle,
-                      DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
+            g.Text(rcCap, m_infoTitle, FontRole::Meta, RGB(143, 149, 158),
+                   dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix);
         }
         int y = rcCard.top + 30;
         for (auto& row : m_infoRows) {
-            RECT rcK = { rcCard.left + 12, y, rcCard.left + 68, y + 20 };
-            gfx::Text(dc, m_fonts.Get(FontRole::Meta), RGB(143, 149, 158),
-                      rcK, row.key,
-                      DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
-            RECT rcV = { rcCard.left + 70, y, rcCard.right - 10, y + 20 };
-            gfx::Text(dc, m_fonts.Get(FontRole::Meta),
-                      row.ok ? p.okText : p.text, rcV, row.value,
-                      DT_SINGLELINE | DT_LEFT | DT_VCENTER |
-                      DT_END_ELLIPSIS | DT_NOPREFIX);
+            Rect rcK = { rcCard.left + 12, y, rcCard.left + 68, y + 20 };
+            g.Text(rcK, row.key, FontRole::Meta, RGB(143, 149, 158),
+                   dt::SingleLine | dt::Left | dt::VCenter | dt::NoPrefix);
+            Rect rcV = { rcCard.left + 70, y, rcCard.right - 10, y + 20 };
+            g.Text(rcV, row.value, FontRole::Meta,
+                   row.ok ? p.okText : p.text,
+                   dt::SingleLine | dt::Left | dt::VCenter |
+                   dt::EndEllipsis | dt::NoPrefix);
             y += 24;
         }
     }
 
     if (!m_footerText.empty()) {
-        RECT rcVer = { 10, cardBottom + 8, m_side.right - 10,
+        Rect rcVer = { 10, cardBottom + 8, m_side.right - 10,
                        cardBottom + 26 };
-        gfx::Text(dc, m_fonts.Get(FontRole::Meta), RGB(169, 174, 184),
-                  rcVer, m_footerText,
-                  DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
+        g.Text(rcVer, m_footerText, FontRole::Meta, RGB(169, 174, 184),
+               dt::SingleLine | dt::Center | dt::VCenter | dt::NoPrefix);
     }
 }
 

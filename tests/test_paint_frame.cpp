@@ -10,6 +10,7 @@
 #include "Fonts.h"
 #include "internal/Gfx.h"
 #include "internal/PaintFrame.h"
+#include "internal/ShellChrome.h"
 #include "airui/hal.h"
 
 #include <cstdint>
@@ -341,6 +342,62 @@ int main()
               "GDI path: Canvas::StrokeDashed matches the legacy rounded dash");
         Check(fromCanvas.HasInk(),
               "GDI path: Canvas::StrokeDashed still draws a visible border");
+    }
+
+    // The shell chrome keeps the legacy composite geometry instead of the
+    // core Paint* widgets (fixed dot at left+14 / diameter 8, chip width =
+    // text + 12 + 5). Prove the IPainter replay used by Shell.cpp matches
+    // gfx::* pixel for pixel.
+    {
+        Fonts& fonts = Fonts::Default();
+        const Color bg     = RGB(240, 240, 240);
+        const Color border = RGB(200, 200, 200);
+        const Color tx     = RGB(10, 20, 30);
+        const Color dot    = RGB(0, 128, 0);
+
+        Surface legacyTag;
+        Surface paintedTag;
+        gfx::StatusTag(legacyTag.dc, 60, 15, L"\u72B6\u6001",
+                       fonts.Get(FontRole::Meta), bg, border, tx, dot, 24);
+        {
+            Canvas canvas(paintedTag.dc, fonts);
+            PaintStatusTagLegacy(canvas, 60, 15, L"\u72B6\u6001",
+                                 FontRole::Meta, bg, border, tx, dot, 24);
+        }
+        int diff = 0;
+        for (int y = 0; y < Surface::H; ++y)
+            for (int x = 0; x < Surface::W; ++x)
+                if (legacyTag.At(x, y) != paintedTag.At(x, y)) ++diff;
+        Check(diff == 0,
+              "GDI path: shell status tag matches gfx::StatusTag");
+        Check(paintedTag.HasInk(),
+              "GDI path: shell status tag still draws");
+
+        Surface legacyChip;
+        Surface paintedChip;
+        gfx::KbdChip(legacyChip.dc, 60, 15, L"K", L"L",
+                     fonts.Get(FontRole::Meta));
+        {
+            Canvas canvas(paintedChip.dc, fonts);
+            PaintKbdChipLegacy(canvas, 60, 15, L"K", L"L",
+                               FontRole::Meta);
+        }
+        diff = 0;
+        for (int y = 0; y < Surface::H; ++y)
+            for (int x = 0; x < Surface::W; ++x)
+                if (legacyChip.At(x, y) != paintedChip.At(x, y)) ++diff;
+        Check(diff == 0,
+              "GDI path: shell kbd chip matches gfx::KbdChip");
+        Check(paintedChip.HasInk(),
+              "GDI path: shell kbd chip still draws");
+
+        Surface probe;
+        Canvas probeCanvas(probe.dc, fonts);
+        Check(KbdChipWidthLegacy(probeCanvas, L"K", L"L",
+                                 FontRole::Meta) ==
+              gfx::KbdChipWidth(probe.dc, L"K", L"L",
+                                fonts.Get(FontRole::Meta)),
+              "GDI path: shell kbd chip width matches gfx::KbdChipWidth");
     }
 
     {
