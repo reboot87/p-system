@@ -27,7 +27,7 @@ namespace ui {
 
 namespace {
 
-#if defined(_WIN32) && !defined(AIRUI_SKIA_MOCK)
+#if defined(_WIN32) && (!defined(AIRUI_SKIA_MOCK) || defined(AIRUI_SKIA_MOCK_WINPORT))
 // One desktop setting, read once: these change only when the user edits
 // the ClearType wizard, so re-reading them per frame would be waste.
 std::wstring DesktopString(const wchar_t* name)
@@ -57,7 +57,7 @@ SkPixelGeometry LcdPixelGeometry()
     // registry here unconditionally would put three RegGetValue calls on
     // the per-frame path.
     static const SkPixelGeometry cached = []() -> SkPixelGeometry {
-#if defined(_WIN32) && !defined(AIRUI_SKIA_MOCK)
+#if defined(_WIN32) && (!defined(AIRUI_SKIA_MOCK) || defined(AIRUI_SKIA_MOCK_WINPORT))
         // FontSmoothing: "0" off, "1" standard greyscale, "2" on.
         // FontSmoothingType: 1 = standard, 2 = ClearType.
         const std::wstring smoothing = DesktopString(L"FontSmoothing");
@@ -83,7 +83,7 @@ SkPixelGeometry LcdPixelGeometry()
 // colour fringe either way).
 bool OpaqueTarget()
 {
-#if defined(_WIN32) && !defined(AIRUI_SKIA_MOCK)
+#if defined(_WIN32) && (!defined(AIRUI_SKIA_MOCK) || defined(AIRUI_SKIA_MOCK_WINPORT))
     static const bool opaque = [] {
         wchar_t v[16] = {};
         if (GetEnvironmentVariableW(L"AIRUI_SKIA_ALPHA", v, 16) == 0) return true;

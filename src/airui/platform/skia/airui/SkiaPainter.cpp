@@ -5,6 +5,20 @@
 // the G5 cross-backend DrawCall comparison possible.
 // ============================================================
 #include "airui/SkiaPainter.h"
+
+// The native device-context types used by the Windows-only blocks below
+// must be included before SkiaApi.h: SkiaApiMock.h checks _INC_WINDOWS to
+// decide whether it has to provide the LOGFONT/TCHAR stand-ins. The plain
+// mock gate skips those blocks; AIRUI_SKIA_MOCK_WINPORT keeps them and
+// mocks only the Skia API, so the syntax gate compiles the real
+// Windows-only path (GDI font calibration) too.
+#if defined(_WIN32) && (!defined(AIRUI_SKIA_MOCK) || defined(AIRUI_SKIA_MOCK_WINPORT))
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 #include "airui/SkiaApi.h"
 #include "airui/SkiaTypes.h"
 #include "airui/UiText.h"
@@ -19,9 +33,8 @@
 // Skia's Windows ports. The GDI one (SkFontMgr_New_GDI) hands out faces
 // whose outlines GDI itself grid-fits -- that is the one that matches
 // the Win32 backend; the LOGFONT/DirectWrite factory next to it is the
-// fallback. Under the syntax gate (AIRUI_SKIA_MOCK) SkiaApiMock.h
-// provides the equivalent declarations without the real <windows.h>.
-#  include <windows.h>
+// fallback. Under both mock gates SkiaApiMock.h declares the same
+// functions, so the real port header is only needed for an SDK build.
 #  include "include/ports/SkTypeface_win.h"
 
 // Pinned declaration: the factory is still exported by the Skia build
@@ -374,7 +387,7 @@ const sk_sp<SkTypeface>& LinkedFaceFor(const SharedFaces& f, FontRole role)
 // not linear across sizes, so scaling a 200px measurement down by
 // cell/200 lands on a size GDI never draws. Everything here is therefore
 // read straight off the DC at the size we actually ask for.
-#if defined(_WIN32) && !defined(AIRUI_SKIA_MOCK)
+#if defined(_WIN32) && (!defined(AIRUI_SKIA_MOCK) || defined(AIRUI_SKIA_MOCK_WINPORT))
 RoleMetrics MeasureRole(HDC dc, const SharedFaces& f, FontRole role)
 {
     RoleMetrics rm;
@@ -595,7 +608,7 @@ const Calibration& GetCalibration(void* nativeDc)
 {
     static Calibration* cal = new Calibration();   // process lifetime
 
-#if defined(_WIN32) && !defined(AIRUI_SKIA_MOCK)
+#if defined(_WIN32) && (!defined(AIRUI_SKIA_MOCK) || defined(AIRUI_SKIA_MOCK_WINPORT))
     HDC dc = nativeDc ? static_cast<HDC>(nativeDc) : GetDC(nullptr);
     if (dc) {
         const int dpi = GetDeviceCaps(dc, LOGPIXELSY);
@@ -616,7 +629,7 @@ const Calibration& GetCalibration(void* nativeDc)
 // Opt-in trace of the calibration result (AIRUI_PAINT_TRACE=1).
 void DiagCalibration(const RoleMetrics* m)
 {
-#if defined(_WIN32) && !defined(AIRUI_SKIA_MOCK)
+#if defined(_WIN32) && (!defined(AIRUI_SKIA_MOCK) || defined(AIRUI_SKIA_MOCK_WINPORT))
     static bool done = false;       // painter is per frame; dump once
     if (done) return;
     wchar_t v[8] = {};
@@ -647,7 +660,7 @@ void DiagCalibration(const RoleMetrics* m)
 void DiagText(int role, SkScalar size, float w, float x, float y,
               float avail, float canvasScale, const std::string& s)
 {
-#if defined(_WIN32) && !defined(AIRUI_SKIA_MOCK)
+#if defined(_WIN32) && (!defined(AIRUI_SKIA_MOCK) || defined(AIRUI_SKIA_MOCK_WINPORT))
     static const bool on = [] {
         wchar_t v[8] = {};
         return GetEnvironmentVariableW(L"AIRUI_PAINT_TRACE", v, 8) > 0;

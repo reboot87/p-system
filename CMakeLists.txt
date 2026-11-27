@@ -629,7 +629,7 @@ set_target_properties(test_controls_core PROPERTIES
 )
 airui_console_target(test_controls_core)
 
-# HotState test - 自绘热区的悬�?按下/拖出取消语义（平台无关）
+# HotState test - 自绘热区的悬停/按下/拖出取消语义（平台无关）
 add_executable(test_hot_state
     tests/test_hot_state.cpp
 )
@@ -754,6 +754,23 @@ if(WIN32 AND NOT AIRUI_WITH_SKIA)
         ${CMAKE_SOURCE_DIR}/src/airui/platform/skia
         ${CMAKE_SOURCE_DIR}/src/airui/core/include)
     set_target_properties(airui_skia_mock_syntax PROPERTIES FOLDER "gates")
+
+    # The plain mock gate above deliberately *skips* every
+    # `_WIN32 && !AIRUI_SKIA_MOCK` block, so the GDI font calibration and
+    # the HDC presentation path were still only covered by the optional
+    # (non-blocking) real-Skia job -- exactly where the missing platform
+    # include hid. Compile the two translation units that own those blocks
+    # again with the real <windows.h> and only the Skia API mocked.
+    add_library(airui_skia_winport_syntax OBJECT
+        src/airui/platform/skia/airui/SkiaPainter.cpp
+        src/airui/platform/skia/airui/SkiaSurface.cpp)
+    target_compile_definitions(airui_skia_winport_syntax PRIVATE
+        AIRUI_SKIA_MOCK AIRUI_SKIA_MOCK_WINPORT)
+    target_include_directories(airui_skia_winport_syntax PRIVATE
+        ${CMAKE_SOURCE_DIR}/tests/skia_contract
+        ${CMAKE_SOURCE_DIR}/src/airui/platform/skia
+        ${CMAKE_SOURCE_DIR}/src/airui/core/include)
+    set_target_properties(airui_skia_winport_syntax PROPERTIES FOLDER "gates")
 endif()
 
 # Real dual-backend check: needs a Skia SDK (AIRUI_WITH_SKIA=ON).
@@ -784,7 +801,7 @@ if(AIRUI_WITH_SKIA)
     endif()
 endif()
 
-# AirUI reuse demo (examples/DemoWindow.cpp) �?minimal Shell+Page example
+# AirUI reuse demo (examples/DemoWindow.cpp) -- minimal Shell+Page example
 add_executable(airui_demo
     examples/DemoWindow.cpp
 )
@@ -798,7 +815,7 @@ set_target_properties(airui_demo PROPERTIES
     LINK_FLAGS "/SUBSYSTEM:WINDOWS"
 )
 
-# AirUI TextBox lab (examples/TextBoxLab.cpp) �?self-drawn TextBox
+# AirUI TextBox lab (examples/TextBoxLab.cpp) -- self-drawn TextBox
 # repro harness: single/multi-line boxes + caret-blink phase probe
 add_executable(airui_textbox_lab
     examples/TextBoxLab.cpp
