@@ -238,6 +238,8 @@ core 26 + `win32/airui` 13 + `skia/airui` 5）。`scripts/public-headers-exempt.
   （只剩说明性注释）。帧激活时 `Canvas::Painter()` 返回 `PaintFrame`，无帧时
   返回一个惰性创建的 `internal/GfxPainter`（`IPainter` → `gfx::*` 的薄适配器，
   保留 PS_DASH / `Ellipse` / `RoundRect` 的既有 GDI 语义，所以原生像素不变）。
+  圆角虚线单独走 `GfxPainter::StrokeDashedRounded`：`IPainter::StrokeDashed`
+  没有 radius 参数，无帧路径不能因此把角画成方角。
   `StatusTag` / `KbdChip` / `EmptyState` / `Pagination` / `Button` / `Checkbox` /
   `Radio` 仍走 core `Paint*` + `CanvasPainter`，而 `CanvasPainter` 反过来调
   `Canvas::*` → `Painter()`，不会递归回 `CanvasPainter`。
