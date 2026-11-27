@@ -39,7 +39,7 @@
   `check-core-clean: PASSED (<n> core files, 0 platform references)`。
 
 ### 1.2 公共头文件不得暴露平台相关物
-- 目标：**页面作者 `#include "airui/AirUi.h"` 后，看到的头文件里
+- 目标：**页面作者 `#include "AirUi.h"` 后，看到的头文件里
   既没有 `<windows.h>`，也没有任何 Win32 类型 / 函数 / 宏名。**
 - 这条比 1.1 更宽：1.1 只约束 `core/` 目录本身；1.2 约束任何
   **被 `AirUi.h` 传递包含的公开头**（包括 `platform/win32/airui/` 里
@@ -154,12 +154,16 @@ src/airui/core/src/                ← 公开面的实现（平台无关）
 
 src/airui/platform/win32/airui/    ← Win32 后端的公开面（同样平台无关）
     AirUi.h Canvas.h Controls.h DrawCall.h Fonts.h Page.h Shell.h
-    Theme.h ThemeJson.h ThemeManager.h Responsive.h Accessibility.h …
+    Widgets.h ThemeJson.h ThemeManager.h Responsive.h Accessibility.h
+    PaintProviders.h …
 src/airui/platform/win32/internal/ ← 私有实现（可出现 Win32 全部类型）
     CanvasPainter.h Components.h Controls.h Gfx.h GdiPainter.h
     OverlayWindow.h PaintFrame.h RaII.h TestShell.h Win32Window.h …
 ```
 - 私有目录**不出现在**任何 target 的 `PUBLIC` include 中；
+- `airui-win32` 的 PUBLIC include 只有 `platform/win32/airui` 与
+  `core/include`：页面写 `#include "AirUi.h"`，写不到 `internal/`；
+  `platform/win32` 只在后端、gallery 与白盒测试里以 PRIVATE 出现；
 - 公开层内部存 `void*` / 自有 POD，转换只在私有实现处发生；
 - `platform/win32/internal/*.h` 中只有 `Canvas.h` / `Page.h` / `Shell.h` /
   `Widgets.h` 是**转发头**（4 行，`#include "airui/XXX.h"`）。其余（`Controls.h` /
@@ -263,10 +267,15 @@ core 26 + `win32/airui` 13 + `skia/airui` 5）。`scripts/public-headers-exempt.
   （`src/pages` / `src/gallery` / `examples` / `src/core` / `src/plugins`）
   全部改成中立类型。
 
-**现状：公开头零豁免、闭包零平台 token、门禁全绿。** 后续若要做真正技术
-隔离，才需要把 PUBLIC include 收窄到 `win32/airui`，并全仓改
-`airui/XXX.h` → `XXX.h`（数百处 include，单独批次）。新增页面作者 API 头时
-必须保持零平台 token，**且必须让 `AirUi.h` 的闭包仍然零平台 token**。
+**现状：公开头零豁免、闭包零平台 token、门禁全绿。** 批次 10 已把
+`airui-win32` 的 PUBLIC include 收窄到 `platform/win32/airui`（父目录
+`platform/win32` 转为 PRIVATE），公开头之间改为互引 `"Canvas.h"` 这类
+同目录名，消费层全部改 `#include "AirUi.h"`（共 52 处 include + AirUi.h
+1 处用法注释；core 头仍是 `"airui/types.h"` 形式）。内部头 `internal/*.h`
+的 8 处 `"airui/XXX.h"` 保留，只有拿到 PRIVATE include 的后端 / 白盒测试 /
+gallery 能编译它们；一条只带两个 PUBLIC 目录的探针里
+`#include "internal/..."` 已经是 `C1083`。新增页面作者 API 头时必须保持
+零平台 token，**且必须让 `AirUi.h` 的闭包仍然零平台 token**。
 
 ### 5.5 门禁升级（已实现，2026-11-27，批次 7 扩词表 + 三个入口）
 - `scripts/check-public-headers-clean.sh` / `.ps1` **已存在并接入 CI**，
@@ -391,8 +400,9 @@ core 26 + `win32/airui` 13 + `skia/airui` 5）。`scripts/public-headers-exempt.
   高 DPI 动态适配 + 列表多选 + 分页（详见 `docs/ROADMAP.md` 跟进六~九）。
 - 门禁状态：core-clean PASSED（55 文件 / 0 引用）、公共头纯净门禁 PASSED
   （**44 受检 / 0 豁免 / 闭包 225 文件 / 0 平台引用**，`.sh` 与 `.ps1` 两版
-  一致）、公共头自包含 PASSED、Windows Skia mock 语法目标 PASSED（x64 与
-  x86 都编过）、全量构建 0 错误、ctest **28/28**。
+  一致）、公共头自包含 PASSED、两个 Skia 语法目标（`airui_skia_mock_syntax`
+  与 `airui_skia_winport_syntax`）PASSED（x64 与 x86 都编过）、全量构建
+  0 错误、ctest **28/28**。
 - 批次 7（2026-11-27）：禁词表补齐 Windows 标量类型 / 结构 / 宏命名空间；
   门禁入口加入 `platform/skia/airui`（5 个头），并加“0 入口即失败”保护；
   `SkiaSurface.h` 的原生 surface 参数由具体句柄类型改为 `void*`；
@@ -416,6 +426,17 @@ core 26 + `win32/airui` 13 + `skia/airui` 5）。`scripts/public-headers-exempt.
   `SkiaApi.h` 之前（mock 依赖 `_INC_WINDOWS`）；`build-conventions.md`
   与 `remediation-plan.md` 的门禁清单同步（补公共头门禁与两个对象库，
   ctest 数字改 28/28）。
+- 批次 10（2026-11-27，跟进十三）：PUBLIC include 收窄——`airui-win32` 的
+  PUBLIC 只剩 `platform/win32/airui` + `core/include`，`platform/win32`
+  转 PRIVATE；13 个 win32 公开头的 52 处 include（含 18 处公开头互引）与
+  `AirUi.h` 里 1 处用法注释从 `airui/XXX.h` 改为同目录 `XXX.h`，core 头
+  仍是 `airui/...`；`internal/*.h` 的 8 处保留（靠 PRIVATE 根解析）；
+  `app-common` 改 PRIVATE `win32/airui`，gallery 与 4 个白盒测试补
+  PRIVATE `platform/win32`。顺带修掉 x86 的
+  `MessageResult`（`intptr_t`）绑定问题：x64 下它与 `LRESULT` 同型，
+  x86 下不同型；`Shell::HandleMessage` 的两个 `LRESULT` 局部改
+  `MessageResult`，`OverlayWindow::EventFn` 的 `LRESULT&` 改
+  `MessageResult&`。
 - 平台层剥离（§ 5）**公开头阶段已全部完成**：批次 1~6 落地——`types.h` 的
   static_assert + 平台中立别名（含 `vkey::*` / `mb::*` / `dt::*`）、4 个头
   清零签名（Responsive/ThemeJson/DrawCall/Accessibility/Fonts）、15 个 Win32

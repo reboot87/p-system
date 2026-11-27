@@ -13,6 +13,9 @@
 | `airui-skia`（可选） | `src/airui/platform/skia` | Win32/Skia | 可选后端 |
 
 - 依赖：`airui-core` 仅依赖 HAL 接口（无平台头）；`airui-win32` 依赖 `airui-core` + Win32。
+- `airui-win32` 的 PUBLIC include 只有 `platform/win32/airui` 与 `core/include`：
+  win32 头按同目录名引用（`#include "AirUi.h"`），core 头仍是
+  `#include "airui/types.h"`；`platform/win32`（含 `internal/`）只是 PRIVATE。
 - CMake 已按目标精确 `target_include_directories`（无全局 include），见 `docs/build-conventions.md`。
 
 ## 2. 公共 API 表面（稳定层）
@@ -98,9 +101,9 @@ target_link_libraries(app PRIVATE airui-core airui-win32 user32 gdi32 shell32 co
 ```
 
 ```cpp
-#include "airui/AirUi.h"          // win32 汇总头
-#include "airui/Shell.h"          // 窗口外壳
-#include "airui/ControlsCore.h"   // 核心控件（走 IPainter）
+#include "AirUi.h"               // win32 汇总头
+#include "Shell.h"               // 窗口外壳
+#include "airui/ControlsCore.h"  // 核心控件（走 IPainter）
 ```
 
 - **MSVC 编译选项**：头文件注释为 UTF-8，消费方需加 `/source-charset:utf-8`

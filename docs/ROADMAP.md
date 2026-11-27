@@ -722,3 +722,10 @@
   - **乱码**：修掉 3 行 U+FFFD（三处各吞掉一个字符，已修正），全仓受跟踪文件字节扫描已无 U+FFFD。
   - **文档**：`build-conventions.md` 的必跑门禁补 `check-public-headers-clean.{sh,ps1}` 与两个 Skia mock 对象库；`remediation-plan.md` §6 同样补齐并把 ctest 数字改为 28/28。
   - **实测**：`check-core-clean` PASSED（55 文件 / 0 引用）；`check-public-headers-clean` `.ps1` 与 `.sh` 均 PASSED（44 受检 / 0 豁免 / 闭包 225 文件 / 0 平台引用）；`airui_skia_mock_syntax` 与 `airui_skia_winport_syntax` 在 x64、x86 均退出 0；全量 Release `BUILD=0`；`ctest -C Release` **28/28**。
+
+- **2026-11-27（跟进十三）：PUBLIC include 收窄到 win32/airui**
+  - **起因**：`airui-win32` 的 PUBLIC include 仍是 `platform/win32`，页面可以 `#include "internal/Win32Window.h"` 直接拿到 Win32 类型；「公开面零平台 token」此前只对头文件文本成立，对 include 可达性不成立。§5.4 已把它列为单独批次。
+  - **改法**：`airui-win32` 的 PUBLIC 改成 `platform/win32/airui` + `core/include`，`platform/win32` 转 PRIVATE；13 个公开头的 18 处互引、34 处消费方 include 与 `AirUi.h` 的 1 处用法注释改成同目录名（如 `#include "Canvas.h"`），core 头保持 `airui/XXX.h`；`internal/*.h` 里的 8 处 `airui/XXX.h` 不动（私有头，走 PRIVATE 根）。`app-common` 的 PRIVATE 根改 `win32/airui`；`airui_gallery` 与 4 个 include `internal/` 的白盒测试（`test_component_gallery` / `test_draw_calls` / `test_paint_compare` / `test_paint_frame`）补 PRIVATE `platform/win32`；`check-public-headers` 的 `INCLUDE_DIRS` 同步。
+  - **x86 修复（顺带）**：`MessageResult` 是 `intptr_t`，x64 与 `LRESULT` 同型、x86 不同型，`Shell::HandleMessage` 的两个 `LRESULT` 局部无法绑定 `MessageResult&`；改为 `MessageResult`。`OverlayWindow::EventFn` 的 `LRESULT&` 同样改成 `MessageResult&`。这是本次改 include 迫使 `Shell.cpp` 重编才暴露的潜在 x86 断裂。
+  - **自检**：只带两个 PUBLIC 目录（`core/include` + `win32/airui`）编译 `#include "AirUi.h"` 成功（需 `/utf-8`，项目本来就有）；同条件 `#include "internal/Win32Window.h"` 报 `C1083`，证明 internal 已不可达。
+  - **实测**：`check-core-clean` PASSED（55 文件 / 0 引用）；`check-public-headers-clean` `.ps1` 与 `.sh` 均 PASSED（44 受检 / 0 豁免 / 闭包 225 文件 / 0 平台引用）；`check-public-headers` 目标通过；全量 Release `BUILD=0`；`ctest -C Release` **28/28**；x86 的 `airecord` / `airui_textbox_lab` 与两个 Skia 语法目标均退出 0。
