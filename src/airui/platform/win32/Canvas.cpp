@@ -108,9 +108,15 @@ void Canvas::StrokeDashed(const Rect& rc, Color color, int radius)
         DrawCall dc; dc.type = DrawCall::StrokeDashed; dc.rect = rc; dc.color = color; dc.radius = radius;
         s_recorder->push_back(dc);
     }
-    // dash=4 is the legacy gfx::* rhythm the frame router used to send;
-    // the GDI fallback ignores it and uses its native PS_DASH pen.
-    (void)radius;   // IPainter has no rounded dashed variant
+    // dash=4 is the legacy rhythm the frame router used to send. The
+    // 4-argument IPainter call has no corner radius, so the native path
+    // goes through GfxPainter's legacy-shaped helper instead: callers do
+    // pass a radius (6 / metrics radiusMd) and the old GDI border was a
+    // RoundRect, not a square one.
+    if (!CurrentPaintFrame()) {
+        static_cast<GfxPainter&>(Gdi()).StrokeDashedRounded(rc, color, radius);
+        return;
+    }
     Painter().StrokeDashed(rc, color, 1, 4);
 }
 

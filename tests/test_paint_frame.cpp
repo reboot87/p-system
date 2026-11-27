@@ -323,6 +323,26 @@ int main()
     Check(s.At(30, 25) == RGB(0, 0, 0),
           "GDI path: Canvas::ProgressBar keeps the unfilled track");
 
+    // The dashed border is the one Canvas primitive with a corner radius
+    // that IPainter's 4-argument call cannot express. It must still draw
+    // the legacy rounded shape on the native path, not a square one.
+    {
+        Surface legacy;
+        Surface fromCanvas;
+        gfx::StrokeDashed(legacy.dc, RECT{ 8, 6, 56, 26 }, RGB(0, 0, 255), 6);
+        Canvas canvas(fromCanvas.dc, Fonts::Default());
+        canvas.StrokeDashed(Rect{ 8, 6, 56, 26 }, RGB(0, 0, 255), 6);
+
+        int diff = 0;
+        for (int y = 0; y < Surface::H; ++y)
+            for (int x = 0; x < Surface::W; ++x)
+                if (legacy.At(x, y) != fromCanvas.At(x, y)) ++diff;
+        Check(diff == 0,
+              "GDI path: Canvas::StrokeDashed matches the legacy rounded dash");
+        Check(fromCanvas.HasInk(),
+              "GDI path: Canvas::StrokeDashed still draws a visible border");
+    }
+
     {
         Canvas canvas(s.dc, Fonts::Default());
         Check(canvas.LineHeight(FontRole::Body) > 0,
