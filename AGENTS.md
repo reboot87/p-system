@@ -158,18 +158,28 @@ src/airui/platform/win32/internal/ ← 私有实现（可出现 Win32 全部类�
 ```
 - 私有目录**不出现在**任何 target 的 `PUBLIC` include 中；
 - 公开层内部存 `void*` / 自有 POD，转换只在私有实现处发生；
-- `platform/win32/internal/*.h` 现在是**转发头**（`#include "airui/XXX.h"`），
-  旧的 Win32 签名实现留在同名 `.cpp` 里。
+- `platform/win32/internal/*.h` 中只有 `Canvas.h` / `Page.h` / `Shell.h` /
+  `Widgets.h` 是**转发头**（4 行，`#include "airui/XXX.h"`）。其余（`Controls.h` /
+  `Components.h` / `Gfx.h` / `GdiPainter.h` / `CanvasPainter.h` / `PaintFrame.h` /
+  `ObservableListBox.h` / `OverlayWindow.h` / `RaII.h` / `TestShell.h` /
+  `Win32Window.h`）保留真实私有声明，不对外。它们不被任何公开头 include，
+  因此不属于门禁检查范围。
 
-### 5.3 现状基线（2026-11-26 传递闭包零平台 token，0 豁免）
-**公开头及其 include 闭包已全部零平台痕迹，门禁 0 豁免强制**（39 个受检头：
-core 26 + `win32/airui` 13）。`scripts/public-headers-exempt.txt` 只剩注释，
-无豁免行。闭包覆盖 214 个文件、0 个平台 token。
+### 5.3 现状基线（2026-11-27 传递闭包零平台 token，0 豁免）
+**公开头及其 include 闭包已全部零平台痕迹，门禁 0 豁免**（44 个受检头：
+core 26 + `win32/airui` 13 + `skia/airui` 5）。`scripts/public-headers-exempt.txt`
+只剩注释，无豁免行。闭包覆盖 225 个文件、0 个平台 token。
 
 **留在公开面（`win32/airui/`）的头**（自身与闭包都零平台 token）：
 `AirUi.h`（总入口）、`Canvas.h`、`Controls.h`、`DrawCall.h`、`Fonts.h`、
 `Page.h`、`Shell.h`、`ThemeJson.h`、`ThemeManager.h`、`Responsive.h`、
 `Accessibility.h`、`PaintProviders.h`。
+
+**`skia/airui/` 的 5 个头**（`SkiaApi.h` / `SkiaPainter.h` / `SkiaPluginAbi.h` /
+`SkiaSurface.h` / `SkiaTypes.h`）同样零平台类型、零平台头：`SkiaSurface.h` 的
+原生 surface 参数已从具体句柄类型改为 `void*`，由 `.cpp` 在边界处转换。
+这些后端头仍用 `#ifdef _WIN32` 选择“是否存在原生 surface 路径”，
+这是 API 可用性的选择，不含平台类型、不 include 平台头。
 
 **移出公开面到 `platform/win32/internal/`**（私有头，门禁不检查）共 15 个：
 - 批次 2：`GdiPainter.h` / `RaII.h` / `Win32Window.h` / `TestShell.h` /
@@ -178,9 +188,17 @@ core 26 + `win32/airui` 13）。`scripts/public-headers-exempt.txt` 只剩注释
   `Gfx.h` / `ObservableListBox.h` / `Page.h` / `PaintFrame.h` / `Shell.h` /
   `Widgets.h`
 
-其中 `Canvas.h` / `Controls.h` / `Page.h` / `Shell.h` / `Widgets.h` 在批次 6
-被**重写为平台无关的公开版**，同名 internal 头改成转发头
-（`#include "airui/XXX.h"`），旧签名实现留在同名 `.cpp`。
+其中 `Canvas.h` / `Page.h` / `Shell.h` / `Widgets.h` 在批次 6 被**重写为
+平台无关的公开版**，同名 internal 头改成转发头（`#include "airui/XXX.h"`），
+旧签名实现留在同名 `.cpp`。
+
+**`Controls.h` 是例外**：公开版 `win32/airui/Controls.h` 是平台无关的，
+但 `internal/Controls.h` 仍是 119 行的私有实现头（`SetEditMargins` /
+`ClearEditText` / `MoveCaretToEnd` / `DrawButton` / `AttachButton` /
+`DetachButton` / `IsButtonHover` / `IsButtonPressed` / `ButtonStyleOf` /
+`hover::*` / `PaintDC` / `list::ItemFromPoint` / `DrawEmptyState` /
+`ApplyDwmFrame` 等），不是转发头。早先文档写的“5 个全部转发”不准确，
+此处按实测更正；它不被任何公开头 include，门禁不受影响。
 
 **批次 6 引入的公开词汇（`core/include/airui/types.h`）**：
 - 句柄别名（全是 `void*`）：`WindowHandle` / `DeviceContextHandle` /
@@ -196,8 +214,14 @@ core 26 + `win32/airui` 13）。`scripts/public-headers-exempt.txt` 只剩注释
   不要凭记忆：`DT_RIGHT=0x2`、`DT_BOTTOM=0x8` 与「位序递增」的直觉不同，
   猜错会让 Skia 的 `Horizontal()` 把居中判成右对齐。
 - 中立 POD：`Rect`（含 `Offset` / `Inflated` / `Intersect` / `Union` /
-  `Contains`）/ `Point` / `Color` / `TextFormat` / `DateTime` /
+  `Contains` / `ContainsOpen`）/ `Point` / `Color` / `TextFormat` / `DateTime` /
   `DrawItemInfo` / `MeasureItemInfo` / `MessageInfo`。
+- **命中测试边界（2026-11-27 统一）**：`Rect::Contains(Point)` 是**闭区间**
+  `[left,right] x [top,bottom]`，与原生 `PtInRect` 一致，页面点击命中也依赖它；
+  `Rect::ContainsOpen(Point)` 是**半开** `[left,right) x [top,bottom)`，用于把
+  表面切成相邻格子。此前 `Contains` 半开、`NeutralWin32::HitRect` 闭区间，
+  同一页面存在两套边界（差 1px）；现由 `tests/test_core_layout.cpp` 的
+  `contains:` / `containsOpen:` 断言锁定，改语义必须同步改测试。
 
 - **传递包含的坑**：清零一个公开头后，所有**依赖它传递提供平台类型**的
   `.cpp` 都会断链，必须在那些 `.cpp` 里显式 `#include <windows.h>`
@@ -229,9 +253,10 @@ core 26 + `win32/airui` 13）。`scripts/public-headers-exempt.txt` 只剩注释
   改 `internal/` 路径，传递链不断（26 个文件的 include 同步更新）。
 - 批次 6（2026-11-26，传递闭包门禁驱动）：把 `Canvas` / `Controls` /
   `Page` / `Shell` / `Widgets` **重写为平台无关的公开版**并提升回
-  `platform/win32/airui/`，internal 同名头改为转发头；`Gfx.h` 不提升
-  （它是 GDI 原语），`gfx::OneLine` 迁到公开 `DrawCall.h`；门禁从「只查文件
-  自身」升级为「递归查 quoted include 闭包」。连带把消费层
+  `platform/win32/airui/`；其中 `Canvas` / `Page` / `Shell` / `Widgets` 的
+  internal 同名头改为转发头，`Controls` 的 internal 头保留私有实现声明
+  （见 §5.3）。`Gfx.h` 不提升（它是 GDI 原语），`gfx::OneLine` 迁到公开
+  `DrawCall.h`；门禁从「只查文件自身」升级为「递归查 quoted include 闭包」。连带把消费层
   （`src/pages` / `src/gallery` / `examples` / `src/core` / `src/plugins`）
   全部改成中立类型。
 
@@ -240,22 +265,36 @@ core 26 + `win32/airui` 13）。`scripts/public-headers-exempt.txt` 只剩注释
 `airui/XXX.h` → `XXX.h`（数百处 include，单独批次）。新增页面作者 API 头时
 必须保持零平台 token，**且必须让 `AirUi.h` 的闭包仍然零平台 token**。
 
-### 5.5 门禁升级（已实现，2026-11-26，批次 6 升级为闭包检查）
+### 5.5 门禁升级（已实现，2026-11-27，批次 7 扩词表 + 三个入口）
 - `scripts/check-public-headers-clean.sh` / `.ps1` **已存在并接入 CI**，
   且**已从「只查文件自身」升级为「递归查 include 闭包」**：
-  - 入口：`core/include/airui/*.h` + `platform/win32/airui/*.h`；
+  - 入口：`core/include/airui/*.h` + `platform/win32/airui/*.h` +
+    `platform/skia/airui/*.h`（44 个）；
   - 解析 `#include "..."`（**不展开 `<...>`**，系统头不算平台污染），
-    用「当前头所在目录 / `core/include` / `platform/win32`」三个候选解析路径，
-    队列 + 集合去重遍历闭包；
+    用「当前头所在目录 / `core/include` / `platform/win32` / `platform/skia`」
+    四个候选解析路径，队列 + 集合去重遍历闭包；
   - 对闭包里每个文件按文本扫描平台类型 / 函数 / 宏与 `windows.h`；
   - 失败输出 `FAIL <入口头> -> <被污染文件>:<行号>: <命中片段>`，
     最后一行汇总 `FAILED (n platform references across m files in public
     include closures)`；
-  - 通过输出 `PASSED (39 public headers checked, 0 exempt, N files in
-    closures, 0 platform references)`。
+  - 通过输出 `PASSED (44 public headers checked, 0 exempt, N files in
+    closures, 0 platform references)`；
+  - **0 入口不等于通过**：`checked == 0` 直接 FAILED（防止入口路径写错时
+    门禁假绿）。`.sh` 版还修掉了 `set -e` 下 `[ ... ] && continue` 让脚本
+    静默退出的问题，并在函数末尾显式 `return 0`。
   本地 target：`cmake --build build --target check-public-headers-clean`。
+- **禁词表** `scripts/core-forbidden.regex`（core-clean 与公开头门禁共用）
+  已从“少数几个词”扩到完整平台词汇：句柄（`HWND`/`HDC`/`HFONT`/…）、
+  Windows 标量类型（`UINT`/`DWORD`/`BOOL`/`BYTE`/`WORD`/`LONG`/`SIZE`/…）、
+  消息/绘制结构（`MSG`/`WNDPROC`/`PAINTSTRUCT`/`DRAWITEMSTRUCT`/
+  `MEASUREITEMSTRUCT`/`CREATESTRUCT`/`MINMAXINFO`/`LOGFONT`/…）、
+  宏命名空间（`WM_`/`DT_`/`LB_`/`EN_`/`BN_`/`CB_`/`EM_`/`MK_`/`SWP_`/`WS_`/
+  `ES_`/`BS_`/`SS_`/`VK_`/`FW_`/`ROLE_SYSTEM_`/`HT*`）以及 Win32 函数名
+  （`GetDC`/`SaveDC`/`PtInRect`/`TranslateMessage`/…）。**不收录**与本仓库
+  自有无障碍 API 同名的项（`SetCapture` / `KillTimer` / `SetTimer` /
+  `FillRect`），否则会把合法接口名判成平台泄漏。
 - **豁免表** `scripts/public-headers-exempt.txt` **已清零**（只剩注释行）；
-  当前 39 个公开头全部受检、0 违规、0 豁免。豁免语义：入口整条闭包跳过
+  当前 44 个公开头全部受检、0 违规、0 豁免。豁免语义：入口整条闭包跳过
   检查——只加一行 basename 就等于放行一整条链，所以豁免是欠账不是常态，
   必须同步登记到 ADR / 工作日志并尽快清零。
   `platform/win32/internal/` 下的私有头不检查（不算公开面）。
@@ -308,17 +347,25 @@ core 26 + `win32/airui` 13）。`scripts/public-headers-exempt.txt` 只剩注释
 
 ---
 
-## 8. 当前基线（2026-11-26 复核；HEAD 会前移，引用前先 `git log -1` 确认）
+## 8. 当前基线（2026-11-27 复核；HEAD 会前移，引用前先 `git log -1` 确认）
 
-- `HEAD` = `ea06d01`（`docs: add AGENTS.md ...`，在 `d50e2c9` 之上）。
+- 本次修复前的 `HEAD` = `dccb14a`（`docs: record the platform-neutral
+  public header baseline in AGENTS.md`）。
 - 标签（commit 指向，用 `git rev-parse <tag>^{commit}` 解析，annotated tag
   的 `show-ref` 对象号与 commit 号不同）：`pre-layered-api` = `d50e2c9`
   （平台层剥离前的基线）、`v0.9.0`、`v0.8`、`phase0-baseline`。
 - 已交付第 1/2/3 项：TextBox 撤销/重做、maxLength/password 透出、
   高 DPI 动态适配 + 列表多选 + 分页（详见 `docs/ROADMAP.md` 跟进六~九）。
 - 门禁状态：core-clean PASSED（55 文件 / 0 引用）、公共头纯净门禁 PASSED
-  （**39 受检 / 0 豁免 / 闭包 214 文件 / 0 平台引用**，`.sh` 与 `.ps1` 两版
+  （**44 受检 / 0 豁免 / 闭包 225 文件 / 0 平台引用**，`.sh` 与 `.ps1` 两版
   一致）、公共头自包含 PASSED、全量构建 0 错误、ctest **28/28**。
+- 批次 7（2026-11-27）：禁词表补齐 Windows 标量类型 / 结构 / 宏命名空间；
+  门禁入口加入 `platform/skia/airui`（5 个头），并加“0 入口即失败”保护；
+  `SkiaSurface.h` 的原生 surface 参数由具体句柄类型改为 `void*`；
+  清掉 `types.h` / `UiText.h` / `Shell.h` / `Canvas.h` / `Widgets.h` /
+  `Interaction.h` / `ControlsCoreClasses.h` / `Accessibility.h` / skia 头里的
+  平台措辞与 `VK_*` / `ROLE_SYSTEM_*` 注释；`Rect::Contains` 统一为闭区间、
+  新增 `ContainsOpen`，并由 `test_core_layout` 断言锁定。
 - 平台层剥离（§ 5）**公开头阶段已全部完成**：批次 1~6 落地——`types.h` 的
   static_assert + 平台中立别名（含 `vkey::*` / `mb::*` / `dt::*`）、4 个头
   清零签名（Responsive/ThemeJson/DrawCall/Accessibility/Fonts）、15 个 Win32

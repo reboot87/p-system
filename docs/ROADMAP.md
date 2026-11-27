@@ -697,3 +697,12 @@
     - 页码条**只在表单卡关闭时画**（表单卡占了卡片底部，条会被压住），表单卡打开时列表仍全量滚动；列表页内仍可纵向滚动（一页 10 条未必塞满视口）。
     - 3c 的交互只在本机做了一次真实点击验证（页码可翻、行会换、`LB_GETCOUNT` 恒为当页条数），**未写进 suite**——3c 是纯页面层功能，suite 侧复用 3b 的 `listtest`/`selstate` 即可读 `LB_GETCOUNT` 断言；下一页等操作目前无稳定跨进程句柄（页码是自绘），探针 `1009` 只给区域不给具体槽坐标，后续如需要可加 `WM_USER+9002` 查询槽位。
     - 分页与 3a DPI 重建叠加：`RebuildListForDpi` 保当前页，按新 `Mx()` 重切重填——两者都已各自验证一次。
+
+- **2026-11-27（跟进十）：公共头平台纯净度补强 + `Rect` 命中边界统一**
+  - **起因**：审计发现上一批“公开头零平台”只覆盖了少数几个词：`core-forbidden.regex` 没有 `UINT` / `DWORD` / `BOOL` / `BYTE` / `WORD` / `LONG` / `SIZE` / `HANDLE` / `LOGFONT` / `VK_*` / `EN_*` / `ROLE_SYSTEM_*` 等，门禁绿但债在；`types.h` 注释里还留着 `(UINT)`。
+  - **门禁**：`scripts/core-forbidden.regex` 扩到完整平台词汇（句柄、Windows 标量、消息 / 绘制结构、`WM_` / `DT_` / `LB_` / `EN_` / `BN_` / `CB_` / `EM_` / `MK_` / `SWP_` / `WS_` / `ES_` / `BS_` / `SS_` / `VK_` / `FW_` / `ROLE_SYSTEM_` / `HT*` 宏与主要 Win32 函数名）；刻意不收录与本仓库自有 API 同名的 `SetCapture` / `KillTimer` / `SetTimer` / `FillRect`。`check-public-headers-clean.sh` / `.ps1` 入口加入 `platform/skia/airui`（受检头 39→44、闭包 214→225 文件），并让 `checked == 0` 直接失败；`.sh` 另修 `set -e` 下 `[ ... ] && continue` 导致脚本静默退出、退出码 1 却无输出的缺陷。
+  - **公开头**：清掉 `types.h`（`(UINT)`、`Win32` / `mirror` 类措辞）、`UiText.h`（`LOGFONT`、`FW_*`）、`Shell.h`（`WS_CLIPCHILDREN`、`TranslateMessage`）、`Canvas.h`（`SaveDC`）、`Widgets.h`（`EN_CHANGE`）、`Interaction.h`（`BN_CLICKED`）、`ControlsCoreClasses.h`（硬编码 `39` / `37` + `VK_*`，改用 `vkey::Right` / `vkey::Left`）、`Accessibility.h`（19 处 `ROLE_SYSTEM_*` 注释）；`SkiaSurface.h` 的 `HDC` 参数改为 `void*`（`.cpp` 在边界处转换），`SkiaApi.h` / `SkiaPainter.h` / `SkiaTypes.h` 注释中立化。
+  - **语义统一**：`Rect::Contains(Point)` 由半开改为**闭区间**（与原生命中一致），新增 `Rect::ContainsOpen`；此前 `Contains` 半开、`NeutralWin32::HitRect` 闭区间，同一页面存在两套边界（差 1px）。`tests/test_core_layout.cpp` 新增 8 条 `contains:` / `containsOpen:` 断言锁定。
+  - **文档更正**：`AGENTS.md` §5.3 / §5.4 写的“internal 同名头全部是转发头”不实——只有 `Canvas` / `Page` / `Shell` / `Widgets` 是（4 行转发头），`internal/Controls.h` 仍是 119 行私有实现头（`PaintDC` / `AttachButton` / `SetEditMargins` / `ApplyDwmFrame` 等）；按实测更正。
+  - **验证**：`check-core-clean.ps1` PASSED（55 文件 / 0 引用）；`check-public-headers-clean.ps1` 与 `.sh` 均 PASSED（44 受检 / 0 豁免 / 闭包 225 文件 / 0 平台引用）；反向注入 `// probe: HWND` 到 `types.h` 后两版门禁都从多个入口报 `-> types.h:NN` 并失败，还原后恢复 PASSED；全量 Release `BUILD=0`；`ctest -C Release` **28/28**。
+  - **边界**：`skia/airui` 的后端工厂头仍用 `#ifdef _WIN32` 选择“是否存在原生 surface 路径”（不含平台类型、不 include 平台头）；`src/gallery/main.cpp` 仍直接调 Win32 API（消费层不在公开头门禁范围内，另批处理）。
