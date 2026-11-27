@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 |---|---|
-| 状态 | 待评审 |
+| 状态 | 已执行（P0–P2 代码项与 P3-1~P3-3 落地；P0-5 / P2-4 的专项压力验收见 §6） |
 | 基线 | `aa9d8b2`（`main`，工作区干净） |
 | 来源 | 2026-11-15 全量代码审查（开发流程 / 架构 / 代码 / 测试 / 文档） |
 | 关联文档 | `docs/v0.8-baseline.md`、`docs/toolbox-plugin-plan.md`、`docs/ROADMAP.md`、`docs/design-patterns.md` |

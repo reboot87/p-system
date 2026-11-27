@@ -1,7 +1,7 @@
 # p-system / AirUI 路线图与未实现清单
 
 > 目的：把当前"已交付"与"未实现"的边界写清楚，避免把阶段路线图误当成遗漏的 bug。
-> 最后更新：2026-11-16。基线：`phase0-baseline`（034bdc2），Phase 0 验收见 `phase0-signoff.md`。
+> 最后更新：2026-11-28。基线：`phase0-baseline`（034bdc2），Phase 0 验收见 `phase0-signoff.md`。
 >
 > **当前版本快照**：`docs/v0.8-baseline.md`（tag `v0.8`，2026-11-09）记录单体态的
 > 完整功能清单、进程模型、架构分层与设计契约；工具箱化后续路线见
@@ -19,7 +19,7 @@
   - Windows：本地推荐 = CMake + Visual Studio 2017（`build.bat`）；CI 与 Skia 路径为 VS2022。
   - Linux：CMake + Unix Makefiles/Ninja，**仅构建 `airui-core`**（`build.sh`）。
   - 绝不使用 MinGW 构建完整项目（g++ 仅用于核心 CI 冒烟）。
-- **测试**：`ctest -C Release` **22/22 通过**（含 `test_shell_hal`、平台无关金样 `test_paint_recorder`、Skia 值映射 `test_skia_types`）；`test_ui` 为端到端脚本，仍需手工跑。
+- **测试**：`ctest -C Release` **28/28 通过**（含 `test_shell_hal`、平台无关金样 `test_paint_recorder`、Skia 值映射 `test_skia_types`）；`test_ui` 为端到端脚本，仍需手工跑。
 
 ---
 
@@ -58,7 +58,7 @@
 ### E. 代码内 TODO 检索（P3-5）
 
 把散落在注释里的未完成工作统一成 `TODO(<领域>): ...` 标记，可按域名检索：
-`git grep 'TODO('` 可一次列出全部已知欠账（项目自产约 8 处，**全部在 `docs/`**、
+`git grep 'TODO('` 可一次列出全部已知欠账（实测 `docs/` 共 **5 处**、
 含本文自引计数，`src/` 已清零；另 `third_party/sqlite/sqlite3.c` 有 7 处上游自带标记，非本项目债务）。
 
 - **`doc`**（`docs/toolbox-plugin-plan.md`，1 处）：工具箱化规划仍待评审/完善。

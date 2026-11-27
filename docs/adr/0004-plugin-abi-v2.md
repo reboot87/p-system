@@ -33,3 +33,13 @@
 ## 被替代的旧决定
 
 - 旧 ABI v1（`AIRUI_SKIA_PLUGIN_ABI 1`）：只声明 5 个函数形状、跨模块传 `const std::wstring&`、无 `size`/`caps`/`painterIfaceRev` 版本化描述，改接口不 bump ABI 号。被本 ADR 的 ABI v2 取代。
+
+## 后续修订
+
+- **2026-11-27 · `AIRUI_PAINTER_IFACE_REV` 2 → 3**：`IPainter` 在
+  `Translate` 之后追加 `HLine` / `HLineDashed` / `VLine` / `Dot` /
+  `ProgressBar` / `LineHeight`（均带默认实现，既有实现者与测试替身无需
+  改动），用于让页面绘制入口 `Canvas` 不再直接调用平台原生绘制助手。
+  C ABI 号（`AIRUI_PLUGIN_ABI 2`）未变；按本 ADR 的约定，vtable 布局变化
+  只 bump `painterIfaceRev`，因此 rev 2 的 DLL 会被宿主拒绝。当前取值以
+  `src/pluginapi/airui_plugin_abi.h` 为准。
