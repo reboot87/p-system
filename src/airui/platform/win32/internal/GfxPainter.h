@@ -108,14 +108,14 @@ public:
         gfx::StrokeDashed(m_dc, Win(r), c, 0);
     }
 
-    // Canvas::StrokeDashed takes a corner radius that the 4-argument
-    // IPainter call cannot express. Route that one through the legacy
-    // RoundRect + dashed-pen helper so the native border keeps its
-    // rounded corners (callers pass radius 6 / metrics radiusMd).
-    void StrokeDashedRounded(const Rect& r, Color c, int radius,
-                             int width = 1)
+    // The legacy border was a dashed RoundRect, so keep the radius here:
+    // this is the exact call Canvas::StrokeDashed made before the HAL had
+    // a rounded variant, which is what keeps native pixels unchanged.
+    void StrokeDashedRound(const Rect& r, int radius, Color c, int width,
+                           int dash) override
     {
         (void)width;
+        (void)dash;
         gfx::StrokeDashed(m_dc, Win(r), c, radius);
     }
 

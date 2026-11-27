@@ -162,6 +162,23 @@ public:
     {
         return MeasureText(L"Ag", 2, role);
     }
+
+    // Dashed border with rounded corners. The four-argument StrokeDashed
+    // cannot express a corner radius, but a "clickable yet inactive" card
+    // border is rounded in the design. The default ignores the radius and
+    // falls back to the square dashed border, so a backend (or a test
+    // double) that only knows StrokeDashed keeps working; backends that
+    // care about the shape override it.
+    //
+    // Appended after LineHeight like the shorthands above, so the slots
+    // of every existing virtual keep their index across the module
+    // boundary (see AIRUI_PAINTER_IFACE_REV).
+    virtual void StrokeDashedRound(const Rect& r, int radius, Color c,
+                                   int width, int dash)
+    {
+        (void)radius;
+        StrokeDashed(r, c, width, dash);
+    }
 };
 
 // ------------------------------------------------------------

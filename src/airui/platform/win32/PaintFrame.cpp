@@ -337,8 +337,9 @@ void PaintFrame::GfxStrokeDashed(const RECT& rc, COLORREF color, int radius)
 {
     PrimScope _ps(Stats().strokeDashed);
     if (rc.right <= rc.left || rc.bottom <= rc.top) return;
-    (void)radius;   // IPainter has no rounded dashed variant
-    m_backend->StrokeDashed(Shift(ToUi(rc)), ToUi(color), 1, 4);
+    // Keep the corner radius: Canvas::StrokeDashed has always drawn a
+    // rounded border here, and the backend now has a variant for it.
+    m_backend->StrokeDashedRound(Shift(ToUi(rc)), radius, ToUi(color), 1, 4);
 }
 
 void PaintFrame::GfxHLine(int x1, int x2, int y, COLORREF color)
@@ -424,6 +425,19 @@ void PaintFrame::StrokeDashed(const Rect& r, Color c, int width, int dash)
 {
     PrimScope _ps(Stats().strokeDashed);
     m_backend->StrokeDashed(Shift(r), c, width, dash);
+}
+
+void PaintFrame::StrokeDashedRound(const Rect& r, int radius, Color c,
+                                   int width, int dash)
+{
+    PrimScope _ps(Stats().strokeDashed);
+    // radius 0 is the square border; send it through the old call so the
+    // frame path keeps the exact pixels it produced before the rounded
+    // variant existed.
+    if (radius > 0)
+        m_backend->StrokeDashedRound(Shift(r), radius, c, width, dash);
+    else
+        m_backend->StrokeDashed(Shift(r), c, width, dash);
 }
 
 void PaintFrame::Text(const Rect& r, const wchar_t* s, size_t len,

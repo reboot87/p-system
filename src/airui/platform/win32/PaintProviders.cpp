@@ -191,6 +191,9 @@ public:
     { m_raw->StrokeRound(r, radius, c, width); }
     void StrokeDashed(const Rect& r, Color c, int width, int dash) override
     { m_raw->StrokeDashed(r, c, width, dash); }
+    void StrokeDashedRound(const Rect& r, int radius, Color c, int width,
+                           int dash) override
+    { m_raw->StrokeDashedRound(r, radius, c, width, dash); }
     void Text(const Rect& r, const wchar_t* s, size_t len,
               FontRole role, Color c, TextFormat fmt) override
     { m_raw->Text(r, s, len, role, c, fmt); }

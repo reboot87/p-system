@@ -1231,6 +1231,23 @@ void SkiaPainter::StrokeDashed(const Rect& r, Color c, int width, int dash)
     m->canvas->drawPath(path, p);
 }
 
+void SkiaPainter::StrokeDashedRound(const Rect& r, int radius, Color c,
+                                    int width, int dash)
+{
+    if (!m->canvas || r.Empty()) return;
+    // Keep the square path for radius 0: it is the exact call StrokeDashed
+    // makes, so a zero-radius dashed border does not shift by a pixel.
+    if (radius <= 0) { StrokeDashed(r, c, width, dash); return; }
+    SkPaint p = MakeStroke(c, width);
+    p.setPathEffect(DashEffectFor(dash));
+    // Same rounded box as StrokeRound (including the +1 that makes the
+    // stroke cover the same pixels the native rounded outline covers);
+    // a paint path effect applies to drawRRect as it does to drawPath.
+    const SkScalar rr = static_cast<SkScalar>(radius);
+    m->canvas->drawRRect(
+        SkRRect::MakeRectXY(StrokePath(r, width, true), rr, rr), p);
+}
+
 void SkiaPainter::Text(const Rect& r, const wchar_t* s, size_t len,
                        FontRole role, Color c, TextFormat fmt)
 {

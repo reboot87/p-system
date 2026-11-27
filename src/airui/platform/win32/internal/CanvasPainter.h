@@ -116,6 +116,14 @@ public:
         m_canvas.StrokeDashed(r, c, 0);
     }
 
+    void StrokeDashedRound(const Rect& r, int radius, Color c, int width,
+                           int dash) override
+    {
+        (void)width;
+        (void)dash;
+        m_canvas.StrokeDashed(r, c, radius);
+    }
+
     // ---- text ----
     void Text(const Rect& r, const wchar_t* s, size_t len,
               FontRole role, Color c, TextFormat fmt) override

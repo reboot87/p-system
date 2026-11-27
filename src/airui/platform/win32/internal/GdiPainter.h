@@ -132,6 +132,28 @@ public:
         DeleteObject(pen);
     }
 
+    // Rounded dashed border. Same user-style pen as StrokeDashed, but the
+    // outline is a RoundRect; the +1 on right/bottom matches the native
+    // convention that a rounded GDI outline covers its outer edge, which
+    // is what the whole-window fallback path has always drawn.
+    void StrokeDashedRound(const Rect& r, int radius, Color c, int width,
+                           int dash) override {
+        if (!m_dc) return;
+        if (radius <= 0) { StrokeDashed(r, c, width, dash); return; }
+        RECT rc = ToRect(r);
+        int dp[2] = { dash > 0 ? dash : 6, dash > 0 ? dash : 4 };
+        LOGBRUSH lb{}; lb.lbStyle = BS_SOLID; lb.lbColor = c;
+        HPEN pen = ExtCreatePen(PS_COSMETIC | PS_USERSTYLE, width, &lb, 2,
+                                (DWORD*)dp);
+        if (!pen) pen = CreatePen(PS_DASH, width, c);
+        HGDIOBJ oldPen = SelectObject(m_dc, pen);
+        HGDIOBJ oldBrush = SelectObject(m_dc, GetStockObject(NULL_BRUSH));
+        RoundRect(m_dc, rc.left, rc.top, rc.right + 1, rc.bottom + 1,
+                  radius * 2, radius * 2);
+        SelectObject(m_dc, oldPen); SelectObject(m_dc, oldBrush);
+        DeleteObject(pen);
+    }
+
     // Native 1px dashed rule. The dashed stroke above exists for widget
     // borders; this one matches the legacy PS_DASH line exactly.
     void HLineDashed(int x1, int x2, int y, Color c) override {

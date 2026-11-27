@@ -304,6 +304,48 @@ int main()
     frame.ReplayText();
     frame.Clear();
 
+    // ---------- 6b. The dashed radius survives the frame router ----------
+    // Canvas::StrokeDashed has a corner radius; the square IPainter call
+    // cannot carry it. A backend that implements the rounded variant must
+    // receive the radius (and not the square fallback), both when the
+    // caller is gfx::StrokeDashed and when it is Canvas::StrokeDashed.
+    {
+        struct RadiusProbe : RecordingPainter
+        {
+            int radius  = -1;
+            int squared = 0;
+            void StrokeDashedRound(const Rect&, int r, Color, int, int) override
+            { radius = r; }
+            void StrokeDashed(const Rect&, Color, int, int) override
+            { ++squared; }
+        };
+        RadiusProbe probe;
+        frame.Begin(&probe, s.dc, nullptr, false);
+
+        gfx::StrokeDashed(s.dc, RECT{ 8, 6, 56, 26 }, RGB(0, 0, 255), 6);
+        Check(probe.radius == 6 && probe.squared == 0,
+              "frame path: gfx::StrokeDashed forwards the corner radius");
+
+        probe.radius = -1;
+        {
+            Canvas canvas(s.dc, Fonts::Default());
+            canvas.StrokeDashed(Rect{ 8, 6, 56, 26 }, RGB(0, 0, 255), 6);
+        }
+        Check(probe.radius == 6 && probe.squared == 0,
+              "frame path: Canvas::StrokeDashed forwards the corner radius");
+
+        probe.radius = -1;
+        {
+            Canvas canvas(s.dc, Fonts::Default());
+            canvas.StrokeDashed(Rect{ 8, 6, 56, 26 }, RGB(0, 0, 255), 0);
+        }
+        Check(probe.squared == 1 && probe.radius == -1,
+              "frame path: a zero-radius dashed border stays square");
+
+        frame.End();
+        frame.Clear();
+    }
+
     s.ClearWhite();
     {
         Canvas canvas(s.dc, Fonts::Default());

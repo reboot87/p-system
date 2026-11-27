@@ -47,7 +47,9 @@ enum
 // Rev 3 appended HLine / HLineDashed / VLine / Dot / ProgressBar /
 // LineHeight to IPainter (the page-facing Canvas no longer goes through
 // the native gfx helpers).
-#define AIRUI_PAINTER_IFACE_REV 3
+// Rev 4 appended StrokeDashedRound, so a dashed border can keep its
+// corner radius on every backend instead of only on the native fallback.
+#define AIRUI_PAINTER_IFACE_REV 4
 
 #ifdef __cplusplus
 extern "C" {

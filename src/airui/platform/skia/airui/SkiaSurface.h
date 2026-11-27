@@ -58,6 +58,8 @@ public:
     void StrokeRect(const Rect& r, Color c, int width) override;
     void StrokeRound(const Rect& r, int radius, Color c, int width) override;
     void StrokeDashed(const Rect& r, Color c, int width, int dash) override;
+    void StrokeDashedRound(const Rect& r, int radius, Color c, int width,
+                           int dash) override;
     void Text(const Rect& r, const wchar_t* s, size_t len,
               FontRole role, Color c, TextFormat fmt) override;
     void TextBlock(const Rect& r, const wchar_t* s, size_t len,

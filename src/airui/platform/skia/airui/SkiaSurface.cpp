@@ -427,6 +427,9 @@ public:
     { m_frame->StrokeRound(r, radius, c, width); }
     void StrokeDashed(const Rect& r, Color c, int width, int dash) override
     { m_frame->StrokeDashed(r, c, width, dash); }
+    void StrokeDashedRound(const Rect& r, int radius, Color c, int width,
+                           int dash) override
+    { m_frame->StrokeDashedRound(r, radius, c, width, dash); }
     void Text(const Rect& r, const wchar_t* s, size_t len,
               FontRole role, Color c, TextFormat fmt) override
     { m_frame->Text(r, s, len, role, c, fmt); }
@@ -496,6 +499,10 @@ void SkiaFrame::StrokeRound(const Rect& r, int radius, Color c, int width)
 
 void SkiaFrame::StrokeDashed(const Rect& r, Color c, int width, int dash)
 { AIRUI_SKIA_FORWARD(StrokeDashed(r, c, width, dash)); }
+
+void SkiaFrame::StrokeDashedRound(const Rect& r, int radius, Color c,
+                                  int width, int dash)
+{ AIRUI_SKIA_FORWARD(StrokeDashedRound(r, radius, c, width, dash)); }
 
 void SkiaFrame::Text(const Rect& r, const wchar_t* s, size_t len,
                      FontRole role, Color c, TextFormat fmt)

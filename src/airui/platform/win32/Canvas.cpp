@@ -108,16 +108,11 @@ void Canvas::StrokeDashed(const Rect& rc, Color color, int radius)
         DrawCall dc; dc.type = DrawCall::StrokeDashed; dc.rect = rc; dc.color = color; dc.radius = radius;
         s_recorder->push_back(dc);
     }
-    // dash=4 is the legacy rhythm the frame router used to send. The
-    // 4-argument IPainter call has no corner radius, so the native path
-    // goes through GfxPainter's legacy-shaped helper instead: callers do
-    // pass a radius (6 / metrics radiusMd) and the old GDI border was a
-    // RoundRect, not a square one.
-    if (!CurrentPaintFrame()) {
-        static_cast<GfxPainter&>(Gdi()).StrokeDashedRounded(rc, color, radius);
-        return;
-    }
-    Painter().StrokeDashed(rc, color, 1, 4);
+    // dash=4 is the legacy rhythm the frame router sends. The HAL call
+    // carries the corner radius so the backend draws the rounded border
+    // the native path always drew; radius 0 still degrades to the square
+    // dashed stroke, which is the pre-HAL behaviour.
+    Painter().StrokeDashedRound(rc, radius, color, 1, 4);
 }
 
 void Canvas::HLine(int x1, int x2, int y, Color color)
