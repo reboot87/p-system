@@ -52,7 +52,7 @@
   从 `AirUi.h` 或任何公开头被 include。
 - Win32 类型仅允许以**不透明 `void*`** 穿过公开边界
   （`airui/types.h` 的 `WindowHandle` / `DeviceContextHandle` / `FontHandle`
-  / `BitmapHandle` / `GdiObjectHandle` / `InstanceHandle` / `IconHandle` /
+  / `BitmapHandle` / `DrawObjectHandle` / `InstanceHandle` / `IconHandle` /
   `MenuHandle` / `CursorHandle` 等都是 `void*` 别名）。
 
 ### 1.3 公开 API 不得为平台特例开后门
@@ -90,6 +90,8 @@
 | 门禁 | 命令 | 通过判据 |
 |---|---|---|
 | core 零平台引用 | `powershell -File scripts/check-core-clean.ps1` | `PASSED (<n> core files, 0 platform references)` |
+| 公共头零平台引用 | `powershell -File scripts/check-public-headers-clean.ps1`（或 `bash scripts/check-public-headers-clean.sh`） | `PASSED (44 public headers checked, 0 exempt, ... 0 platform references)` |
+| Skia Windows 分支语法 | `cmake --build build --config Release --target airui_skia_mock_syntax` | 退出 0（MSVC + `AIRUI_SKIA_MOCK` 编译 3 个后端源文件） |
 | 公共头自包含 | `cmake --build build --target check-public-headers` | 无 `Self-containment check FAILED` |
 | 全量构建 | `cmake --build build --config Release` | 退出 0，无 `error`/`LNK` |
 | 全部测试 | `ctest --test-dir build -C Release` | `100% tests passed`（当前 28/28） |
@@ -203,7 +205,7 @@ core 26 + `win32/airui` 13 + `skia/airui` 5）。`scripts/public-headers-exempt.
 **批次 6 引入的公开词汇（`core/include/airui/types.h`）**：
 - 句柄别名（全是 `void*`）：`WindowHandle` / `DeviceContextHandle` /
   `FontHandle` / `BrushHandle` / `PenHandle` / `BitmapHandle` /
-  `GdiObjectHandle` / `InstanceHandle` / `IconHandle` / `CursorHandle` /
+  `DrawObjectHandle` / `InstanceHandle` / `IconHandle` / `CursorHandle` /
   `MenuHandle`。
 - 消息字别名：`MessageWParam` / `MessageLParam` / `MessageResult` /
   `SubclassId` / `SubclassRef` / `MessageId` / `VirtualKey` /
@@ -289,10 +291,30 @@ core 26 + `win32/airui` 13 + `skia/airui` 5）。`scripts/public-headers-exempt.
   消息/绘制结构（`MSG`/`WNDPROC`/`PAINTSTRUCT`/`DRAWITEMSTRUCT`/
   `MEASUREITEMSTRUCT`/`CREATESTRUCT`/`MINMAXINFO`/`LOGFONT`/…）、
   宏命名空间（`WM_`/`DT_`/`LB_`/`EN_`/`BN_`/`CB_`/`EM_`/`MK_`/`SWP_`/`WS_`/
-  `ES_`/`BS_`/`SS_`/`VK_`/`FW_`/`ROLE_SYSTEM_`/`HT*`）以及 Win32 函数名
+  `ES_`/`BS_`/`SS_`/`VK_`/`FW_`/`ROLE_SYSTEM_`/`HT*`）、平台技术名
+  （`Win32`/`GDI`/`Gdi*`/`DWM`/`IAccessible`/`UIA`/`MSAA`/`Direct2D`/
+  `DirectWrite`/`X11`/`Cocoa`）、COM 类型与加载器入口（`IUnknown`/
+  `IDispatch`/`VARIANT`/`BSTR`/`GUID`/`CLSID`/`IID`/`GetProcAddress`/
+  `dlsym`/`LoadLibrary`/…）、无障碍结构（`STATE_SYSTEM_*`/`OBJID_*`/
+  `CHILDID_*`）以及 `POINTL`/`SIZEL`/`FILETIME`/`SYSTEMTIME`/
+  `LARGE_INTEGER`/`TCHAR`/`LOGFONTA`/`*_PTR` 等，另有 Win32 函数名
   （`GetDC`/`SaveDC`/`PtInRect`/`TranslateMessage`/…）。**不收录**与本仓库
   自有无障碍 API 同名的项（`SetCapture` / `KillTimer` / `SetTimer` /
   `FillRect`），否则会把合法接口名判成平台泄漏。
+- **换行符防护（2026-11-27）**：仓库 `core.autocrlf=true` 且原先没有
+  `.gitattributes`，Windows 检出会把 `*.sh` 变成 CRLF（`bash` 直接报
+  `set: -: invalid option`），也会让 `.sh` 门禁从正则里读到行尾 `\r`，
+  导致模式几乎匹配不到任何东西而**假绿**。现已新增 `.gitattributes`
+  （`*.sh` / `*.regex` 强制 `eol=lf`），两个 `.sh` 门禁用
+  `tr -d '\r'` 读 `core-forbidden.regex`。自检方法：把正则转成 CRLF
+  并往 core 头注入 `// probe: HWND`，`.sh` 门禁仍必须 FAILED。
+- **Windows 分支语法门禁（2026-11-27）**：新增 CMake 对象库
+  `airui_skia_mock_syntax`（仅 `WIN32 AND NOT AIRUI_WITH_SKIA`），用 MSVC
+  把 `SkiaTypes.cpp` / `SkiaPainter.cpp` / `SkiaSurface.cpp` 按
+  `AIRUI_SKIA_MOCK` 编译一遍，不链接、不发布。原因是 POSIX mock 门禁
+  不进入 `_WIN32` 分支、真实 Skia job 又是可选且非阻塞，Windows 专有
+  类型错误会两边都漏（本批次实际漏过一次 `HDC` 未定义）。该对象库属于
+  默认 ALL，两个 Windows CI job 的 `cmake --build` 都会编译它。
 - **豁免表** `scripts/public-headers-exempt.txt` **已清零**（只剩注释行）；
   当前 44 个公开头全部受检、0 违规、0 豁免。豁免语义：入口整条闭包跳过
   检查——只加一行 basename 就等于放行一整条链，所以豁免是欠账不是常态，
@@ -349,8 +371,8 @@ core 26 + `win32/airui` 13 + `skia/airui` 5）。`scripts/public-headers-exempt.
 
 ## 8. 当前基线（2026-11-27 复核；HEAD 会前移，引用前先 `git log -1` 确认）
 
-- 本次修复前的 `HEAD` = `dccb14a`（`docs: record the platform-neutral
-  public header baseline in AGENTS.md`）。
+- 本批改动前的 `HEAD` = `7bf898b`（`fix: include the native device-context
+  header in SkiaSurface.cpp`）。
 - 标签（commit 指向，用 `git rev-parse <tag>^{commit}` 解析，annotated tag
   的 `show-ref` 对象号与 commit 号不同）：`pre-layered-api` = `d50e2c9`
   （平台层剥离前的基线）、`v0.9.0`、`v0.8`、`phase0-baseline`。
@@ -358,7 +380,8 @@ core 26 + `win32/airui` 13 + `skia/airui` 5）。`scripts/public-headers-exempt.
   高 DPI 动态适配 + 列表多选 + 分页（详见 `docs/ROADMAP.md` 跟进六~九）。
 - 门禁状态：core-clean PASSED（55 文件 / 0 引用）、公共头纯净门禁 PASSED
   （**44 受检 / 0 豁免 / 闭包 225 文件 / 0 平台引用**，`.sh` 与 `.ps1` 两版
-  一致）、公共头自包含 PASSED、全量构建 0 错误、ctest **28/28**。
+  一致）、公共头自包含 PASSED、Windows Skia mock 语法目标 PASSED（x64 与
+  x86 都编过）、全量构建 0 错误、ctest **28/28**。
 - 批次 7（2026-11-27）：禁词表补齐 Windows 标量类型 / 结构 / 宏命名空间；
   门禁入口加入 `platform/skia/airui`（5 个头），并加“0 入口即失败”保护；
   `SkiaSurface.h` 的原生 surface 参数由具体句柄类型改为 `void*`；
@@ -366,6 +389,14 @@ core 26 + `win32/airui` 13 + `skia/airui` 5）。`scripts/public-headers-exempt.
   `Interaction.h` / `ControlsCoreClasses.h` / `Accessibility.h` / skia 头里的
   平台措辞与 `VK_*` / `ROLE_SYSTEM_*` 注释；`Rect::Contains` 统一为闭区间、
   新增 `ContainsOpen`，并由 `test_core_layout` 断言锁定。
+- 批次 8（2026-11-27，跟进十一）：禁词表再加入技术名 / COM 类型 /
+  加载器入口 / 无障碍结构 / `TCHAR` / `*_PTR` 等；清掉 core 与 win32/skia
+  公开头里残留的 `Win32` / `GDI` / `IAccessible` / `UIA` / `GetProcAddress`
+  / `dlsym` / `Gdi*` 注释，公开句柄别名 `GdiObjectHandle` 改名
+  `DrawObjectHandle`；新增 `.gitattributes`（`*.sh` / `*.regex` 强制 LF）
+  与 `.sh` 门禁的 `tr -d '\r'`，避免 CRLF 造成假绿；新增
+  `airui_skia_mock_syntax` 对象库，让 Windows 构建用 MSVC 语法检查 Skia
+  后端的 `_WIN32` 分支。
 - 平台层剥离（§ 5）**公开头阶段已全部完成**：批次 1~6 落地——`types.h` 的
   static_assert + 平台中立别名（含 `vkey::*` / `mb::*` / `dt::*`）、4 个头
   清零签名（Responsive/ThemeJson/DrawCall/Accessibility/Fonts）、15 个 Win32
