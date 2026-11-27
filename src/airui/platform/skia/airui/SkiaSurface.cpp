@@ -3,6 +3,18 @@
 // Raster Skia frame + optional Win32 HDC presentation.
 // ============================================================
 #include "airui/SkiaSurface.h"
+
+#if defined(_WIN32)
+// SkiaSurface.h is platform-free on purpose, so the native device-context
+// types used by this translation unit must be included here. Keep this
+// before SkiaApi.h: the syntax-gate mock checks _INC_WINDOWS to decide
+// whether it has to provide stand-ins.
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 #include "airui/SkiaApi.h"
 #include "airui/SkiaPainter.h"
 
