@@ -91,7 +91,8 @@
 |---|---|---|
 | core 零平台引用 | `powershell -File scripts/check-core-clean.ps1` | `PASSED (<n> core files, 0 platform references)` |
 | 公共头零平台引用 | `powershell -File scripts/check-public-headers-clean.ps1`（或 `bash scripts/check-public-headers-clean.sh`） | `PASSED (44 public headers checked, 0 exempt, ... 0 platform references)` |
-| Skia Windows 分支语法 | `cmake --build build --config Release --target airui_skia_mock_syntax` | 退出 0（MSVC + `AIRUI_SKIA_MOCK` 编译 3 个后端源文件） |
+| Skia Windows 分支语法（mock） | `cmake --build build --config Release --target airui_skia_mock_syntax` | 退出 0（MSVC + `AIRUI_SKIA_MOCK` 编译 3 个后端源文件） |
+| Skia Windows 分支语法（真 Win32 路径） | `cmake --build build --config Release --target airui_skia_winport_syntax` | 退出 0（MSVC + `AIRUI_SKIA_MOCK` + `AIRUI_SKIA_MOCK_WINPORT`，只 mock Skia API） |
 | 公共头自包含 | `cmake --build build --target check-public-headers` | 无 `Self-containment check FAILED` |
 | 全量构建 | `cmake --build build --config Release` | 退出 0，无 `error`/`LNK` |
 | 全部测试 | `ctest --test-dir build -C Release` | `100% tests passed`（当前 28/28） |
@@ -315,6 +316,16 @@ core 26 + `win32/airui` 13 + `skia/airui` 5）。`scripts/public-headers-exempt.
   不进入 `_WIN32` 分支、真实 Skia job 又是可选且非阻塞，Windows 专有
   类型错误会两边都漏（本批次实际漏过一次 `HDC` 未定义）。该对象库属于
   默认 ALL，两个 Windows CI job 的 `cmake --build` 都会编译它。
+- **真 Win32 路径语法门禁（2026-11-27，批次 9）**：上述 mock 门禁仍会
+  **跳过**所有 `_WIN32 && !AIRUI_SKIA_MOCK` 块（GDI 字体校准、注册表
+  ClearType、`HDC` 呈现）。新增 `airui_skia_winport_syntax` 对象库，用
+  `AIRUI_SKIA_MOCK` + `AIRUI_SKIA_MOCK_WINPORT` 只 mock Skia API、保留真
+  `<windows.h>`，重编 `SkiaPainter.cpp` / `SkiaSurface.cpp`。它是模块级
+  （`AIRUI_SKIA_MOCK_WINPORT` 隐含 `AIRUI_SKIA_MOCK`），且 `<windows.h>`
+  必须早于 `SkiaApi.h`（mock 用 `_INC_WINDOWS` 判断是否提供 `LOGFONT`
+  等替身）。自检：删掉 `SkiaSurface.cpp` 的 `<windows.h>` → 该目标报
+  `C2065 DWORD/HKEY_CURRENT_USER`；删掉 `SkiaPainter.cpp` 的 → 报
+  `C2065 HDC`；恢复后 x64/x86 都通过。同为默认 ALL。
 - **豁免表** `scripts/public-headers-exempt.txt` **已清零**（只剩注释行）；
   当前 44 个公开头全部受检、0 违规、0 豁免。豁免语义：入口整条闭包跳过
   检查——只加一行 basename 就等于放行一整条链，所以豁免是欠账不是常态，
@@ -397,6 +408,14 @@ core 26 + `win32/airui` 13 + `skia/airui` 5）。`scripts/public-headers-exempt.
   与 `.sh` 门禁的 `tr -d '\r'`，避免 CRLF 造成假绿；新增
   `airui_skia_mock_syntax` 对象库，让 Windows 构建用 MSVC 语法检查 Skia
   后端的 `_WIN32` 分支。
+- 批次 9（2026-11-27，跟进十二）：修掉 `CMakeLists.txt` 行 632 / 787 /
+  801 的 3 处 U+FFFD 乱码（全仓受跟踪文件已无 U+FFFD）；新增
+  `airui_skia_winport_syntax` 对象库补上「真 Win32 路径」语法门禁
+  （原 mock 门禁跳过 `_WIN32 && !AIRUI_SKIA_MOCK` 的 5 个块，只有可选
+  非阻塞的 Skia job 覆盖）；`SkiaPainter.cpp` 的 `<windows.h>` 提到
+  `SkiaApi.h` 之前（mock 依赖 `_INC_WINDOWS`）；`build-conventions.md`
+  与 `remediation-plan.md` 的门禁清单同步（补公共头门禁与两个对象库，
+  ctest 数字改 28/28）。
 - 平台层剥离（§ 5）**公开头阶段已全部完成**：批次 1~6 落地——`types.h` 的
   static_assert + 平台中立别名（含 `vkey::*` / `mb::*` / `dt::*`）、4 个头
   清零签名（Responsive/ThemeJson/DrawCall/Accessibility/Fonts）、15 个 Win32

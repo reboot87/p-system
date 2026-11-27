@@ -439,12 +439,15 @@ git status --short
 # 门禁（P0-1 起，全部批次必跑）
 bash scripts/check-core-clean.sh
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-core-clean.ps1
+bash scripts/check-public-headers-clean.sh
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-public-headers-clean.ps1
 bash scripts/check-core-linux-smoke.sh
 bash scripts/check-skia-syntax.sh
 
-# Windows 全量
+# Windows 全量（ALL 里含 airui_skia_mock_syntax：
+# MSVC + AIRUI_SKIA_MOCK 语法检查 Skia 后端的 _WIN32 分支）
 cmake --build build-cmake --config Release
-ctest --test-dir build-cmake -C Release --output-on-failure      # 默认 22/22
+ctest --test-dir build-cmake -C Release --output-on-failure      # 默认 28/28
 
 # Linux / macOS（P2-2 后应能全量构建）
 cmake -S . -B build-linux -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release

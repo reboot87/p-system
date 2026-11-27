@@ -714,3 +714,11 @@
   - **换行符**：新增 `.gitattributes`（`*.sh` / `*.regex` 强制 `eol=lf`），两个 `.sh` 门禁改用 `tr -d '\r'` 读正则，即使 Windows 检出出 CRLF 也不会漏检。
   - **实测**：`check-core-clean` PASSED（55 文件 / 0 引用）；`check-public-headers-clean` `.ps1` 与 `.sh` 均 PASSED（44 受检 / 0 豁免 / 闭包 225 文件 / 0 平台引用）；往 `Canvas.h` 注入 `// probe: GDI` 后两版都从多个入口报 `-> Canvas.h:138` 并 FAILED，还原后 PASSED；把正则转成 CRLF 再往 `types.h` 注入 `// probe: HWND`，`.sh` 门禁仍 FAILED（证明 `tr -d '\r'` 生效）；`airui_skia_mock_syntax` 在 x64 与 x86 都用 MSVC 编过；去掉 `windows.h` include 复测，该目标报 `C3646` / `C2059`，恢复后通过；全量 Release `BUILD=0`；`ctest -C Release` **28/28**。
   - **边界**：闭包遍历仍只跟随 `#include "..."`，`#include <airui/...>` 形式的项目头不会被跟进（当前无此用法）；消费层 `src/gallery` / `src/pages` / `src/core` 等仍有 13 个文件直接 include `<windows.h>`，属下一批。
+
+- **2026-11-27（跟进十二）：真 Win32 路径语法门禁 + 乱码与门禁文档收尾**
+  - **起因**：复核跟进十一时确认三件事：(a) `airui_skia_mock_syntax` 的 `AIRUI_SKIA_MOCK` 会把 `SkiaPainter.cpp` / `SkiaSurface.cpp` 里 8 处 `_WIN32 && !AIRUI_SKIA_MOCK` 块整体跳过（5 + 3），真正覆盖它们的只有 `continue-on-error` 的 Skia job，等于「已知盲区仍靠自觉」；(b) `CMakeLists.txt` 行 632 / 787 / 801 有历史 U+FFFD 乱码（三处各吞掉一个字符，已修正）；(c) `docs/build-conventions.md` 与 `docs/remediation-plan.md` 的「必跑门禁」清单还停在只有 core-clean 的版本，ctest 数字也仍是 22/22。
+  - **新门禁**：新增对象库 `airui_skia_winport_syntax`（同样仅 `WIN32 AND NOT AIRUI_WITH_SKIA`），以 `AIRUI_SKIA_MOCK` + `AIRUI_SKIA_MOCK_WINPORT` 只 mock Skia API、保留真 `<windows.h>`，重编 `SkiaPainter.cpp` / `SkiaSurface.cpp`。为此把 `SkiaPainter.cpp` 的 `<windows.h>` 移到 `SkiaApi.h` 之前（mock 用 `_INC_WINDOWS` 决定是否提供 `LOGFONT` / `TCHAR` 替身），并把 8 处条件改为 `(!defined(AIRUI_SKIA_MOCK) || defined(AIRUI_SKIA_MOCK_WINPORT))`；`SkiaApi.h` 的 `NOMINMAX` / `min`/`max` 预处理块同步覆盖新宏。
+  - **自检**：删掉 `SkiaSurface.cpp` 的 `<windows.h>` → 新目标报 `C2065 DWORD` / `HKEY_CURRENT_USER` / `RRF_RT_REG_SZ`；删掉 `SkiaPainter.cpp` 的 → 报 `C2065 HDC`；两处都恢复后 x64 与 x86 均编译通过，原 `airui_skia_mock_syntax` 不受影响。
+  - **乱码**：修掉 3 行 U+FFFD（三处各吞掉一个字符，已修正），全仓受跟踪文件字节扫描已无 U+FFFD。
+  - **文档**：`build-conventions.md` 的必跑门禁补 `check-public-headers-clean.{sh,ps1}` 与两个 Skia mock 对象库；`remediation-plan.md` §6 同样补齐并把 ctest 数字改为 28/28。
+  - **实测**：`check-core-clean` PASSED（55 文件 / 0 引用）；`check-public-headers-clean` `.ps1` 与 `.sh` 均 PASSED（44 受检 / 0 豁免 / 闭包 225 文件 / 0 平台引用）；`airui_skia_mock_syntax` 与 `airui_skia_winport_syntax` 在 x64、x86 均退出 0；全量 Release `BUILD=0`；`ctest -C Release` **28/28**。

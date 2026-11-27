@@ -51,8 +51,11 @@ Windows 安装包由 **NSIS**（Modern UI 2、管理员权限）生成。它是�
 
 - **位数必须一致**：exe 与 `airui-skia.dll` 插件位数必须一致，否则静默回退 GDI。
   `build.bat` 固定 `-A x64`；CI Skia 插件为 x64；x86 请直接用 `p-system-windows-x86-gdi` 产物。
-- **必跑门禁**：`scripts/check-core-clean.{sh,ps1}`、`scripts/check-core-linux-smoke.sh`、
-  `scripts/check-skia-syntax.sh`（详见 `docs/remediation-plan.md` §6）。
+- **必跑门禁**：`scripts/check-core-clean.{sh,ps1}`、
+  `scripts/check-public-headers-clean.{sh,ps1}`（递归检查公开头 include 闭包）、
+  `scripts/check-core-linux-smoke.sh`、`scripts/check-skia-syntax.sh`；
+  Windows 全量构建还会编 `airui_skia_mock_syntax`（MSVC + `AIRUI_SKIA_MOCK`
+  语法检查 Skia 后端的 `_WIN32` 分支）。详见 `docs/remediation-plan.md` §6。
 
 ## 环境坑
 
