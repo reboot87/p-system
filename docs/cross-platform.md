@@ -81,8 +81,8 @@ p-system 是 Windows 专属桌面应用（注册表、托盘、性能计数器�
 | `Shell.cpp` | ~861 | ~100%：CreateWindowExW、WndProc、WM_NCHITTEST、WM_NCCALCSIZE、DWM、控件色 | → `platform/win32/Win32Window.cpp` + 核心外壳逻辑 `core/Shell.cpp` |
 | `Widgets.cpp` | ~423 | ~100%：SetWindowSubclass、EDIT/LISTBOX/BUTTON 消息、EM_* | → `platform/win32/Win32Widgets.cpp`；交互语义进 `core/` |
 | `Controls.cpp` | ~580 | ~100%：DRAWITEMSTRUCT、DWM 框架、按钮 caption 绘制 | → `platform/win32/` + `core/ControlKit.{h,cpp}` |
-| `Canvas.cpp` | ~216 | ~90%：HDC、HFONT、DT_* | → `IPainter` 语义 100% 收进 `IPainter`；Win32 实现 `platform/win32/GdiPainter.cpp` |
-| `Gfx.cpp` | ~244 | ~80%：HDC、GDI 填充/描边路径 | → `IPainter` 的一部分（填充/描边/裁剪/图元） |
+| `Canvas.cpp` | ~431 | 0%：绘制已全部收口到 `IPainter` | 帧激活 → `PaintFrame`；无帧 → `internal/GfxPainter`（`IPainter` → `gfx::*` 的薄适配器，保留原 GDI 像素） |
+| `Gfx.cpp` | ~369 | ~80%：HDC、GDI 填充/描边路径 | 保留为 Win32 私有原语；调用方只剩 `Shell` / `Controls` / `Widgets` / `OverlayWindow` 与 `GfxPainter` |
 | `Fonts.cpp` | ~86 | ~90%：CreateFontW、Segoe 系列 | → `platform/win32/GdiFonts.cpp` |
 | `Layout.cpp` | 178 | 0% | 保留在 `core/` |
 | `Theme.cpp` / `ThemeJson.cpp` | 166 + 323 | 0%（COLORREF 纯值） | 保留在 `core/`；引入 `Color` 别名/包装 |

@@ -234,9 +234,16 @@ core 26 + `win32/airui` 13 + `skia/airui` 5）。`scripts/public-headers-exempt.
   `.cpp` 都会断链，必须在那些 `.cpp` 里显式 `#include <windows.h>`
   （如 `ThemeJson.cpp` / `Page.cpp` / `Gfx.cpp`）。**每清一个头都要 grep 一遍
   它的 includer 列表**。
-- `Canvas.cpp` **只部分迁移**：基础绘制（Fill / Stroke / Text 等）仍直调
-  `gfx::*`；只有 `StatusTag` / `KbdChip` / `EmptyState` / `Pagination` /
-  `Button` / `Checkbox` / `Radio` 走 core `Paint*` + `CanvasPainter`。
+- `Canvas.cpp` **已全部走 `IPainter`**（批次 11）：文件里 0 处 `gfx::` 调用
+  （只剩说明性注释）。帧激活时 `Canvas::Painter()` 返回 `PaintFrame`，无帧时
+  返回一个惰性创建的 `internal/GfxPainter`（`IPainter` → `gfx::*` 的薄适配器，
+  保留 PS_DASH / `Ellipse` / `RoundRect` 的既有 GDI 语义，所以原生像素不变）。
+  `StatusTag` / `KbdChip` / `EmptyState` / `Pagination` / `Button` / `Checkbox` /
+  `Radio` 仍走 core `Paint*` + `CanvasPainter`，而 `CanvasPainter` 反过来调
+  `Canvas::*` → `Painter()`，不会递归回 `CanvasPainter`。
+  **`GfxPainter` 与 `GdiPainter` 是两套 GDI 约定**（`RoundRect` 的 `+1`、`PS_DASH`
+  虚线、`Ellipse` 圆点），不要为了“去重”合并，否则 `test_paint_compare` /
+  `test_paint_frame` 的像素断言会变。
 - **边界转换的位置**：`internal/CanvasPainter.h` 有 `ToRect` 的双向重载；
   各 `.cpp` 自己在平台边界做 `reinterpret_cast<HDC>` / `<HWND>` /
   `<HBITMAP>` / `<HFONT>`。**平台类型只允许出现在 `.cpp` 与 internal 头**。
@@ -276,6 +283,11 @@ core 26 + `win32/airui` 13 + `skia/airui` 5）。`scripts/public-headers-exempt.
 gallery 能编译它们；一条只带两个 PUBLIC 目录的探针里
 `#include "internal/..."` 已经是 `C1083`。新增页面作者 API 头时必须保持
 零平台 token，**且必须让 `AirUi.h` 的闭包仍然零平台 token**。
+
+批次 11 之后，页面绘制入口 `Canvas` 只依赖 `IPainter`（core 的 `hal.h`），
+不再直接调用 `gfx::*`；`gfx` 只剩平台实现侧（`Shell` / `Controls` /
+`Widgets` / `OverlayWindow` 与 `GfxPainter` 适配器）使用，后续批次可继续
+收缩而不影响页面 API。
 
 ### 5.5 门禁升级（已实现，2026-11-27，批次 7 扩词表 + 三个入口）
 - `scripts/check-public-headers-clean.sh` / `.ps1` **已存在并接入 CI**，
@@ -437,6 +449,16 @@ gallery 能编译它们；一条只带两个 PUBLIC 目录的探针里
   x86 下不同型；`Shell::HandleMessage` 的两个 `LRESULT` 局部改
   `MessageResult`，`OverlayWindow::EventFn` 的 `LRESULT&` 改
   `MessageResult&`。
+- 批次 11（2026-11-27，跟进十四）：`Canvas.cpp` 收口到 `IPainter`——
+  `hal.h` 在 `Translate` 之后**追加** 6 个带默认实现的虚函数
+  （`HLine` / `HLineDashed` / `VLine` / `Dot` / `ProgressBar` / `LineHeight`），
+  默认实现分解成 `FillRect` / `FillRound`，与旧 `PaintFrame::Gfx*` 的语义一致；
+  `AIRUI_PAINTER_IFACE_REV` 2→3，旧 DLL 会被宿主拒绝。新增
+  `internal/GfxPainter.h` 作为无帧时的 GDI 适配器（内部仍调 `gfx::*`）；
+  `PaintFrame` 只覆盖 `LineHeight`，`GdiPainter` 补 `HLineDashed` / `Dot` /
+  `LineHeight`。`Canvas` 的 `Tag` / `PillRight` / `IconTile` / `KbdChipWidth`
+  用 `MeasureText + FillRound + Text` 复刻原几何，`TextRow*` / `TextBlock` 显式
+  传与原 `gfx` 相同的 `dt::*` 组合。`test_paint_frame.cpp` 新增第 6 节断言。
 - 平台层剥离（§ 5）**公开头阶段已全部完成**：批次 1~6 落地——`types.h` 的
   static_assert + 平台中立别名（含 `vkey::*` / `mb::*` / `dt::*`）、4 个头
   清零签名（Responsive/ThemeJson/DrawCall/Accessibility/Fonts）、15 个 Win32
@@ -444,6 +466,8 @@ gallery 能编译它们；一条只带两个 PUBLIC 目录的探针里
   `Canvas` / `Controls` / `Page` / `Shell` / `Widgets` 重写为平台无关公开版
   并提升回 `win32/airui`**，门禁升级为 include 闭包检查，消费层全部改中立类型。
   `AirUi.h` 现在的 include 闭包**零平台 token**，不再传递引入 internal 头。
-  `Geometry.h` 从未创建；`Canvas.cpp` 仍只部分函数迁移。
+  `Geometry.h` 从未创建；`Canvas.cpp` 已在批次 11 收口到 `IPainter`（帧 →
+  `PaintFrame`，无帧 → `GfxPainter`），文件内零 `gfx::` 调用，`Gfx.cpp` 的
+  调用方只剩 `Shell` / `Controls` / `Widgets` / `OverlayWindow` 一侧。
   本轮平台无关化改动**已提交**（`git log --oneline -3` 查最近提交）；
   工作区当前只剩未跟踪的 `query`（按 § 4.2 不得提交）。
