@@ -128,6 +128,19 @@ int main()
         Check(Same(wide.rect, 20, 0, 60, 30), "col: Center centers preferred width");
     }
 
+    // ---- hit testing: one boundary rule, shared with the native backend ----
+    {
+        const Rect r(0, 0, 10, 10);
+        Check(r.Contains(Point{ 10, 10 }),      "contains: right/bottom edge is inside (closed)");
+        Check(r.Contains(Point{ 0, 0 }),        "contains: left/top edge is inside");
+        Check(!r.Contains(Point{ -1, 0 }),      "contains: left of the rect is outside");
+        Check(!r.Contains(Point{ 11, 0 }),      "contains: right of the rect is outside");
+        Check(!r.ContainsOpen(Point{ 10, 10 }), "containsOpen: right/bottom edge is outside");
+        Check(r.ContainsOpen(Point{ 9, 9 }),    "containsOpen: interior is inside");
+        Check(r.Contains(Rect(2, 2, 10, 10)),   "contains: inner rect touching the edge");
+        Check(!r.Contains(Rect(2, 2, 11, 10)),  "contains: rect past the edge is outside");
+    }
+
     if (g_failures == 0) {
         std::printf("PASS\n");
         return 0;

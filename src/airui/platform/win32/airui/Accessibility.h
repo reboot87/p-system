@@ -25,28 +25,29 @@ namespace ui {
 // ============================================================
 namespace a11y {
 
-// 角色映射：Widget 类型 -> UIA/IA2 角色
+// 角色映射：Widget 类型 -> 无障碍角色 id。
+// 数值与原生无障碍桥的编号保持一致（跨后端稳定），因此不要随意重排。
 enum Role {
     ROLE_UNKNOWN      = 0,
-    ROLE_BUTTON       = 0x2C,   // ROLE_SYSTEM_PUSHBUTTON
-    ROLE_TEXTBOX      = 0x2E,   // ROLE_SYSTEM_TEXT
-    ROLE_LISTBOX      = 0x21,   // ROLE_SYSTEM_LIST
-    ROLE_LISTITEM     = 0x22,   // ROLE_SYSTEM_LISTITEM
-    ROLE_COMBOBOX     = 0x2F,   // ROLE_SYSTEM_COMBOBOX
-    ROLE_SLIDER       = 0x30,   // ROLE_SYSTEM_SLIDER
-    ROLE_PROGRESSBAR  = 0x32,   // ROLE_SYSTEM_PROGRESSBAR
-    ROLE_STATUSBAR    = 0x33,   // ROLE_SYSTEM_STATUSBAR
-    ROLE_MENU         = 0x0C,   // ROLE_SYSTEM_MENUPOPUP
-    ROLE_MENUITEM     = 0x0D,   // ROLE_SYSTEM_MENUITEM
-    ROLE_TOOLBAR      = 0x10,   // ROLE_SYSTEM_TOOLBAR
-    ROLE_TAB          = 0x26,   // ROLE_SYSTEM_PAGETAB
-    ROLE_TABPANEL     = 0x27,   // ROLE_SYSTEM_PAGETABLIST
-    ROLE_DIALOG       = 0x12,   // ROLE_SYSTEM_DIALOG
-    ROLE_ALERT        = 0x08,   // ROLE_SYSTEM_ALERT
-    ROLE_TOOLTIP      = 0x0E,   // ROLE_SYSTEM_TOOLTIP
-    ROLE_GROUP        = 0x15,   // ROLE_SYSTEM_GROUPING
-    ROLE_PANE         = 0x16,   // ROLE_SYSTEM_PANE
-    ROLE_WINDOW       = 0x09,   // ROLE_SYSTEM_WINDOW
+    ROLE_BUTTON       = 0x2C,
+    ROLE_TEXTBOX      = 0x2E,
+    ROLE_LISTBOX      = 0x21,
+    ROLE_LISTITEM     = 0x22,
+    ROLE_COMBOBOX     = 0x2F,
+    ROLE_SLIDER       = 0x30,
+    ROLE_PROGRESSBAR  = 0x32,
+    ROLE_STATUSBAR    = 0x33,
+    ROLE_MENU         = 0x0C,
+    ROLE_MENUITEM     = 0x0D,
+    ROLE_TOOLBAR      = 0x10,
+    ROLE_TAB          = 0x26,
+    ROLE_TABPANEL     = 0x27,
+    ROLE_DIALOG       = 0x12,
+    ROLE_ALERT        = 0x08,
+    ROLE_TOOLTIP      = 0x0E,
+    ROLE_GROUP        = 0x15,
+    ROLE_PANE         = 0x16,
+    ROLE_WINDOW       = 0x09,
 };
 
 // 状态标志

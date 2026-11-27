@@ -3,9 +3,10 @@
 # AirUI - public header platform-purity gate (POSIX host)
 #
 # Mirrors check-public-headers-clean.ps1. Fails if any PUBLIC
-# header (core/include/airui/*.h or platform/win32/airui/*.h)
-# OR ANY HEADER REACHED THROUGH ITS #include "..." CLOSURE
-# references a platform API/type, including in comments.
+# header (core/include/airui/*.h, platform/win32/airui/*.h and
+# platform/skia/airui/*.h) OR ANY HEADER REACHED THROUGH ITS
+# #include "..." CLOSURE references a platform API/type/macro,
+# including in comments.
 #
 # This is the transitive guard: a public header that stays clean
 # itself but #includes a private header full of Win32 types still
@@ -24,8 +25,10 @@ set -eu
 root="$(cd "$(dirname "$0")/.." && pwd)"
 core_parent="$root/src/airui/core/include"
 win_parent="$root/src/airui/platform/win32"
+skia_parent="$root/src/airui/platform/skia"
 core_dir="$core_parent/airui"
 win_dir="$win_parent/airui"
+skia_dir="$skia_parent/airui"
 pattern="$(cat "$root/scripts/core-forbidden.regex")"
 exempt_file="$root/scripts/public-headers-exempt.txt"
 
@@ -51,32 +54,33 @@ check_closure() {
         [ -f "$f" ] || continue
         local key
         key="$(canonical "$f")"
-        [ -n "${seen[$key]:-}" ] && continue
+        if [ -n "${seen[$key]:-}" ]; then continue; fi
         seen[$key]=1
         closure_files=$((closure_files + 1))
 
         local rel="${f#$root/}"
         local hit
         while IFS= read -r hit; do
-            [ -z "$hit" ] && continue
+            if [ -z "$hit" ]; then continue; fi
             printf 'FAIL %s -> %s: %s\n' "$(basename "$entry")" "$rel" "$hit"
             failures=$((failures + 1))
         done < <(grep -nE "$pattern" "$f" || true)
 
         local inc resolved
         while IFS= read -r inc; do
-            [ -z "$inc" ] && continue
+            if [ -z "$inc" ]; then continue; fi
             resolved=""
             local c
-            for c in "$(dirname "$f")/$inc" "$core_parent/$inc" "$win_parent/$inc"; do
+            for c in "$(dirname "$f")/$inc" "$core_parent/$inc" "$win_parent/$inc" "$skia_parent/$inc"; do
                 if [ -f "$c" ]; then resolved="$c"; break; fi
             done
-            [ -n "$resolved" ] && queue+=("$resolved")
+            if [ -n "$resolved" ]; then queue+=("$resolved"); fi
         done < <(sed -nE 's/^[[:space:]]*#[[:space:]]*include[[:space:]]*"([^"]+)".*/\1/p' "$f")
     done
+    return 0
 }
 
-for dir in "$core_dir" "$win_dir"; do
+for dir in "$core_dir" "$win_dir" "$skia_dir"; do
     [ -d "$dir" ] || continue
     for f in "$dir"/*.h; do
         [ -f "$f" ] || continue
@@ -89,6 +93,11 @@ for dir in "$core_dir" "$win_dir"; do
         check_closure "$f"
     done
 done
+
+if [ "$checked" -eq 0 ]; then
+    printf 'check-public-headers-clean: FAILED (0 public headers found - root discovery is broken)\n'
+    exit 1
+fi
 
 if [ "$failures" -gt 0 ]; then
     printf 'check-public-headers-clean: FAILED (%d platform references across %d files in public include closures)\n' "$failures" "$closure_files"

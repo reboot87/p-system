@@ -28,13 +28,13 @@
 namespace air {
 namespace ui {
 
-// `cell` is the logical character height in pixels at 96 DPI: GDI's
-// LOGFONT.lfHeight is exactly this (ascent + descent), so a backend
-// that renders by em must convert, not copy, the number.
+// `cell` is the logical character height in pixels at 96 DPI: the total
+// ascent + descent of the typeface, so a backend whose text API measures
+// by em must convert, not copy, the number.
 struct FontSpec
 {
     int cell   = 13;
-    int weight = 400;   // 400 = FW_NORMAL, 600 = FW_SEMIBOLD
+    int weight = 400;   // 400 = regular, 600 = semibold
 };
 
 // Families. wchar_t literals are valid on every target we build for

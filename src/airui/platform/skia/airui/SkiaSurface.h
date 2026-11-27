@@ -1,22 +1,18 @@
 #pragma once
 // ============================================================
 // AirUI - SkiaSurface.h
-// The Windows bridge: a raster Skia canvas (32bpp BGRA premultiplied,
-// the exact layout of a Win32 DIB) composited onto an HDC with
-// AlphaBlend. Transparent pixels leave the GDI content underneath
-// untouched, so Skia chrome and legacy GDI pages can coexist.
+// The Windows bridge: a raster Skia canvas (32bpp BGRA premultiplied)
+// composited onto a native device context through the platform blit.
+// Transparent pixels leave the underlying drawing untouched, so Skia
+// chrome and legacy drawing code can coexist.
 //
-// On non-Windows hosts the same class works as an off-screen frame,
-// which is what the cross-backend tests use.
+// On hosts without that native surface path the same class works as an
+// off-screen frame, which is what the cross-backend tests use.
 // ============================================================
 #include "airui/hal.h"
 
 #include <cstddef>
 #include <memory>
-
-#ifdef _WIN32
-#include <windows.h>
-#endif
 
 class SkCanvas;
 
@@ -27,8 +23,10 @@ class SkiaFrame : public IPainter
 {
 public:
 #ifdef _WIN32
-    // Draws into `bounds` of `dc` and composites on destruction.
-    SkiaFrame(HDC dc, const Rect& bounds);
+    // Draws into `bounds` of the given native device context and
+    // composites on destruction. The handle is opaque here; the
+    // backend casts it to its own native type.
+    SkiaFrame(void* nativeSurface, const Rect& bounds);
 #endif
     // Off-screen frame, usable on any OS with a Skia SDK.
     SkiaFrame(int width, int height);
@@ -44,7 +42,7 @@ public:
     // about to be fully repainted, and clearing 8 MB costs 2 ms.
     // Not part of IPainter: only the frame pool calls it.
 #ifdef _WIN32
-    void BeginFrame(HDC dc, const Rect& bounds, bool clearScreen);
+    void BeginFrame(void* nativeSurface, const Rect& bounds, bool clearScreen);
 #endif
 
     // Raw BGRA premultiplied pixels (off-screen frames / golden tests).
@@ -74,20 +72,21 @@ private:
     std::unique_ptr<Impl> m;
 };
 
-// Backend factory (docs/cross-platform.md section 3.1). On Windows it
-// returns a frame bound to an HDC; elsewhere an off-screen frame.
+// Backend factory (docs/cross-platform.md section 3.1). Where a native
+// surface path exists it returns a frame bound to that surface;
+// elsewhere an off-screen frame.
 #ifdef _WIN32
 // Pooled frame lifecycle (see SkiaSurface.cpp). Opening a frame costs a
-// fresh 8 MB DIB plus a full-surface clear -- measured at 5.4 ms of a
+// fresh 8 MB bitmap plus a full-surface clear -- measured at 5.4 ms of a
 // 21 ms frame, i.e. a quarter of the frame for pixels that are then
-// completely overwritten. The pool keeps the previous frame's DIB,
+// completely overwritten. The pool keeps the previous frame's bitmap,
 // surface and painter warm between paints of the same size.
-SkiaFrame* AcquireSkiaFrame(HDC dc, const Rect& bounds);
+SkiaFrame* AcquireSkiaFrame(void* nativeSurface, const Rect& bounds);
 // Composites the frame to its target, then parks it for the next paint.
 // Frames that were never pooled (off-screen) are destroyed.
 void       ReleaseSkiaFrame(SkiaFrame* frame);
 
-std::unique_ptr<IPainter> CreateSkiaBackend(HDC dc, const Rect& bounds);
+std::unique_ptr<IPainter> CreateSkiaBackend(void* nativeSurface, const Rect& bounds);
 #else
 std::unique_ptr<IPainter> CreateSkiaBackend(int width, int height);
 #endif

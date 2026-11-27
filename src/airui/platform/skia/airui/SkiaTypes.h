@@ -33,8 +33,7 @@ std::string WideToUtf8(const std::wstring& s);
 enum class HAlign { Left, Center, Right };
 enum class VAlign { Top, Middle, Bottom };
 
-// dt::* flags mirror the Win32 DT_* bits; translate them into the
-// alignment the Skia text shaper applies.
+// dt::* flags select the alignment the Skia text shaper applies.
 HAlign Horizontal(TextFormat fmt) noexcept;
 VAlign Vertical(TextFormat fmt) noexcept;
 

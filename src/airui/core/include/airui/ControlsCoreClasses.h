@@ -168,8 +168,8 @@ public:
     {
         ControlResult r = Control::OnKey(ev);
         state.focused = Focused();
-        if (ev.vk == 39 /* VK_RIGHT */ && value < max) { ++value; r.action = 3; r.redraw = true; }
-        if (ev.vk == 37 /* VK_LEFT  */ && value > 0)   { --value; r.action = 3; r.redraw = true; }
+        if (ev.vk == vkey::Right && value < max) { ++value; r.action = 3; r.redraw = true; }
+        if (ev.vk == vkey::Left  && value > 0)   { --value; r.action = 3; r.redraw = true; }
         return r;
     }
 

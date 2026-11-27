@@ -30,9 +30,9 @@ namespace air { namespace ui {
 // ------------------------------------------------------------
 // ToastManager —— 自绘消息提示（定义在 Shell.h 避免循环依赖）
 //
-// 卡片由 core 的 PaintToast 画在独立分层窗口上：主窗口带
-// WS_CLIPCHILDREN，右下角被子控件占着，画在父窗口的 msg-PAINT 里
-// 会被裁掉。浮层自己带 50ms 定时器做淡入淡出 / 自动消失。
+// 卡片由 core 的 PaintToast 画在独立分层窗口上：主窗口会把子窗口区域裁掉，
+// 右下角被子控件占着，画在父窗口里会被裁掉。
+// 浮层自己带 50ms 定时器做淡入淡出 / 自动消失。
 // ------------------------------------------------------------
 namespace air {
 namespace ui {
@@ -236,9 +236,9 @@ public:
     void SetMessageHook(
         std::function<bool(WindowHandle, MessageId, MessageWParam, MessageLParam, MessageResult&)> hook);
 
-    // 功能键等加速键：在消息循环里、TranslateMessage 之前过一遍。
-    // 焦点常落在 edit control / list control 上，主窗口的 msg-KEYDOWN 收不到，
-    // 只挂在 window procedure 上是「按了没反应」最常见的原因。返回 true 吞掉。
+    // 功能键等加速键：在消息循环里、翻译按键消息之前过一遍。
+    // 焦点常落在 edit control / list control 上，主窗口收不到按键消息，
+    // 只挂在窗口过程上是「按了没反应」最常见的原因。返回 true 吞掉。
     void SetAcceleratorHandler(std::function<bool(const MessageInfo&)> handler);
     bool IsModalActive() const { return m_modalActive; }
 

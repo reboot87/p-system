@@ -2,9 +2,10 @@
 # AirUI - public header platform-purity gate (Windows host)
 #
 # Mirrors check-public-headers-clean.sh. Fails if any PUBLIC
-# header (core/include/airui/*.h or platform/win32/airui/*.h)
-# OR ANY HEADER REACHED THROUGH ITS #include "..." CLOSURE
-# references a platform API/type, including in comments.
+# header (core/include/airui/*.h, platform/win32/airui/*.h and
+# platform/skia/airui/*.h) OR ANY HEADER REACHED THROUGH ITS
+# #include "..." CLOSURE references a platform API/type/macro,
+# including in comments.
 #
 # This is the transitive guard: a public header that stays clean
 # itself but #includes a private header full of Win32 types still
@@ -24,8 +25,10 @@ $ErrorActionPreference = "Stop"
 $root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $coreParent = Join-Path $root "src\airui\core\include"
 $winParent  = Join-Path $root "src\airui\platform\win32"
+$skiaParent = Join-Path $root "src\airui\platform\skia"
 $coreDir = Join-Path $coreParent "airui"
 $winDir  = Join-Path $winParent "airui"
+$skiaDir = Join-Path $skiaParent "airui"
 
 $regexPath = Join-Path $PSScriptRoot "core-forbidden.regex"
 $pattern = (Get-Content -Raw -Path $regexPath).Trim()
@@ -39,7 +42,7 @@ if (Test-Path $exemptPath) {
 }
 
 $publicHeaders = @()
-foreach ($dir in @($coreDir, $winDir)) {
+foreach ($dir in @($coreDir, $winDir, $skiaDir)) {
     if (Test-Path $dir) {
         $publicHeaders += Get-ChildItem -Path $dir -Filter *.h -File
     }
@@ -81,7 +84,8 @@ function Check-Closure {
                 $resolved = $null
                 $candidates = @((Join-Path $dir $inc),
                                 (Join-Path $coreParent $inc),
-                                (Join-Path $winParent $inc))
+                                (Join-Path $winParent $inc),
+                                (Join-Path $skiaParent $inc))
                 foreach ($c in $candidates) {
                     if (Test-Path -LiteralPath $c) { $resolved = $c; break }
                 }
@@ -95,6 +99,11 @@ foreach ($h in $publicHeaders) {
     if ($exempt -contains $h.Name) { $exemptCount++; continue }
     $checked++
     Check-Closure -Entry $h.FullName
+}
+
+if ($checked -eq 0) {
+    Write-Host "check-public-headers-clean: FAILED (0 public headers found - root discovery is broken)"
+    exit 1
 }
 
 if ($failures.Count -gt 0) {

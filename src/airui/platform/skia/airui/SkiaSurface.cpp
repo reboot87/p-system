@@ -262,13 +262,13 @@ struct SkiaFrame::Impl
 // Construction
 // ------------------------------------------------------------
 #ifdef _WIN32
-SkiaFrame::SkiaFrame(HDC dc, const Rect& bounds)
-    : m(new Impl(bounds.Width(), bounds.Height(), static_cast<void*>(dc)))
+SkiaFrame::SkiaFrame(void* nativeSurface, const Rect& bounds)
+    : m(new Impl(bounds.Width(), bounds.Height(), nativeSurface))
 {
-    if (m->canvas) m->Attach(dc, bounds);
+    if (m->canvas) m->Attach(static_cast<HDC>(nativeSurface), bounds);
 }
 
-void SkiaFrame::BeginFrame(HDC dc, const Rect& bounds, bool clearScreen)
+void SkiaFrame::BeginFrame(void* nativeSurface, const Rect& bounds, bool clearScreen)
 {
     if (!m || !m->canvas) return;
     // A frame may have ended with an unbalanced save()/clip() (an early
@@ -277,7 +277,7 @@ void SkiaFrame::BeginFrame(HDC dc, const Rect& bounds, bool clearScreen)
     m->canvas->restoreToCount(1);
     if (m->painter) m->painter->BeginFrame();
     m->presented = false;
-    m->Attach(dc, bounds);
+    m->Attach(static_cast<HDC>(nativeSurface), bounds);
     if (clearScreen)
         m->canvas->clear(OpaqueTarget() ? SK_ColorBLACK : SK_ColorTRANSPARENT);
 }
@@ -324,9 +324,9 @@ bool ClaimSlot(FrameSlot& slot)
 
 } // namespace
 
-SkiaFrame* AcquireSkiaFrame(HDC dc, const Rect& bounds)
+SkiaFrame* AcquireSkiaFrame(void* nativeSurface, const Rect& bounds)
 {
-    if (!dc || bounds.Width() <= 0 || bounds.Height() <= 0) return nullptr;
+    if (!nativeSurface || bounds.Width() <= 0 || bounds.Height() <= 0) return nullptr;
 
     // 换肤 / 开帧只允许 UI 线程调用。认领一律走 CAS：busy 是原子位，
     // 即便未来出现跨线程开帧，两个线程也不可能同时拿到同一槽位。
@@ -335,12 +335,12 @@ SkiaFrame* AcquireSkiaFrame(HDC dc, const Rect& bounds)
             slot.frame->Width()  == bounds.Width() &&
             slot.frame->Height() == bounds.Height() &&
             ClaimSlot(slot)) {
-            slot.frame->BeginFrame(dc, bounds, false);
+            slot.frame->BeginFrame(nativeSurface, bounds, false);
             return slot.frame;
         }
     }
 
-    SkiaFrame* fresh = new SkiaFrame(dc, bounds);   // clears on creation
+    SkiaFrame* fresh = new SkiaFrame(nativeSurface, bounds);   // clears on creation
     if (!fresh->Valid()) {
         delete fresh;
         return nullptr;
@@ -508,9 +508,9 @@ void SkiaFrame::Translate(Point offset)   { AIRUI_SKIA_FORWARD(Translate(offset)
 // Backend factory
 // ------------------------------------------------------------
 #ifdef _WIN32
-std::unique_ptr<IPainter> CreateSkiaBackend(HDC dc, const Rect& bounds)
+std::unique_ptr<IPainter> CreateSkiaBackend(void* nativeSurface, const Rect& bounds)
 {
-    SkiaFrame* frame = AcquireSkiaFrame(dc, bounds);
+    SkiaFrame* frame = AcquireSkiaFrame(nativeSurface, bounds);
     if (!frame) return nullptr;
     return std::unique_ptr<IPainter>(new PooledFrame(frame));
 }

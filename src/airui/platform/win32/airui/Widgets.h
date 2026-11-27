@@ -135,7 +135,7 @@ public:
     int  HitIndex(Point pt);        // 客户区点 → 文本下标（点击/拖选/双击/右键共用）
     // 显示串 = password ? 掩码(• × N) : 真实文本。掩码与真实文本
     // 1:1 等长（core DisplayText），所以布局/命中/绘制全部走它，
-    // 编辑/读取/EN_CHANGE 走 m_edit.text（真实）。
+    // 编辑/读取/变更通知 走 m_edit.text（真实）。
     const std::wstring& ShownText() const;
     void BeginDrag(Point pt);         // left down: place caret + remember anchor + capture pointer
     void DragTo(Point pt);            // drag-select (multi-line auto-scrolls near edges)
@@ -156,7 +156,7 @@ protected:
     std::function<bool(MessageId, bool, bool)> m_keyCb;
 
     TextEditState m_edit;            // core 引擎：文本/光标/选区/组词
-    std::wstring m_lastNotified;     // 已发 EN_CHANGE 的文本内容（纯光标/选区移动不重复通知）
+    std::wstring m_lastNotified;     // 已发变更通知的文本内容（纯光标/选区移动不重复通知）
 
     // ---- 撤销 / 重做（平台级）----
     // 核心引擎保持纯函数：TextBox 在**可能改文本**的动作执行前把整个

@@ -126,7 +126,7 @@ public:
 private:
     DeviceContextHandle          m_dc;
     const Fonts& m_fonts;
-    // GDI path: SaveDC handles of the pushed clips. Backend path: the
+    // Legacy path: saved-context handles of the pushed clips. Backend path: the
     // sentinel kFrameClip marks a clip owned by the active PaintFrame.
     std::vector<int> m_clipStack;
     static std::vector<DrawCall>* s_recorder;

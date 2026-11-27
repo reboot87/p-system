@@ -15,12 +15,12 @@
 // churn (a documented risk, cross-platform.md R5) a one-file fix.
 // ============================================================
 #if defined(_WIN32) && !defined(AIRUI_SKIA_MOCK)
-// SkiaSurface.h pulls in <windows.h> on Windows, whose min/max macros
-// expand inside std::numeric_limits<T>::max() / std::max(...) in Skia's
-// own headers (MSVC C2589/C2059, e.g. SkRect.h, SkSamplingOptions.h).
+// Some SDK headers on Windows define min/max as macros, which then expand
+// inside std::numeric_limits<T>::max() / std::max(...) in Skia's own
+// headers (MSVC C2589/C2059, e.g. SkRect.h, SkSamplingOptions.h).
 // SkiaApi.h is the only place Skia headers enter the build, so disable
 // the macros here. It affects only the few backend translation units;
-// the legacy Win32 code keeps its usual <windows.h> behaviour.
+// the rest of the code keeps its usual SDK header behaviour.
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif

@@ -6,13 +6,14 @@
 // core/ may only include this header plus the C++ standard
 // library. No platform headers, no handle types.
 //
-//   Rect   - left/top/right/bottom rectangle (ABI-compatible
-//            with the Win32 rectangle layout, converted at the
-//            platform boundary).
-//   Color  - 0x00BBGGRR, identical to the Win32 color
-//            layout, so the Win32 backend can pass it straight
-//            through and Skia/Qt backends can convert.
-//   dt::*  - text-format flags mirroring the Win32 DT_* bits.
+//   Rect   - left/top/right/bottom rectangle. Field order and widths
+//            are fixed by the static_asserts below; backends copy it
+//            field by field.
+//   Color  - 0x00BBGGRR packed colour; backends convert it to their
+//            own channel order at the boundary.
+//   dt::*  - text-format flags. The bit values are part of this
+//            library's contract, so a value means the same thing on
+//            every backend.
 // ============================================================
 #include <cstdint>
 #include <cstddef>
@@ -49,9 +50,27 @@ struct Rect
     constexpr Point   Location() const { return { left, top }; }
     constexpr Size    SizeOf()   const { return { right - left, bottom - top }; }
 
-    constexpr bool Contains(Point p) const
+    // ---- hit testing ----
+    // Two explicit boundary rules, because "is this pixel inside" and
+    // "which cell owns this pixel" must not share one fuzzy default.
+    //
+    // Contains: closed on all four sides, [left, right] x [top, bottom].
+    // The right/bottom edge pixel still belongs to this rect, which is
+    // what an interactive hit test wants (clicking the last pixel of a
+    // button must hit the button). This is also the rule the native
+    // backends use, so pages get identical behaviour before and after
+    // the platform boundary is crossed.
+    //
+    // ContainsOpen: half-open, [left, right) x [top, bottom). Use this
+    // when partitioning a surface into adjacent cells, so a shared edge
+    // belongs to exactly one cell.
+    constexpr bool ContainsOpen(Point p) const
     {
         return p.x >= left && p.x < right && p.y >= top && p.y < bottom;
+    }
+    constexpr bool Contains(Point p) const
+    {
+        return p.x >= left && p.x <= right && p.y >= top && p.y <= bottom;
     }
     constexpr bool Contains(const Rect& r) const
     {
@@ -69,7 +88,8 @@ struct Rect
         return Rect{ left + dx, top + dy, right + dx, bottom + dy };
     }
 
-    // Grow by (dx, dy) on every side (left/top shrink, right/bottom grow).
+    // Grow outward by (dx, dy) on every side: left/top decrease,
+    // right/bottom increase. Negative values shrink instead.
     constexpr Rect Inflated(int32_t dx, int32_t dy) const
     {
         return Rect{ left - dx, top - dy, right + dx, bottom + dy };
@@ -128,10 +148,10 @@ constexpr uint32_t ColorA(Color c) noexcept { return (c >> 24) & 0xFFu; }
 using TextFormat = uint32_t;
 
 namespace dt {
-// Mirrors the native text-flag bit layout exactly, so the platform boundary
-// can pass the value straight to the native text API without translating
-// it. Values are pinned to the Win32 SDK definitions (verified against
-// um/winuser.h) because every backend relies on the same bit positions.
+// Text layout / formatting flags. The bit values are this library's stable
+// contract: they are chosen so a native backend can forward a value without
+// translating it, and every other backend maps the bits onto its own text
+// engine. Keep the positions fixed -- serialized values must stay portable.
 constexpr TextFormat Top              = 0x00000;
 constexpr TextFormat Left             = 0x00000;
 constexpr TextFormat Center           = 0x00001;
@@ -177,8 +197,9 @@ using SubclassId           = uintptr_t;
 using SubclassRef          = uintptr_t;
 
 // ---------------- message / drawing flags ----------------
-// MessageId is the platform message identifier (UINT). VirtualKey is
-// the platform key code. TextFormat already mirrors DT_* bits above.
+// MessageId identifies a backend message. VirtualKey is the backend key
+// code; the vkey::* constants below are the portable spellings. TextFormat
+// uses the dt::* bits above.
 using MessageId   = uint32_t;
 using VirtualKey  = uint32_t;
 using MessageBoxFlags = uint32_t;
@@ -225,9 +246,8 @@ constexpr MessageBoxFlags IconWarning = 0x00000030u;
 constexpr MessageBoxFlags IconInfo    = 0x00000040u;
 } // namespace mb
 
-// Neutral drawing/message PODs. Field order and widths mirror the common
-// platform structures so the boundary can reinterpret them without copying,
-// while public headers stay free of native handle/type names.
+// Drawing-item POD. Backends fill it in from their own item structure and
+// hand it to a page hook; the page only ever sees these plain fields.
 struct DrawItemInfo
 {
     uint32_t             CtlType    = 0;
@@ -251,9 +271,9 @@ struct MeasureItemInfo
     uintptr_t itemData   = 0;
 };
 
-// Neutral message POD. Field order and widths mirror the common platform
-// message-struct layout so the boundary can reinterpret it without copying,
-// while the public header stays free of native handle/type names.
+// Message POD handed to page hooks that participate in a backend message
+// loop. The backend decodes its own message object into this before the
+// call, so a page never needs a native structure.
 struct MessageInfo
 {
     WindowHandle  hwnd    = nullptr;
