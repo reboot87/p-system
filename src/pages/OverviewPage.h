@@ -3,7 +3,7 @@
 // OverviewPage — 工作台总览
 // 模块卡片墙（剪贴板 / 文件监控 / 打印监控）+ 最近动态
 // ============================================================
-#include "airui/AirUi.h"
+#include "AirUi.h"
 
 namespace arecord { class App; }
 using namespace arecord;

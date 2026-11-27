@@ -5,7 +5,7 @@
 #include <iostream>
 #include <string>
 
-#include "airui/AirUi.h"
+#include "AirUi.h"
 #include "gallery/GalleryDraw.h"
 
 using namespace air::ui;

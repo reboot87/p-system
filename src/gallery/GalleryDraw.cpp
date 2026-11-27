@@ -3,7 +3,7 @@
 // 组件画廊的共享绘制代码，供无头截图和 GUI 预览程序复用。
 // ============================================================
 #include "GalleryDraw.h"
-#include "airui/AirUi.h"
+#include "AirUi.h"
 #include "internal/Components.h"
 
 #include <cstdio>

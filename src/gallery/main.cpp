@@ -7,7 +7,7 @@
 #include <vector>
 #include <map>
 
-#include "airui/AirUi.h"
+#include "AirUi.h"
 #include "internal/Components.h"
 #include "airui/ShellCore.h"
 #include "airui/ControlsCore.h"

@@ -25,11 +25,11 @@
 //     DLL) exercises the full gate.
 // ============================================================
 #include "airui/PaintBackend.h"
-#include "airui/PaintProviders.h"
+#include "PaintProviders.h"
 
 #include <windows.h>
 
-#include "airui/Fonts.h"
+#include "Fonts.h"
 #include "internal/PaintFrame.h"
 
 #include <cmath>

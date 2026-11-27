@@ -143,7 +143,7 @@ LRESULT CALLBACK OverlayWindow::WndProc(HWND hwnd, UINT msg,
 
 LRESULT OverlayWindow::Handle(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
-    LRESULT result = 0;
+    MessageResult result = 0;
     if (m_events && m_events(msg, wp, lp, result)) return result;
     switch (msg) {
     case WM_TIMER:
@@ -369,7 +369,7 @@ void ToastManager::EnsureLayer()
     if (!layer->Create(HwndOfOverlay(m_owner), ToWinRect(ComputeRect()), false)) return;
     layer->SetMode(OverlayAlphaMode::Transparent);
     layer->SetPaint([this](HDC dc, int w, int h) { Paint(dc, w, h); });
-    layer->SetEvents([this](UINT msg, WPARAM wp, LPARAM lp, LRESULT& res) {
+    layer->SetEvents([this](UINT msg, WPARAM wp, LPARAM lp, MessageResult& res) {
         return OnEvent(msg, wp, lp, res);
     });
     layer->StartTimer(50);
@@ -681,7 +681,7 @@ int RunModalDialog(HWND owner, const Fonts& fonts,
         PaintModal(painter, Rect(0, 0, w, h), draw, Pal(), Mx());
     });
 
-    layer.SetEvents([&](UINT msg, WPARAM wp, LPARAM lp, LRESULT& res) -> bool {
+    layer.SetEvents([&](UINT msg, WPARAM wp, LPARAM lp, MessageResult& res) -> bool {
         switch (msg) {
         case WM_MOUSEMOVE: {
             if (hot.Move(hitAt(lp))) layer.Redraw();
@@ -870,7 +870,7 @@ int RunPopupMenu(HWND owner, const Fonts& fonts, POINT anchor,
         if (next != hovered) { hovered = next; layer.Redraw(); }
     };
 
-    layer.SetEvents([&](UINT msg, WPARAM wp, LPARAM lp, LRESULT& res) -> bool {
+    layer.SetEvents([&](UINT msg, WPARAM wp, LPARAM lp, MessageResult& res) -> bool {
         switch (msg) {
         case WM_MOUSEMOVE: {
             const int hit = hitAt(lp);

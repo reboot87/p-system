@@ -12,7 +12,7 @@
 // 编译：build.bat 的最后一步（产出 build\airui_demo.exe）
 // ============================================================
 #include <windows.h>
-#include "airui/AirUi.h"
+#include "AirUi.h"
 
 using namespace air::ui;
 

@@ -3,7 +3,7 @@
 #include "SysInfo.h"
 #include "../agent/AgentHost.h"
 #include "airui/PaintBackend.h"
-#include "airui/PaintProviders.h"
+#include "PaintProviders.h"
 #include "../ipc/Ipc.h"
 #include "pages/OverviewPage.h"
 #include "pages/ClipsPage.h"

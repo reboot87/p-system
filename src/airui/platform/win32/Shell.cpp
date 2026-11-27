@@ -2,12 +2,12 @@
 #include "internal/OverlayWindow.h"
 #include "internal/Controls.h"
 #include "internal/GdiPainter.h"
-#include "airui/PaintProviders.h"
+#include "PaintProviders.h"
 #include "internal/PaintFrame.h"
 #include "internal/Gfx.h"
-#include "airui/Responsive.h"
+#include "Responsive.h"
 #include "internal/RaII.h"
-#include "airui/Accessibility.h"
+#include "Accessibility.h"
 #include "core/DiagLog.h"
 #include <commctrl.h>
 #include <algorithm>
@@ -1275,12 +1275,12 @@ MessageResult Shell::WndProc(WindowHandle hwnd, MessageId msg, MessageWParam wPa
 MessageResult Shell::HandleMessage(WindowHandle hwnd, MessageId msg, MessageWParam wParam, MessageLParam lParam)
 {
     // 1) 外部钩子（插件 / 快捷键）最优先
-    LRESULT hooked = 0;
+    MessageResult hooked = 0;
     if (m_hook && m_hook(hwnd, msg, wParam, lParam, hooked))
         return hooked;
 
     // 2) 派生类介入
-    LRESULT sub = 0;
+    MessageResult sub = 0;
     if (OnShellMessage(hwnd, msg, wParam, lParam, sub))
         return sub;
 

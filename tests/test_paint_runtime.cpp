@@ -9,7 +9,7 @@
 // real plugin provider instead.
 // ============================================================
 #include "airui/PaintBackend.h"
-#include "airui/PaintProviders.h"
+#include "PaintProviders.h"
 
 #include <cstdio>
 #include <string>

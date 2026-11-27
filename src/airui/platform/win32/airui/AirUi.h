@@ -4,7 +4,7 @@
 //
 // 一个可直接复用的自绘 UI 库（静态库，零运行时依赖）。
 //
-//   #include "airui/AirUi.h"
+//   #include "AirUi.h"
 //
 //   class HelloPage : public air::ui::Page {
 //       const wchar_t* Title() const override { return L"首页"; }
@@ -28,10 +28,10 @@
 //   · 弹窗    → ShowMessageBox / ShowPopupMenu
 // ============================================================
 #include "airui/Theme.h"
-#include "airui/DrawCall.h"
-#include "airui/Fonts.h"
-#include "airui/Canvas.h"
-#include "airui/Controls.h"
-#include "airui/Widgets.h"
-#include "airui/Page.h"
-#include "airui/Shell.h"
+#include "DrawCall.h"
+#include "Fonts.h"
+#include "Canvas.h"
+#include "Controls.h"
+#include "Widgets.h"
+#include "Page.h"
+#include "Shell.h"

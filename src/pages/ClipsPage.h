@@ -7,7 +7,7 @@
 // 全程使用 airui 高级 API：Canvas 绘制、Widget 控件，
 // 不接触 air::ui::DeviceContextHandle / air::ui::WindowHandle / air::ui::DrawItemInfo。
 // ============================================================
-#include "airui/AirUi.h"
+#include "AirUi.h"
 #include "airui/Interaction.h"
 #include "../core/UiEntry.h"
 

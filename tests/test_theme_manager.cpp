@@ -1,7 +1,7 @@
 #include <iostream>
 #include <windows.h>
-#include "airui/ThemeManager.h"
-#include "airui/ThemeJson.h"
+#include "ThemeManager.h"
+#include "ThemeJson.h"
 #include "airui/Theme.h"
 
 // 输出文件写到系统临时目录，避免依赖任何机器特定的绝对路径

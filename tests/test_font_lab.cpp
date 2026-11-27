@@ -31,7 +31,7 @@
 // Without airui-skia.dll it prints the two GDI columns only.
 // ============================================================
 #include "airui/PaintBackend.h"
-#include "airui/PaintProviders.h"
+#include "PaintProviders.h"
 #include "airui/UiText.h"
 
 #include <windows.h>

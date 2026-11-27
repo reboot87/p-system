@@ -10,10 +10,10 @@
 #include <vector>
 #include <cstdint>
 #include "airui/Theme.h"
-#include "airui/Fonts.h"
+#include "Fonts.h"
 #include "airui/types.h"
-#include "airui/Controls.h"
-#include "airui/Page.h"
+#include "Controls.h"
+#include "Page.h"
 #include "airui/ShellCore.h"
 #include "airui/PaintBackend.h"
 

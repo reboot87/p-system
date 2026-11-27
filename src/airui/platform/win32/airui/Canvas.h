@@ -14,11 +14,11 @@
 // ============================================================
 #include <string>
 #include <vector>
-#include "airui/Controls.h"
+#include "Controls.h"
 #include "airui/types.h"
-#include "airui/Fonts.h"
+#include "Fonts.h"
 #include "airui/Theme.h"
-#include "airui/DrawCall.h"
+#include "DrawCall.h"
 
 namespace air {
 namespace ui {

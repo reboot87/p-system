@@ -33,7 +33,7 @@ public:
     using PaintFn = std::function<void(HDC dc, int width, int height)>;
     // 返回 true 表示消息已处理；false 交给 DefWindowProc。
     using EventFn = std::function<bool(UINT msg, WPARAM wp, LPARAM lp,
-                                       LRESULT& result)>;
+                                       MessageResult& result)>;
 
     OverlayWindow() = default;
     ~OverlayWindow();

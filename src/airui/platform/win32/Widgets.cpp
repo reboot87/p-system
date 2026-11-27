@@ -3,7 +3,7 @@
 #include "internal/Shell.h"
 #include "internal/OverlayWindow.h"   // RunPopupMenu（TextBox 右键菜单）
 #include "internal/Gfx.h"
-#include "airui/Accessibility.h"
+#include "Accessibility.h"
 #include "airui/PaintBackend.h"
 #include <commctrl.h>
 #include <imm.h>

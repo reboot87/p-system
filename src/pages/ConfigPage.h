@@ -4,7 +4,7 @@
 // 服务与进程 / 操作系统 / 处理器与内存 / 显示 / 磁盘 / 网络 /
 // 快捷键 / 功能模块，双栏瀑布式卡片
 // ============================================================
-#include "airui/AirUi.h"
+#include "AirUi.h"
 #include "airui/Interaction.h"
 #include "../core/SysInfo.h"
 

@@ -19,7 +19,7 @@
 #include <cstdio>
 #include <string>
 
-#include "airui/Accessibility.h"
+#include "Accessibility.h"
 
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "oleaut32.lib")

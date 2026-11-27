@@ -101,10 +101,15 @@ set(AIRUI_SOURCES
 )
 if(WIN32)
     add_library(airui-win32 STATIC ${AIRUI_SOURCES})
+    # PUBLIC is the platform-free header directory only: a page includes
+    # "AirUi.h", not "airui/AirUi.h", and cannot reach internal/. The
+    # parent directory stays PRIVATE so the backend itself can still
+    # include internal/ headers.
     target_include_directories(airui-win32 PUBLIC
-        ${CMAKE_SOURCE_DIR}/src/airui/platform/win32
+        ${CMAKE_SOURCE_DIR}/src/airui/platform/win32/airui
         ${CMAKE_SOURCE_DIR}/src/airui/core/include)
     target_include_directories(airui-win32 PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/airui/platform/win32
         ${CMAKE_SOURCE_DIR}/src/airui/platform/skia
         ${CMAKE_SOURCE_DIR}/src)
     target_link_libraries(airui-win32 PUBLIC airui-core
@@ -254,7 +259,7 @@ target_include_directories(app-common PUBLIC
     ${CMAKE_BINARY_DIR}/generated)
 target_include_directories(app-common PRIVATE
     ${CMAKE_SOURCE_DIR}/src/airui/core/include
-    ${CMAKE_SOURCE_DIR}/src/airui/platform/win32
+    ${CMAKE_SOURCE_DIR}/src/airui/platform/win32/airui
     ${CMAKE_SOURCE_DIR}/third_party/sqlite)
 
 add_library(sqlite3 STATIC third_party/sqlite/sqlite3.c)
@@ -404,6 +409,7 @@ add_executable(test_draw_calls
 )
 target_include_directories(test_draw_calls PRIVATE
     ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/airui/platform/win32
     ${CMAKE_BINARY_DIR}/generated)
 target_link_libraries(test_draw_calls 
     PRIVATE app-common sqlite3 airui-win32
@@ -459,6 +465,7 @@ add_executable(test_component_gallery
 )
 target_include_directories(test_component_gallery PRIVATE
     ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/airui/platform/win32
     ${CMAKE_BINARY_DIR}/generated)
 target_link_libraries(test_component_gallery 
     PRIVATE app-common sqlite3 airui-win32
@@ -690,6 +697,10 @@ if(WIN32)
     # it reports the per-primitive pixel difference. See the command
     # `test_paint_compare` in docs/skia-backend.md.
     add_executable(test_paint_compare tests/test_paint_compare.cpp)
+    # This test is white-box: it includes internal/ headers the public
+    # surface no longer exposes.
+    target_include_directories(test_paint_compare PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/airui/platform/win32)
     target_link_libraries(test_paint_compare PRIVATE airui-win32 airui-core)
     set_target_properties(test_paint_compare PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
@@ -715,6 +726,8 @@ if(WIN32)
     # Whole-window frame routing: every gfx primitive must reach the
     # selected backend, and a closed frame must restore GDI untouched.
     add_executable(test_paint_frame tests/test_paint_frame.cpp)
+    target_include_directories(test_paint_frame PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/airui/platform/win32)
     target_link_libraries(test_paint_frame PRIVATE airui-win32 airui-core)
     set_target_properties(test_paint_frame PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
@@ -854,7 +867,9 @@ add_executable(airui_gallery
     src/gallery/GalleryDraw.cpp
     ${RESOURCE_FILE}
 )
-target_include_directories(airui_gallery PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(airui_gallery PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/airui/platform/win32)
 target_link_libraries(airui_gallery
     airui-win32
     user32 gdi32 shell32 comctl32 shlwapi advapi32 ole32
@@ -970,7 +985,7 @@ if(AIRUI_CHECK_PUBLIC_HEADERS)
         airui_check_public_headers(
             HEADERS ${AIRUI_WIN32_PUBLIC_HEADERS}
             INCLUDE_DIRS
-                ${CMAKE_SOURCE_DIR}/src/airui/platform/win32
+                ${CMAKE_SOURCE_DIR}/src/airui/platform/win32/airui
                 ${CMAKE_SOURCE_DIR}/src/airui/core/include
                 ${CMAKE_SOURCE_DIR}/src
                 ${CMAKE_SOURCE_DIR}/src/pluginapi

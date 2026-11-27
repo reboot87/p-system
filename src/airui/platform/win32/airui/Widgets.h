@@ -17,8 +17,8 @@
 #include <functional>
 #include <string>
 #include <vector>
-#include "airui/Controls.h"
-#include "airui/Canvas.h"
+#include "Controls.h"
+#include "Canvas.h"
 #include "airui/FrameworkCore.h"
 
 namespace air {

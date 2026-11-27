@@ -7,7 +7,7 @@
 #include <windows.h>
 
 #include "internal/Canvas.h"
-#include "airui/Fonts.h"
+#include "Fonts.h"
 #include "internal/Gfx.h"
 #include "internal/PaintFrame.h"
 #include "airui/hal.h"

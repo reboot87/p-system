@@ -18,7 +18,7 @@
 //   6. 选中一段文字（Shift+方向/拖选）→ 选区高亮与光标同一几何
 // ============================================================
 #include <windows.h>
-#include "airui/AirUi.h"
+#include "AirUi.h"
 
 using namespace air::ui;
 

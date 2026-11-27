@@ -5,7 +5,7 @@
 // translation unit builds in the default CMake + VS2017 toolchain
 // without any Skia SDK.
 // ============================================================
-#include "airui/PaintProviders.h"
+#include "PaintProviders.h"
 
 #include "internal/GdiPainter.h"
 #include "airui/PaintBackend.h"

@@ -19,7 +19,7 @@
 #include "MachineConfig.h"
 #include "../ipc/PipeClient.h"
 #include "../agent/AgentHost.h"
-#include "airui/AirUi.h"
+#include "AirUi.h"
 
 // 版本单一来源：CMake `project(AireRecord VERSION ...)` 生成的版本头。
 #include "airui/Version.h"

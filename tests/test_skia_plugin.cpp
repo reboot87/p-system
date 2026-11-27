@@ -9,7 +9,7 @@
 // Skia backend, then drives the painter across the module boundary.
 // ============================================================
 #include "airui/PaintBackend.h"
-#include "airui/PaintProviders.h"
+#include "PaintProviders.h"
 #include "airui/SkiaPluginAbi.h"
 
 #include <windows.h>

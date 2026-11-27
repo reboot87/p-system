@@ -3,7 +3,7 @@
 // page escape hatches still talk to Win32 directly. Keep every cast here so
 // page code never spreads native handle conversions across the codebase.
 #include <windows.h>
-#include "airui/AirUi.h"
+#include "AirUi.h"
 
 namespace arecord {
 namespace detail {
