@@ -22,7 +22,7 @@ constexpr uint32_t ToSkColor(Color c, uint8_t alpha = 255) noexcept
          | (ColorR(c) << 16) | (ColorG(c) << 8) | ColorB(c);
 }
 
-// Keep the logical font sizes identical to GdiPainter's role table so
+// Keep the logical font sizes identical to the native painter's role table so
 // text metrics do not drift between the two Windows backends.
 int RoleFontSize(FontRole role) noexcept;
 

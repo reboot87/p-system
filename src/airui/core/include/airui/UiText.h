@@ -4,8 +4,8 @@
 // The single source of truth for UI typography.
 //
 // Every painter backend must size and style text from this table.
-// Before it existed, GdiPainter and SkiaPainter each carried their
-// own numbers, and they drifted: GDI drew a 13 px *cell* while Skia
+// Before it existed, the native and Skia painters each carried their
+// own numbers, and they drifted: the native one drew a 13 px *cell* while Skia
 // called SkFont::setSize(13) -- but setSize takes an *em* size, and
 // for the UI family the cell is ~1.33x the em. Skia text therefore
 // came out ~33% too large: headings collided with the title bar and
@@ -14,12 +14,12 @@
 // The numbers mirror air::ui::Metrics (Theme.h) -- fontBody 14,
 // fontMeta 12, fontTitle 13, fontSection 14, fontButton 14,
 // fontIcon 11, fontIconLg 16, fontDisplay 22 -- and the family
-// mirrors Fonts::m_family, because that is what the Win32 backend
+// mirrors Fonts::m_family, because that is what the native backend
 // actually selects. A theme that overrides Metrics is NOT reflected
 // here yet (the Skia plugin cannot reach Mx()), so keep the defaults
 // in sync if the design system moves.
 //
-// Keep this header platform-free: it is consumed by the Win32 GDI
+// Keep this header platform-free: it is consumed by the native
 // backend, the Skia plugin (which may compile without native SDK headers),
 // and the syntax-gate mock.
 // ============================================================
@@ -38,26 +38,26 @@ struct FontSpec
 };
 
 // Families. wchar_t literals are valid on every target we build for
-// (wchar_t is 2 bytes on Windows, and the Skia plugin's TCHAR is
+// (wchar_t is 2 bytes on Windows, and the Skia plugin's character type is
 // either wchar_t or char -- the face-name copy narrows ASCII safely).
 // The UI family is Microsoft YaHei UI, not Segoe UI: that is what
-// Fonts::m_family selects, and it is why GDI needs no font linking
+// Fonts::m_family selects, and it is why the native backend needs no font linking
 // for Chinese. Latin and CJK therefore share one em.
 inline constexpr const wchar_t* kFamilyUi    = L"Microsoft YaHei UI";
 inline constexpr const wchar_t* kFamilyCjk   = L"Microsoft YaHei UI";
 inline constexpr const wchar_t* kFamilyIcon  = L"Segoe MDL2 Assets";
 
 // Symbols the UI family does not carry: U+2713 CHECK MARK (the tick in
-// a checkbox), U+2715 BALLOT X, arrows, dingbats. GDI resolves those
+// a checkbox), U+2715 BALLOT X, arrows, dingbats. The native text engine resolves those
 // through its own fallback chain, and a backend that picks faces itself
 // -- the Skia plugin -- has to name the same families explicitly, or
 // the glyph is dropped and the control renders an empty box.
 //
-// Measured on Windows (advance + ink box, GDI against each candidate):
+// Measured on the native backend (advance + ink box, candidate by candidate):
 //   * the Dingbats block (U+2700..U+27BF: check, cross, ballot X)
-//     comes from Segoe UI Symbol -- GDI's symbol font;
+//     comes from Segoe UI Symbol -- the native symbol font;
 //   * the other symbols the UI family lacks (U+25BE, U+25B8, U+26A0,
-//     U+2139) come from Yu Gothic UI, the tail of GDI's font-link
+//     U+2139) come from Yu Gothic UI, the tail of the native font-link
 //     chain for the UI family;
 //   * Segoe UI Symbol covers everything the UI family lacks, so it is
 //     the last named stop before the system default.
@@ -69,7 +69,7 @@ inline constexpr const wchar_t* kFamilyLinked = L"Yu Gothic UI";
 inline FontSpec RoleFontSpec(FontRole role) noexcept
 {
     // Order matches FontRole; values are Metrics' defaults, which the
-    // Win32 backend's Fonts collection uses.
+    // native backend's Fonts collection uses.
     static const int kCell[static_cast<int>(FontRole::Count)] = {
         14,  // Body     (fontBody)
         12,  // Meta     (fontMeta)
@@ -82,7 +82,7 @@ inline FontSpec RoleFontSpec(FontRole role) noexcept
     };
     // Headings and buttons are semibold in the design system (see
     // Fonts.cpp). Without the weight the Skia backend drew the window
-    // title noticeably lighter than GDI, which reads as "different
+    // title noticeably lighter than the native painter, which reads as "different
     // font" even when the size matches.
     static const int kWeight[static_cast<int>(FontRole::Count)] = {
         400,  // Body

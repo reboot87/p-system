@@ -1,7 +1,7 @@
 #pragma once
 // ============================================================
 // AirUI — Widgets.h
-// 控件包装：TextBox/ListBox 自绘（不再依赖 Win32 EDIT/LISTBOX 的行为），
+// 控件包装：TextBox/ListBox 自绘（不再依赖原生 EDIT/LISTBOX 的行为），
 // native subclassing only keeps three things: focus/lifetime, accessibility forwarding
 // and message-level probing (native get-text/count still answered; class names are
 // AirUITextBox/AirUIListBox; probes use Edit/ListBox aliases).

@@ -30,7 +30,7 @@
 #define AIRUI_SKIA_PLUGIN_ENV L"AIRUI_SKIA_DLL"
 #endif
 
-// Exported symbol names (GetProcAddress / dlsym).
+// Exported symbol names (runtime dynamic-loader lookup).
 #define AIRUI_SKIA_FN_DESCRIBE "airui_skia_describe"
 #define AIRUI_SKIA_FN_CREATE    "airui_skia_create"
 #define AIRUI_SKIA_FN_DESTROY   "airui_skia_destroy"

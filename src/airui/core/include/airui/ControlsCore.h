@@ -12,8 +12,8 @@
 //   PaintButton(painter, rc, L"Save", ButtonStyle::Primary,
 //               st, Pal(), Mx());
 //
-// Keeping the drawing here means the Win32 backend and any future
-// Skia/X11 backend produce identical pixels from the same code.
+// Keeping the drawing here means the native backend and any future
+// backend produce identical pixels from the same code.
 // ============================================================
 #include "airui/types.h"
 #include "airui/hal.h"
@@ -25,7 +25,7 @@
 namespace air {
 namespace ui {
 
-// The four button variants. Named ButtonStyle in core; the Win32
+// The four button variants. Named ButtonStyle in core; the native
 // backend keeps the historical alias BtnStyle for source compat.
 enum class ButtonStyle
 {

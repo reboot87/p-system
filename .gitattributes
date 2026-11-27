@@ -1,0 +1,6 @@
+# Keep shell gates and the shared forbidden-token list LF on every host.
+# Without these rules core.autocrlf converts them on Windows checkouts,
+# which breaks `bash scripts/*.sh` and silently corrupts the regex that
+# grep receives (a trailing CR makes the pattern match almost nothing).
+*.sh    text eol=lf
+*.regex text eol=lf

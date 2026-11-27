@@ -79,11 +79,11 @@ void SetAccessibleValue(WindowHandle hwnd, const std::wstring& value,
 
 // ------------------------------------------------------------
 // 无障碍对象查询消息管线（宿主窗口过程 / 子类过程转发）：
-//   HandleGetObject            总是返回 AirUI 的 IAccessible 对象；
+//   HandleGetObject            总是返回 AirUI 的无障碍对象；
 //   HandleGetObjectIfAnnotated 仅当该窗口被 SetAccessible* 标注过才
 //                              接管，否则返回 0（未处理），让 EDIT /
 //                              LISTBOX 等标准控件继续使用原生 provider
-//                              （其 UIA Text/Value/Selection 支持比薄
+//                              （其原生无障碍 Text/Value/Selection 支持比薄
 //                              包装更完整）。
 //   返回 0 表示未处理，调用方应继续默认窗口过程 / 默认子类过程。
 // ------------------------------------------------------------

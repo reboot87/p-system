@@ -17,7 +17,9 @@ if [ ! -d "$core" ]; then
     exit 1
 fi
 
-pattern=$(cat "$here/core-forbidden.regex")
+# Strip CR so a Windows checkout (core.autocrlf) cannot corrupt the
+# pattern: grep would otherwise receive a trailing CR and match nothing.
+pattern="$(tr -d '\r' < "$here/core-forbidden.regex")"
 
 if hits=$(grep -rnE "$pattern" --include='*.h' --include='*.cpp' "$core"); then
     printf '%s\n' "$hits"

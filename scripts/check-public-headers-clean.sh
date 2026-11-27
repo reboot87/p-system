@@ -29,7 +29,9 @@ skia_parent="$root/src/airui/platform/skia"
 core_dir="$core_parent/airui"
 win_dir="$win_parent/airui"
 skia_dir="$skia_parent/airui"
-pattern="$(cat "$root/scripts/core-forbidden.regex")"
+# Strip CR so a Windows checkout (core.autocrlf) cannot corrupt the
+# pattern: grep would otherwise receive a trailing CR and match nothing.
+pattern="$(tr -d '\r' < "$root/scripts/core-forbidden.regex")"
 exempt_file="$root/scripts/public-headers-exempt.txt"
 
 canonical() {

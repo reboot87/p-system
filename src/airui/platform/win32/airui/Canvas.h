@@ -2,7 +2,7 @@
 // ============================================================
 // AirUI — Canvas.h
 // 画布：页面绘制的高级入口。封装原生绘制上下文 / 字体 / 背景模式等
-// GDI 细节，页面代码只需要「画什么、画在哪、什么颜色」。
+// 绘制细节，页面代码只需要「画什么、画在哪、什么颜色」。
 //
 //   void MyPage::OnPaint(Canvas& g, const Rect& content) {
 //       g.FillRound(rc, Pal().surface, Mx().radiusLg);
@@ -10,7 +10,7 @@
 //   }
 //
 // 字体通过 FontRole 语义化选取（由 Shell 按当前 DPI 创建），
-// 颜色来自 Theme 调色板（Color 是纯值类型，不是 GDI 句柄）。
+// 颜色来自 Theme 调色板（Color 是纯值类型，不是原生句柄）。
 // ============================================================
 #include <string>
 #include <vector>
@@ -35,7 +35,7 @@ public:
     Canvas(const Canvas&) = delete;
     Canvas& operator=(const Canvas&) = delete;
 
-    // 逃生舱：极少数需要原生 GDI 的场景（一般用不到）
+    // 逃生舱：极少数需要直接操作原生绘制的场景（一般用不到）
     DeviceContextHandle Native() const { return m_dc; }
 
     // 录制支持（测试用）
@@ -58,7 +58,7 @@ public:
                      Color colorNormal, Color colorWarn, Color colorHot);
 
     // ---- clip (backend agnostic) ----
-    // GDI uses the DeviceContextHandle clip region; a compositing backend (Skia) owns an
+    // The native backend uses the DeviceContextHandle clip region; a compositing backend (Skia) owns an
     // independent surface, so the DeviceContextHandle clip has no effect on it and the
     // backend clip stack must be used instead. Pages clip their content
     // through this pair so both backends produce the same pixels --

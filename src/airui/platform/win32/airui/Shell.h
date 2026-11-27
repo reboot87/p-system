@@ -119,7 +119,7 @@ struct ShellOptions
     int          dpi         = 0;
     IconHandle        icon        = nullptr;
     // Phase 1 HAL route: let the platform-free ShellCore draw the chrome
-    // through GdiPainter instead of the legacy rich renderer. Default off
+    // through the native painter instead of the legacy rich renderer. Default off
     // so the existing caption (logo / three buttons) never regresses.
     bool         coreShell   = false;
     // Runtime painter backend for the ShellCore chrome: "gdi", "skia",

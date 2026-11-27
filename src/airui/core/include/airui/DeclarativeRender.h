@@ -4,7 +4,7 @@
 // 声明式节点树 -> IPainter 渲染桥。
 //
 // 只调用 core 的 IPainter 与控件绘制函数（PaintButton 等），
-// 所以 GDI / Skia / PaintRecorder 走同一条路径，输出一致。
+// 所以原生 / Skia / PaintRecorder 走同一条路径，输出一致。
 // 渲染前需要先 PrepareTree()（或 Measure + Layout）。
 //
 // 节点映射：

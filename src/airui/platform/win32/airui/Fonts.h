@@ -10,7 +10,7 @@
 #include "airui/types.h"
 #include <string>
 
-// FontRole is defined once, in the platform-free HAL. The Win32
+// FontRole is defined once, in the platform-free HAL. The native
 // backend only maps each role to a platform font handle.
 #include "airui/hal.h"
 

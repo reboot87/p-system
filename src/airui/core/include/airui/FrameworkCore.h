@@ -394,7 +394,7 @@ EditResult ApplyEdit(TextEditState& st, EditAction action,
 //   · 折行：\n 硬断；软断在空格/Tab 后、CJK 字符边界后；宽于视口的
 //     单词（连 CJK 也放不下时）强行内断，保证永远前进；
 //   · 代理对（emoji 等）绝不从中间断开——断点回避到对的前一单元；
-//   · 行高 lineH 像素（调用方按 GDI 实测行高给出）。
+//   · 行高 lineH 像素（调用方按原生实测行高给出）。
 // ============================================================
 struct TextLines
 {

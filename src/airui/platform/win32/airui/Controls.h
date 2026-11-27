@@ -3,8 +3,8 @@
 // AirUI - Controls.h  (public, platform-neutral)
 // Page-author-facing control types.
 //
-// The Win32-only drawing helpers (DrawButton / NavBar / PaintDC /
-// DWM frame / list hit-testing) live in the private implementation
+// The native-only drawing helpers (DrawButton / NavBar / PaintDC /
+// frame composition / list hit-testing) live in the private implementation
 // header internal/Controls.h and never cross this boundary.
 // ============================================================
 #include "airui/types.h"
@@ -16,7 +16,7 @@ namespace air {
 namespace ui {
 
 // ButtonStyle is defined in core (airui/ControlsCore.h); BtnStyle
-// stays as a source-compatible alias for the Win32 backend.
+// stays as a source-compatible alias for the native backend.
 using BtnStyle = ButtonStyle;
 
 // Read text from a native edit control (cross-process safe).
@@ -50,7 +50,7 @@ struct BackBuffer
 {
     DeviceContextHandle mem = nullptr;
     BitmapHandle        bmp = nullptr;
-    GdiObjectHandle     old = nullptr;
+    DrawObjectHandle    old = nullptr;
     int                 w   = 0;
     int                 h   = 0;
     // Release native resources held by the buffer (defined in the backend).

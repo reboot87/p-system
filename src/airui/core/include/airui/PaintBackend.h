@@ -5,8 +5,8 @@
 //
 // Which IPainter a frame uses is decided at RUNTIME, never by a
 // compile-time option. A provider is registered by the platform layer
-// (GDI is always there; Skia may be linked in or loaded from a
-// plugin library), and callers ask the registry for a painter by id.
+// (the native provider is always there; Skia may be linked in or loaded
+// from a plugin library), and callers ask the registry for a painter by id.
 //
 // This file lives in core on purpose: it only knows IPainter and an
 // opaque native surface pointer, so it stays compilable on every
@@ -23,8 +23,8 @@ namespace ui {
 
 // ------------------------------------------------------------
 // PaintTarget - everything a provider needs to open a frame.
-//   surface : opaque native drawing surface (a Win32 device context
-//             on Windows). nullptr asks for an off-screen frame,
+//   surface : opaque native drawing surface (a device context on the
+//             native backend). nullptr asks for an off-screen frame,
 //             which is what headless tests and golden renders use.
 //   bounds  : the frame rectangle in logical pixels.
 // ------------------------------------------------------------

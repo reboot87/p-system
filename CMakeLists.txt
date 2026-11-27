@@ -738,6 +738,24 @@ set_target_properties(test_skia_types PROPERTIES
 )
 airui_console_target(test_skia_types)
 
+# Windows-branch syntax gate for the Skia backend. The real Skia job is
+# optional (it needs an SDK) and the POSIX mock gate never compiles the
+# _WIN32 branch, so a Windows-only type error could slip through both.
+# Compile the backend against the API-shaped mock with MSVC. This is an
+# object library: nothing is linked or shipped, it only has to compile.
+if(WIN32 AND NOT AIRUI_WITH_SKIA)
+    add_library(airui_skia_mock_syntax OBJECT
+        src/airui/platform/skia/airui/SkiaTypes.cpp
+        src/airui/platform/skia/airui/SkiaPainter.cpp
+        src/airui/platform/skia/airui/SkiaSurface.cpp)
+    target_compile_definitions(airui_skia_mock_syntax PRIVATE AIRUI_SKIA_MOCK)
+    target_include_directories(airui_skia_mock_syntax PRIVATE
+        ${CMAKE_SOURCE_DIR}/tests/skia_contract
+        ${CMAKE_SOURCE_DIR}/src/airui/platform/skia
+        ${CMAKE_SOURCE_DIR}/src/airui/core/include)
+    set_target_properties(airui_skia_mock_syntax PROPERTIES FOLDER "gates")
+endif()
+
 # Real dual-backend check: needs a Skia SDK (AIRUI_WITH_SKIA=ON).
 # Compares the platform-free PaintRecorder golden against the exact
 # IPainter call sequence received by the Skia backend, and verifies

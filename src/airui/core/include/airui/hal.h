@@ -7,7 +7,7 @@
 // Three layers:
 //   core       - components, layout, theme, state machines
 //   hal        - the interfaces in this file
-//   platform   - Win32 (GDI/DWM), later Skia/Cocoa/X11
+//   platform   - native window + painters, later Skia
 //
 // Everything in core talks to the outside world only through
 // these interfaces, so core links and compiles on every target
@@ -38,7 +38,7 @@ enum class FontRole
 
 // ------------------------------------------------------------
 // IClock - monotonic time in milliseconds for animations.
-// Win32 uses its tick counter, Linux uses a monotonic clock.
+// Backends read their OS tick source; only monotonicity is required.
 // ------------------------------------------------------------
 class IClock
 {
