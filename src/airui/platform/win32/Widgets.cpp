@@ -77,6 +77,29 @@ RECT ToWinRect(const Rect& r) { return RECT{ r.left, r.top, r.right, r.bottom };
 Rect FromWinRect(const RECT& r) { return Rect{ r.left, r.top, r.right, r.bottom }; }
 } // namespace
 
+// 注册给系统的回调必须在 x86 上使用系统约定（被调方清栈）：公开头里的
+// *Proc 要保持平台中立（公开头不能出现平台类型/宏），只能声明成默认约定。
+// 若直接把它强转成 SUBCLASSPROC，Win32 下每次派发都会漏掉 6 个参数的栈
+// 清理，栈指针逐次漂移，最终以堆损坏（0xC0000374）的形式炸掉——x64 只有
+// 一种约定，所以这个问题只在 x86 暴露。故在 .cpp 侧加薄桥接。
+namespace {
+LRESULT CALLBACK TextBoxProcBridge(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                   UINT_PTR idSub, DWORD_PTR ref)
+{
+    return TextBoxProc(hwnd, msg, wParam, lParam, idSub, ref);
+}
+LRESULT CALLBACK ListBoxProcBridge(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                   UINT_PTR idSub, DWORD_PTR ref)
+{
+    return ListBoxProc(hwnd, msg, wParam, lParam, idSub, ref);
+}
+LRESULT CALLBACK CustomProcBridge(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                  UINT_PTR idSub, DWORD_PTR ref)
+{
+    return CustomProc(hwnd, msg, wParam, lParam, idSub, ref);
+}
+} // namespace
+
 // ============================================================
 // Widget 基类
 // ============================================================
@@ -244,7 +267,7 @@ void TextBox::CreateNative()
     // 键入/粘贴等走 core 引擎的路径由 InsertAtCursor 按 m_edit.maxLength
     // 强制；这里把 desc 的声明同步进引擎（desc 是页面侧的唯一声明点）。
     SyncTextLayout();
-    SetWindowSubclass(HwndOfWidget(m_hwnd), reinterpret_cast<SUBCLASSPROC>(&TextBoxProc), kSubTextBox, (DWORD_PTR)this);
+    SetWindowSubclass(HwndOfWidget(m_hwnd), &TextBoxProcBridge, kSubTextBox, (DWORD_PTR)this);
 }
 
 MessageResult TextBoxProc(WindowHandle hwndH, MessageId msg, MessageWParam wParam,
@@ -470,7 +493,7 @@ MessageResult TextBoxProc(WindowHandle hwndH, MessageId msg, MessageWParam wPara
     case WM_NCDESTROY:
         a11y::ForgetWindow(hwnd);   // 清无障碍属性表（幂等）
         if (self) self->StopCaretBlink();
-        RemoveWindowSubclass(HwndOfWidget(hwnd), reinterpret_cast<SUBCLASSPROC>(&TextBoxProc), idSub);
+        RemoveWindowSubclass(HwndOfWidget(hwnd), &TextBoxProcBridge, idSub);
         break;
     }
     return DefSubclassProc(hwnd, msg, wParam, lParam);
@@ -1337,7 +1360,7 @@ void ListBox::CreateNative()
         return;
     }
 
-    SetWindowSubclass(HwndOfWidget(m_hwnd), reinterpret_cast<SUBCLASSPROC>(&ListBoxProc), kSubListBox, (DWORD_PTR)this);
+    SetWindowSubclass(HwndOfWidget(m_hwnd), &ListBoxProcBridge, kSubListBox, (DWORD_PTR)this);
 }
 
 MessageResult ListBoxProc(WindowHandle hwndH, MessageId msg, MessageWParam wParam,
@@ -1579,7 +1602,7 @@ MessageResult ListBoxProc(WindowHandle hwndH, MessageId msg, MessageWParam wPara
         break;
     case WM_NCDESTROY:
         a11y::ForgetWindow(hwnd);   // 清无障碍属性表（幂等）
-        RemoveWindowSubclass(HwndOfWidget(hwnd), reinterpret_cast<SUBCLASSPROC>(&ListBoxProc), idSub);
+        RemoveWindowSubclass(HwndOfWidget(hwnd), &ListBoxProcBridge, idSub);
         break;
     }
     return DefSubclassProc(hwnd, msg, wParam, lParam);
@@ -1965,7 +1988,7 @@ void Custom::CreateNative()
                              (HMENU)(INT_PTR)m_id, nullptr, nullptr);
     if (!m_hwnd) return;
 
-    SetWindowSubclass(HwndOfWidget(m_hwnd), reinterpret_cast<SUBCLASSPROC>(&CustomProc), kSubCustom, (DWORD_PTR)this);
+    SetWindowSubclass(HwndOfWidget(m_hwnd), &CustomProcBridge, kSubCustom, (DWORD_PTR)this);
 }
 
 MessageResult CustomProc(WindowHandle hwndH, MessageId msg, MessageWParam wParam,
@@ -2044,7 +2067,7 @@ MessageResult CustomProc(WindowHandle hwndH, MessageId msg, MessageWParam wParam
     }
     case WM_NCDESTROY:
         a11y::ForgetWindow(hwnd);   // 清无障碍属性表（幂等）
-        RemoveWindowSubclass(HwndOfWidget(hwnd), reinterpret_cast<SUBCLASSPROC>(&CustomProc), idSub);
+        RemoveWindowSubclass(HwndOfWidget(hwnd), &CustomProcBridge, idSub);
         break;
     }
     return DefSubclassProc(hwnd, msg, wParam, lParam);

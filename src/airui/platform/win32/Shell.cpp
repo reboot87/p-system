@@ -244,11 +244,22 @@ Shell::~Shell()
 // ============================================================
 // 创建
 // ============================================================
+struct Shell::WndProcBridge
+{
+    static LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+};
+
+LRESULT CALLBACK Shell::WndProcBridge::Proc(HWND hwnd, UINT msg,
+                                           WPARAM wParam, LPARAM lParam)
+{
+    return Shell::WndProc(hwnd, msg, wParam, lParam);
+}
+
 bool Shell::RegisterWindowClass(InstanceHandle hInst)
 {
     WNDCLASSEXW wc = { sizeof(wc) };
     wc.style         = CS_HREDRAW | CS_VREDRAW;
-    wc.lpfnWndProc   = reinterpret_cast<WNDPROC>(&Shell::WndProc);
+    wc.lpfnWndProc   = &WndProcBridge::Proc;
     wc.hInstance     = reinterpret_cast<HINSTANCE>(hInst);
     wc.hCursor       = LoadCursor(nullptr, IDC_ARROW);
     wc.hIcon         = m_opt.icon ? reinterpret_cast<HICON>(m_opt.icon)

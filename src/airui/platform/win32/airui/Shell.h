@@ -257,6 +257,13 @@ protected:
 
 private:
     static MessageResult WndProc(WindowHandle, MessageId, MessageWParam, MessageLParam);
+
+    // 系统窗口过程桥：系统要求回调使用平台调用约定（32 位下由被调方清栈），
+    // 而公开头不能出现平台约定/类型，所以只在这里前置声明，定义放在 .cpp
+    // 里用正确的约定转调 WndProc。若直接把默认约定的函数交给系统，32 位下
+    // 每条消息都会漏清栈、栈指针逐次漂移（64 位只有一种约定，故不可见）。
+    struct WndProcBridge;
+
     MessageResult HandleMessage(WindowHandle, MessageId, MessageWParam, MessageLParam);
 
     bool RegisterWindowClass(InstanceHandle);
