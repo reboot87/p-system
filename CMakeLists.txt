@@ -734,6 +734,22 @@ if(WIN32)
         RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
     )
     airui_console_target(test_paint_frame)
+
+    # Process-level smoke for the real client: start the freshly built
+    # airecord.exe with --hidden --no-service, wait for its window class,
+    # prove the message loop answers and the self-drawn children exist,
+    # then terminate it. No IPC assertions, no service, no UAC.
+    add_executable(test_app_smoke tests/test_app_smoke.cpp)
+    target_include_directories(test_app_smoke PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(test_app_smoke PRIVATE user32)
+    set_target_properties(test_app_smoke PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+        RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug
+    )
+    # The smoke is only meaningful against THIS build's exe, so make the
+    # dependency explicit instead of relying on build order of ALL.
+    add_dependencies(test_app_smoke airecord)
+    airui_console_target(test_app_smoke)
 endif()
 
 # Skia backend value mapping. NO Skia SDK needed: this is a pure-C++
@@ -1009,9 +1025,11 @@ if(AIRUI_CHECK_PUBLIC_HEADERS)
 endif()
 
 # test_ui is an end-to-end script that drives a *running* airecord.exe
-# (window lookup + IPC), so it is not registered as a ctest case.
+# (window lookup + IPC), so it is not registered as a ctest case. The
+# process-level half (the exe really starts and its window answers) is
+# covered by test_app_smoke, which launches its own instance.
 enable_testing()
-foreach(_t test_core_layout test_declarative_layout test_declarative_json test_declarative_interact test_declarative_render test_declarative_gallery test_controls_core test_hot_state test_shell_hal test_paint_recorder test_paint_backend test_paint_runtime test_paint_frame test_paint_compare test_skia_types test_skia_backend test_skia_plugin test_data_controls test_overlay_core test_framework_extra test_advanced_controls test_enterprise_controls test_studio_controls test_control_classes test_theme_manager test_draw_calls test_locale test_accessibility test_component_gallery test_ipc_pipe)
+foreach(_t test_core_layout test_declarative_layout test_declarative_json test_declarative_interact test_declarative_render test_declarative_gallery test_controls_core test_hot_state test_shell_hal test_paint_recorder test_paint_backend test_paint_runtime test_paint_frame test_paint_compare test_app_smoke test_skia_types test_skia_backend test_skia_plugin test_data_controls test_overlay_core test_framework_extra test_advanced_controls test_enterprise_controls test_studio_controls test_control_classes test_theme_manager test_draw_calls test_locale test_accessibility test_component_gallery test_ipc_pipe)
     # Several of these targets are platform-conditional (WIN32-only or
     # AIRUI_WITH_SKIA / Skia-plugin builds), so they legitimately do not exist
     # on every platform. Register the ones that ARE present; do not FATAL on a

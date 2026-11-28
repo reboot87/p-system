@@ -81,6 +81,11 @@ public:
 
     // 静默启动：不显示主窗口（用于被策略关闭可见窗口的环境，托盘/热键再唤出）
     void SetStartHidden(bool on) { m_startHidden = on; }
+
+    // 跳过 IPC 服务引导（--no-service）：不连管道、不提权安装/启动服务，
+    // 窗口直接以离线态启动。供进程级冒烟测试与"只想看界面"的场景使用，
+    // 避免在无人值守环境里弹出 UAC 或改动本机的服务安装状态。
+    void SetNoService(bool on) { m_noService = on; }
     // 延迟显示：窗口先隐藏创建，ms 毫秒后再显示。
     // 有些终端管控/DLP 会在进程启动后 0.3~0.6s 内关闭"新出现的可见窗口"，
     // 隐藏创建 + 延后显示可绕开该检查（>600ms 稳定通过，默认留 800ms 余量）。
@@ -225,6 +230,7 @@ private:
     std::atomic<bool>   m_shuttingDown{ false };  // 退出标志：后台线程据此不再投递
     std::atomic<unsigned long long> m_suppressRestartUntil{ 0 }; // 收到 STOPPING 后暂停自动重启的截止时间
     bool         m_startHidden = false;
+    bool         m_noService = false;
     int          m_showDelayMs = 0;
     bool         m_showNoActivate = false;
     std::string  m_paintBackend;   // empty = auto (env / gdi)

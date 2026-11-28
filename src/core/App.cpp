@@ -204,7 +204,13 @@ int App::Run(air::ui::InstanceHandle hInstance)
     // 机器级共享库归 Session 0 系统服务独占。UI 首次 IPC 前先确保服务
     // 已安装并运行、全局管道就绪；未安装时提权 airecordd.exe -install
     // （UAC）。失败则后续 Request 每次也会尝试，并显示"服务未连接"。
-    if (m_ipc.EnsureService()) {
+    if (m_noService) {
+        // --no-service：完全不碰服务（不连管道、不提权安装），直接离线态。
+        // 进程级冒烟测试靠它启动真实 UI，避免在 CI 里触发 UAC 或改动
+        // 本机的服务安装状态；AutoStart 也随离线态关闭，后续 Request 快速失败。
+        diag::Log(L"[ipc] --no-service: service bootstrap skipped");
+        SetServiceOffline(true);
+    } else if (m_ipc.EnsureService()) {
         diag::Log(L"[ipc] service up on %ls", ipc::PipeName());
         RegisterSession();
     } else {
