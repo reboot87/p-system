@@ -95,7 +95,7 @@
 | Skia Windows 分支语法（真 Win32 路径） | `cmake --build build --config Release --target airui_skia_winport_syntax` | 退出 0（MSVC + `AIRUI_SKIA_MOCK` + `AIRUI_SKIA_MOCK_WINPORT`，只 mock Skia API） |
 | 公共头自包含 | `cmake --build build --target check-public-headers` | 无 `Self-containment check FAILED` |
 | 全量构建 | `cmake --build build --config Release` | 退出 0，无 `error`/`LNK` |
-| 全部测试 | `ctest --test-dir build -C Release` | `100% tests passed`（当前 28/28） |
+| 全部测试 | `ctest --test-dir build -C Release` | `100% tests passed`（当前 29/29） |
 | x86 一致性 | `cmake --build build-x86 --config Release --target airecord airui_textbox_lab` | 退出 0 |
 
 - CI **阻塞合并**的门禁只有三个 job：`full build (windows / VS2022 Win32)`、
@@ -402,6 +402,9 @@ shim 保留，因为 `test_paint_frame` 仍直接验证 `gfx::*` 在帧激活时
 - 不要在 `core/` 里 include `<windows.h>` 或提及 Win32 类型名（含注释）。
 - 不要为“让编译通过”而删测试、改测试预期、放宽门禁脚本、或加 `#ifdef` 挡板。
 - 不要把平台类型经由公开头泄漏给页面（包括 `typedef`、默认参数、模板实参）。
+- 不要把公开头里的平台中立 `*Proc` 直接强转成系统回调注册：x86 的回调是
+  `__stdcall`（被调方清栈），默认约定会漏清栈、栈指针逐次漂移，最终报成
+  堆损坏（`0xC0000374`）。桥接写在 `.cpp`（见 § 8 批次 14）。
 - 不要为了「让 `.cpp` 好写」而把平台类型塞回公开签名；边界转换写在 `.cpp` 里。
 - 不要在公开头里写平台 token 的**注释**（core 门禁与闭包门禁都是文本匹配，
   注释里写 `DT_RIGHT`、`MSG` 一样会失败）。
@@ -425,7 +428,7 @@ shim 保留，因为 `test_paint_frame` 仍直接验证 `gfx::*` 在帧激活时
   （**44 受检 / 0 豁免 / 闭包 225 文件 / 0 平台引用**，`.sh` 与 `.ps1` 两版
   一致）、公共头自包含 PASSED、两个 Skia 语法目标（`airui_skia_mock_syntax`
   与 `airui_skia_winport_syntax`）PASSED（x64 与 x86 都编过）、全量构建
-  0 错误、ctest **28/28**。
+  0 错误、ctest **29/29**。
 - 批次 7（2026-11-27）：禁词表补齐 Windows 标量类型 / 结构 / 宏命名空间；
   门禁入口加入 `platform/skia/airui`（5 个头），并加“0 入口即失败”保护；
   `SkiaSurface.h` 的原生 surface 参数由具体句柄类型改为 `void*`；
@@ -484,6 +487,20 @@ shim 保留，因为 `test_paint_frame` 仍直接验证 `gfx::*` 在帧激活时
   `GfxPainter` / `GdiPainter` / `SkiaPainter` / `PaintFrame` / `SkiaFrame` /
   插件转发 / `CanvasPainter` 各自覆盖，radius 0 保持原方角像素。
   `test_paint_frame` 新增 `RadiusProbe` 三条断言，原有原生逐像素断言保留。
+- 批次 14（2026-11-28，跟进十七）：`test_app_smoke` 接入 ctest（29/29），
+  并为无人值守启动新增 `--no-service`（`App::SetNoService`：不连管道、
+  不提权安装服务，直接离线态）。**顺带修掉一个只在 x86 暴露的真 bug**：
+  `Shell::WndProc` 与 `TextBoxProc` / `ListBoxProc` / `CustomProc` 在公开头里是
+  平台中立的默认约定（`__cdecl`），却被强转成系统回调类型注册；x86 的系统
+  回调是 `__stdcall`（被调方清栈），每条消息漏清 6 个参数的栈 → 栈指针逐次
+  漂移 → `0xC0000374` 堆损坏，`airecord.exe` x86 启动即崩（x64 只有一种约定，
+  所以一直正常）。修法是**公开头保持零平台 token，桥接写在 .cpp**：
+  `Shell.h` 只加私有嵌套前置声明 `struct WndProcBridge;`（嵌套类可访问外层
+  私有成员），`Shell.cpp` 里用 `LRESULT CALLBACK` 定义并转调 `Shell::WndProc`；
+  `Widgets.cpp` 加 `*ProcBridge` 三个匿名命名空间薄桥接。**新增回调时必须
+  照此办理，不要直接把公开头里的 `*Proc` 交给系统。** 另外：`HeapValidate`
+  对 LFH 块不做校验，别拿它当"没损坏"的证据；用 x86 cdb 栈 + `uf`（看结尾
+  是 `ret` 还是 `ret 18h`）判断调用约定问题。
 - 平台层剥离（§ 5）**公开头阶段已全部完成**：批次 1~6 落地——`types.h` 的
   static_assert + 平台中立别名（含 `vkey::*` / `mb::*` / `dt::*`）、4 个头
   清零签名（Responsive/ThemeJson/DrawCall/Accessibility/Fonts）、15 个 Win32

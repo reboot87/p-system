@@ -447,7 +447,7 @@ bash scripts/check-skia-syntax.sh
 # Windows 全量（ALL 里含 airui_skia_mock_syntax：
 # MSVC + AIRUI_SKIA_MOCK 语法检查 Skia 后端的 _WIN32 分支）
 cmake --build build-cmake --config Release
-ctest --test-dir build-cmake -C Release --output-on-failure      # 默认 28/28
+ctest --test-dir build-cmake -C Release --output-on-failure      # 默认 29/29
 
 # Linux / macOS（P2-2 后应能全量构建）
 cmake -S . -B build-linux -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release

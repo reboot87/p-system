@@ -19,7 +19,7 @@
   - Windows：本地推荐 = CMake + Visual Studio 2017（`build.bat`）；CI 与 Skia 路径为 VS2022。
   - Linux：CMake + Unix Makefiles/Ninja，**仅构建 `airui-core`**（`build.sh`）。
   - 绝不使用 MinGW 构建完整项目（g++ 仅用于核心 CI 冒烟）。
-- **测试**：`ctest -C Release` **28/28 通过**（含 `test_shell_hal`、平台无关金样 `test_paint_recorder`、Skia 值映射 `test_skia_types`）；`test_ui` 为端到端脚本，仍需手工跑。
+- **测试**：`ctest -C Release` **29/29 通过**（含 `test_shell_hal`、平台无关金样 `test_paint_recorder`、Skia 值映射 `test_skia_types`、进程级冒烟 `test_app_smoke`）；`test_ui` 的 IPC/数据段仍需手工跑。
 
 ---
 
@@ -52,7 +52,7 @@
 ### D. 测试 / CI 缺口
 | 项 | 状态 | 说明 / 证据 |
 |---|---|---|
-| `test_ui` 接入 ctest | 未接入 | 端到端需 `airecord.exe` + IPC，只能手工跑（`phase0-signoff.md:37`） |
+| `test_ui` 接入 ctest | ✅ 进程级已接入（IPC/数据段仍手工） | 新增 `test_app_smoke`：用 `--hidden --no-activate --no-service` 拉起本次构建的 `airecord.exe`，验主窗口、`WM_NULL` 应答与子控件，随后终止；不做 IPC 断言，因此不需要服务端。`test_ui` 本身仍要真实数据，保持手工（`phase0-signoff.md:37`） |
 | 跨后端 DrawCall 一致性断言 | ✅ 真 SDK 实跑通过 | `test_skia_backend` 实现「core 金样 vs Skia 后端实收调用序列」的 `Diff()` 断言 + 光栅像素校验，由 `skia-windows`（push/PR **自动触发**，带 vcpkg 源码编译产物缓存，依赖版本由 `vcpkg.json` manifest 锁定）实跑输出 `G5 parity + raster OK`；另有 `test_skia_plugin` 验证运行时 DLL 动态选择 + C ABI 光栅（同一 CI 作业）。**注意：`skia-windows` 是 `continue-on-error` 的非阻塞作业**——必需的合并门禁是 `core-unix` + `windows` / `windows-x86`；Skia 作业失败不阻断合并（vcpkg 源码编译第三方 SDK 可能偶发失败），故该行证据以「最近一次成功运行」为准。**像素级 GDI vs Skia 截图 diff** 仍属计划项（`docs/cross-platform.md` §6） |
 
 ### E. 代码内 TODO 检索（P3-5）
@@ -757,3 +757,13 @@
   - **实现**：`GfxPainter` 保持原样走 `gfx::StrokeDashed(..., radius)`（无帧像素不变）；`SkiaPainter` 用 `StrokeRound` 同一份 `StrokePath(r, width, true)` + `SkRRect`，并复用 `DashEffectFor` 的虚线缓存；`GdiPainter` 用 `RoundRect` + 同款 user-style 虚线笔；`PaintFrame` / `SkiaFrame` / 插件转发 / `CanvasPainter` 逐层转发。radius 0 统一回到 `StrokeDashed`，保持方角像素不变。
   - **测试**：`test_paint_frame` 新增 `RadiusProbe`，验证 `gfx::StrokeDashed` 与 `Canvas::StrokeDashed` 在帧激活时都把 radius 送到后端、且不落回方角；radius 0 仍走方角。原有「无帧 `Canvas::StrokeDashed` 与 `gfx::StrokeDashed` 逐像素一致」断言保留并通过。
   - **实测**：全量 Release `BUILD=0`；x86 `airecord` + `test_paint_frame` 退出 0；`airui_skia_mock_syntax` 与 `airui_skia_winport_syntax` 退出 0；`ctest -C Release` **28/28**；`test_paint_frame` `PASSED (0 failure(s))`；`check-core-clean` PASSED（55 文件 / 0 引用）；`check-public-headers-clean` `.ps1` 与 `.sh` 均 PASSED（44 受检 / 0 豁免 / 闭包 225 文件 / 0 平台引用）。
+
+- **2026-11-28（跟进十七）：`test_app_smoke` 接入 ctest + 顺带修掉 x86 启动崩溃**
+  - **起因**：§D 的「`test_ui` 接入 ctest」一直是缺口。CI 只编译 `airecord.exe` 从不启动它，所以「exe 能起来、消息循环在跑、控件建出来」这一层完全没有回归保护；本轮接入时正好撞出下面那个 x86 真 bug。
+  - **`--no-service`**：`App::SetNoService(bool)` + `main.cpp` 参数解析。跳过 `EnsureService()`（不连管道、不按需提权安装/启动服务），直接 `SetServiceOffline(true)` 进离线态，`AutoStart` 随之关闭。让测试与「只想看界面」的场景在无人值守环境里不会弹 UAC、也不会改动本机服务安装状态。
+  - **`tests/test_app_smoke.cpp`**（注册为 ctest 第 15 个用例，`add_dependencies(... airecord)` 保证测的是本次构建）：定位同目录 `airecord.exe`（不存在则 SKIP 并退出 0）→ 已有 `AireRecordWnd` 时 FAILED 并提示先 `Stop-Service AireRecord` / 杀进程（否则枚举到的是别人的窗口）→ `CreateProcessW "... --hidden --no-activate --no-service"` → 20s 内按 PID 等主窗口 → 10s 内 `WM_NULL` 必须有应答 → 10s 内**轮询**子控件数（`Shell::Create` 里主窗口先于子控件出现，只数一次会竞态）→ `TerminateProcess` + PID 复查。收尾不用 `WM_CLOSE`：默认关闭策略是 `hide`，发它不会退出进程。
+  - **不做的事**：不碰 IPC / 数据库 / 真剪贴板数据，因此不需要服务端；`test_ui` 仍是手工端到端脚本（它要驱动真实数据）。
+  - **x86 真 bug（顺带修掉）**：`Shell::WndProc` 与 `TextBoxProc` / `ListBoxProc` / `CustomProc` 在公开头里是平台中立的默认约定（`__cdecl`），却被直接强转成系统回调类型注册（`WNDPROC` / `SUBCLASSPROC`）。x86 的系统回调是 `__stdcall`（被调方清栈），于是每条消息都漏清 6 个参数的栈，栈指针逐次漂移；x64 只有一种约定，所以 x64 一直正常、x86 是「启动即崩」。
+  - **证据**：x86 `airecord.exe --hidden --no-service` 三次独立启动均 `Exit=0xC0000374`（`STATUS_HEAP_CORRUPTION`）。x86 cdb 带符号栈落在 `ListBox::SyncScrollBar` ← `ListBox::SetMultiSelect` ← `ClipsPage::CreateControls` ← `ClipsPage::OnAttach` ← `Shell::AddPage` ← `App::Run`；`uf` 反汇编显示这三个 proc 的结尾是 `ret`（不带参数）而不是 `ret 18h`，正是漏清栈的特征。`HeapValidate` 在崩溃点之前一直是 `valid=1`，因为 LFH 块本来就不参与该调用校验，所以当时看不到真正的损坏点。
+  - **修法**：公开头继续保持零平台 token——`Shell.h` 只加一个私有的嵌套前置声明 `struct WndProcBridge;`（嵌套类可访问外层私有成员），定义放在 `Shell.cpp` 并用 `LRESULT CALLBACK` 转调 `Shell::WndProc`；`Widgets.cpp` 加 `TextBoxProcBridge` / `ListBoxProcBridge` / `CustomProcBridge` 三个匿名命名空间薄桥接，注册给 `SetWindowSubclass` / `RemoveWindowSubclass` 的都用桥接。**不要**把公开头里的 `*Proc` 直接当回调注册。
+  - **实测**：修复后 x86 `airecord.exe --hidden --no-service` 存活 15s（修复前 ~100ms 内崩）；x86 `test_app_smoke` `PASSED`（`children: 9`），x86 全量 `ctest` **29/29**；x64 全量 Release `BUILD=0`、`ctest` **29/29**；`airui_skia_mock_syntax` / `airui_skia_winport_syntax` 退出 0；`check-core-clean` PASSED（55 文件 / 0 引用）；`check-public-headers-clean` `.ps1` 与 `.sh` 均 PASSED（44 受检 / 0 豁免 / 闭包 225 文件 / 0 平台引用）。单实例守卫也实测：已有窗口在跑时输出 `FAILED (an AireRecord window is already running, ...)` 且退出码 1。
